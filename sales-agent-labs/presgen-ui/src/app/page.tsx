@@ -7,6 +7,7 @@ import { SegmentedTabs } from "@/components/SegmentedTabs"
 import { CoreForm } from "@/components/CoreForm"
 import { DataForm } from "@/components/DataForm"
 import { VideoWorkflow } from "@/components/video/VideoWorkflow"
+import { TrainingWorkflow } from "@/components/training/TrainingWorkflow"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
@@ -19,12 +20,17 @@ const TABS: TabConfig[] = [
     label: "PresGen Core",
   },
   {
-    value: "data", 
+    value: "data",
     label: "PresGen-Data",
   },
   {
     value: "video",
     label: "PresGen-Video",
+    disabled: false,
+  },
+  {
+    value: "training",
+    label: "PresGen-Training",
     disabled: false,
   },
 ]
@@ -40,6 +46,8 @@ export default function Home() {
         return <DataForm />
       case "video":
         return <VideoWorkflow />
+      case "training":
+        return <TrainingWorkflow />
       default:
         return null
     }

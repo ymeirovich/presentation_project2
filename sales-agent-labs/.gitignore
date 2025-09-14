@@ -25,13 +25,27 @@ Thumbs.db
 tmp/
 temp/
 
-# User specified
+# User specified - MuseTalk (original system)
 Musetalk/
 *.wav
 *.jpg
 *.mp4
 *.png
 musetalk-env/
+
+# PresGen-Training2 - External Downloads and Models (NOT in git)
+LivePortrait/
+voice-models/
+liveportrait_env/
+*/models/weights/
+*/checkpoints/
+presgen-training2/models/*.pth
+presgen-training2/models/*.pt
+presgen-training2/models/voice-profiles/*.pth
+presgen-training2/models/cached-models/
+presgen-training2/temp/
+presgen-training2/output/
+presgen-training2/logs/
 
 # AI Model files (large binaries)
 models/
@@ -40,6 +54,18 @@ models/
 *.ckpt
 *.safetensors
 *.pt
+*.onnx
+*.tensorrt
+*.engine
+
+# TensorRT and ONNX models
+*.trt
+*.plan
+
+# Hugging Face cache
+.cache/
+huggingface/
+transformers_cache/
 
 # Separate repositories
 sadtalker-api/
