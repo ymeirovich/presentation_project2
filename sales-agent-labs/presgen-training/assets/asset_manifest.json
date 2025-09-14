@@ -1,0 +1,19 @@
+{
+  "source_video": {
+    "path": "examples/video/presgen_test.mp4",
+    "duration": 65.630333,
+    "resolution": "1280x720",
+    "fps": 27.122321670735015,
+    "size_mb": 8.865236282348633
+  },
+  "presenter_frame": {
+    "path": "presgen-training/assets/presenter_frame.jpg",
+    "resolution": "1280x720"
+  },
+  "demo_script": {
+    "path": "presgen-training/assets/demo_script.txt",
+    "word_count": 90,
+    "estimated_duration": 36.0
+  },
+  "created_at": 1757146683.408146
+}

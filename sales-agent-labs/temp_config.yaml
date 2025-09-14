@@ -1,0 +1,7 @@
+task_0:
+  video_path: /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/presgen-training/assets/presenter_frame.jpg
+  audio_path: /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/presgen-training/outputs/test_cloned_audio.wav
+  bbox_shift: 0
+  batch_size: 8
+  use_half: False
+  num_workers: 4

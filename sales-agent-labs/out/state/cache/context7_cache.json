@@ -1,0 +1,78 @@
+{
+  "421e51104b321033376ea6733bd8a5b6": {
+    "data": {
+      "optimal_command": "ffmpeg -i {input} -vn -acodec aac -ab 192k {output}",
+      "best_practices": [
+        "Use AAC codec for best compatibility",
+        "192k bitrate provides good quality/size balance",
+        "Always include -vn to disable video stream"
+      ],
+      "current_flags": {
+        "-vn": "Disable video recording",
+        "-acodec aac": "Use AAC audio codec",
+        "-ab 192k": "Set audio bitrate to 192kbps"
+      },
+      "performance_tips": "Use hardware acceleration with -hwaccel auto for speed"
+    },
+    "cached_at": 1757511126.3189251,
+    "library": "ffmpeg",
+    "topic": "audio_extraction"
+  },
+  "f92fe81cf1f8251d21f13ad228e82e84": {
+    "data": {
+      "optimal_method": "cv2.CascadeClassifier with Haar cascades",
+      "current_api": "cv2.CascadeClassifier.detectMultiScale()",
+      "best_practices": [
+        "Use grayscale images for faster processing",
+        "Scale factor 1.1-1.3 for good accuracy/speed balance",
+        "minNeighbors=5 reduces false positives"
+      ],
+      "performance_settings": {
+        "scaleFactor": 1.1,
+        "minNeighbors": 5,
+        "minSize": "(30, 30)"
+      },
+      "alternative": "Consider MediaPipe for better accuracy"
+    },
+    "cached_at": 1757511126.3311481,
+    "library": "opencv-python",
+    "topic": "face_detection"
+  },
+  "0e2b6ddf41b9da17cd5835d2fa094ef9": {
+    "data": {
+      "optimal_model": "base",
+      "current_api": "whisper.load_model().transcribe()",
+      "best_practices": [
+        "Use 'base' model for best speed/quality balance",
+        "Enable word-level timestamps with word_timestamps=True",
+        "Set language explicitly if known for speed"
+      ],
+      "performance_settings": {
+        "model": "base",
+        "language": "en",
+        "word_timestamps": true,
+        "fp16": true
+      },
+      "optimization": "Use GPU with device='cuda' if available"
+    },
+    "cached_at": 1757511128.640246,
+    "library": "whisper",
+    "topic": "transcription"
+  },
+  "c327740cff07223645253675fc71d8c7": {
+    "data": {
+      "library": "playwright",
+      "topic": "html_to_png",
+      "status": "simulated",
+      "message": "Simulated documentation for playwright:html_to_png",
+      "best_practices": [
+        "Use current playwright API patterns",
+        "Follow official documentation",
+        "Optimize for performance in demo scenarios"
+      ]
+    },
+    "cached_at": 1757511137.119804,
+    "library": "playwright",
+    "topic": "html_to_png"
+  }
+}

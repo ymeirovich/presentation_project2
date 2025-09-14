@@ -1,0 +1,35 @@
+{
+  "voice_cloning": {
+    "voice_extraction": "completed",
+    "voice_cloning_duration": 12.35,
+    "audio_output": "presgen-training/outputs/test_cloned_audio.wav",
+    "dependencies": {
+      "gtts": true,
+      "ffmpeg": true,
+      "musetalk": true
+    },
+    "audio_size_mb": 0.22
+  },
+  "lip_sync": {
+    "lip_sync": "completed",
+    "generation_duration": 0.9,
+    "video_output": "presgen-training/outputs/test_lip_sync_video.mp4",
+    "video_size_mb": 0.13
+  },
+  "full_pipeline": {
+    "success": true,
+    "job_id": "5641cc37-d222-4b60-ba27-11434f620f98",
+    "output_video": "presgen-training/outputs/training_video_5641cc37-d222-4b60-ba27-11434f620f98.mp4",
+    "avatar_video": "presgen-training/outputs/avatar_video_5641cc37-d222-4b60-ba27-11434f620f98.mp4",
+    "processing_time": 36.11140704154968,
+    "avatar_frames": 689,
+    "bullet_points": [
+      "Welcome to our voice cloning demonstration.",
+      "This system can take your original video,\nextract your voice characteristics, and generate new lip-synced videos with different text content.",
+      "Key features include:\n- Advanced voice extraction with noise reduction\n- High-quality voice cloning using Coqui TTS\n- Real-time lip-sync generation using MuseTalk\n- Integration with bullet point overlays."
+    ],
+    "hardware_profile": null,
+    "quality_used": "fast",
+    "total_duration": 38.19
+  }
+}

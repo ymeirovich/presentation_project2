@@ -1,0 +1,37 @@
+{
+  "sections": [
+    {
+      "title": "AWS Certified Cloud Practitioner: Your Cloud Journey Starts Here",
+      "subtitle": "A foundational certification for anyone seeking to understand the AWS Cloud.",
+      "bullets": [
+        "Entry-level certification, no prior technical experience required.",
+        "Validates fundamental cloud concepts and AWS services knowledge.",
+        "Ideal for individuals in technical, managerial, sales, purchasing, or financial roles."
+      ],
+      "script": "The AWS Certified Cloud Practitioner certification is your starting point for a career in the cloud. It requires no prior technical experience and validates your understanding of core cloud concepts and AWS services. This certification is perfect for anyone, regardless of their role, who wants to gain a solid foundation in the AWS Cloud.",
+      "image_prompt": "Diverse group of professionals collaborating around a holographic projection of the AWS cloud architecture."
+    },
+    {
+      "title": "Exam Deep Dive: Format, Content, and Domains",
+      "subtitle": "Understand the exam structure and key areas to focus your preparation.",
+      "bullets": [
+        "Multiple-choice and multiple-response questions.",
+        "Exam duration: 90 minutes. Registration fee: $100 USD.",
+        "Four key domains: Cloud Concepts, Security, Technology, and Billing & Pricing."
+      ],
+      "script": "Let's break down the exam itself. It consists of multiple-choice and multiple-response questions, and you'll have 90 minutes to complete it. The registration fee is $100 USD. The exam covers four weighted domains: Cloud Concepts, Security, Technology, and Billing & Pricing. Mastering these areas is crucial for success.",
+      "image_prompt": "A detailed infographic breaking down the AWS Certified Cloud Practitioner exam domains and their respective weights."
+    },
+    {
+      "title": "Ace the Exam: Study Resources and Strategies",
+      "subtitle": "Actionable tips and resources to help you prepare effectively and confidently.",
+      "bullets": [
+        "Leverage official AWS training courses and practice exams.",
+        "Gain hands-on experience with AWS services through free tier.",
+        "Focus on understanding use cases and real-world applications."
+      ],
+      "script": "To ace the exam, leverage official AWS training courses and practice exams. Get hands-on experience with AWS services through the free tier. Focus on understanding use cases and real-world applications of the services. Strategic preparation and practical experience are key to achieving certification success.",
+      "image_prompt": "A person confidently working on an AWS console, surrounded by study materials and a whiteboard with cloud architecture diagrams."
+    }
+  ]
+}

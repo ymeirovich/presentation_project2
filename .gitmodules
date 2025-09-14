@@ -1,0 +1,3 @@
+[submodule "sales-agent-labs/MuseTalk"]
+	path = sales-agent-labs/MuseTalk
+	url = https://github.com/TMElyralab/MuseTalk.git

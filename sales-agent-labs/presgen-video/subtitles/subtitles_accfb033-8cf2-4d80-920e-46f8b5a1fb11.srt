@@ -1,0 +1,12 @@
+1
+00:00:00,000 --> 00:00:20,000
+Future-proof your career with in-demand cloud skills.
+
+2
+00:00:15,000 --> 00:00:35,000
+Gain foundational knowledge of the AWS Cloud platform.
+
+3
+00:00:30,000 --> 00:00:50,000
+Validate your cloud literacy with an industry-recognized certification.
+

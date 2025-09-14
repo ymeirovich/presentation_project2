@@ -1,0 +1,9 @@
+Hello investors, I'm excited to present PresGen-Training, our revolutionary AI avatar technology.
+
+Our system transforms any text script into professional presentation videos with automatic content analysis and overlay generation.
+
+This video demonstrates our proprietary avatar generation technology, seamlessly integrated with our existing PresGen-Video pipeline.
+
+Key innovations include local-first processing with zero cloud costs, intelligent resource management for MacBook hardware, and automatic bullet point extraction from script content.
+
+We're transforming how companies create training videos, marketing content, and professional presentations. With PresGen-Training, anyone can produce studio-quality videos in minutes, not hours.

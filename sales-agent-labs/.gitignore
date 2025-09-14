@@ -1,0 +1,55 @@
+# Logs directory
+src/logs/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+
+# Environment
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+
+# User specified
+Musetalk/
+*.wav
+*.jpg
+*.mp4
+*.png
+musetalk-env/
+
+# AI Model files (large binaries)
+models/
+*.bin
+*.pth
+*.ckpt
+*.safetensors
+*.pt
+
+# Separate repositories
+sadtalker-api/
+
+# Secrets and credentials
+*service-account.json
+token*.json
+oauth_*.json
+*.key
+*.pem
+
+# Test files that may contain secrets
+test/

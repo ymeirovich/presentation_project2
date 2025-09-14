@@ -1,0 +1,8 @@
+Welcome to our voice cloning demonstration. This system can take your original video,
+extract your voice characteristics, and generate new lip-synced videos with different text content.
+
+Key features include:
+- Advanced voice extraction with noise reduction
+- High-quality voice cloning using Coqui TTS
+- Real-time lip-sync generation using MuseTalk
+- Integration with bullet point overlays
