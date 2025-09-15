@@ -35,6 +35,7 @@ musetalk-env/
 
 # PresGen-Training2 - External Downloads and Models (NOT in git)
 LivePortrait/
+LivePortrait/pretrained_weights/
 voice-models/
 liveportrait_env/
 */models/weights/
@@ -46,6 +47,12 @@ presgen-training2/models/cached-models/
 presgen-training2/temp/
 presgen-training2/output/
 presgen-training2/logs/
+
+# LivePortrait specific model files and cache
+LivePortrait/pretrained_weights/**/*.pth
+LivePortrait/pretrained_weights/**/*.onnx
+LivePortrait/.cache/
+**/pretrained_weights/
 
 # AI Model files (large binaries)
 models/

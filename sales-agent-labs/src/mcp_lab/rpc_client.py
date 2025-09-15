@@ -94,7 +94,13 @@ class MCPClient:
             
             # Test that subprocess is still alive
             if self._p.poll() is not None:
-                raise RuntimeError(f"MCP server exited immediately with code {self._p.returncode}")
+                stderr_output = ""
+                if self._p.stderr:
+                    try:
+                        stderr_output = self._p.stderr.read()
+                    except:
+                        stderr_output = "<unable to read stderr>"
+                raise RuntimeError(f"MCP server exited immediately with code {self._p.returncode}. Stderr: {stderr_output}")
                 
             log.info("MCP server started successfully (PID: %d)", self._p.pid)
             
@@ -176,7 +182,7 @@ class MCPClient:
         self,
         method: str,
         params: Dict[str, Any],
-        *,
+        *, 
         req_id: Optional[str] = None,
         timeout: Optional[float] = None,  # <-- make it Optional
     ) -> Dict[str, Any]:

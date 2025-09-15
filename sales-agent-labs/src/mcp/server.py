@@ -11,8 +11,20 @@ from pathlib import Path
 
 
 log = logging.getLogger("mcp.server")
+
+# Create a unique log file for each server instance
+from datetime import datetime
+server_log_file = Path("src/logs") / f"mcp-server-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"
+server_log_file.parent.mkdir(exist_ok=True)
+
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[
+        logging.StreamHandler(),  # Keep logging to stdout for the RPC client
+        logging.FileHandler(server_log_file)
+    ]
 )
 
 # --- Tool registry (allowlist) ------------------------------------------------

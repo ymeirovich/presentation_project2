@@ -1,0 +1,16 @@
+1
+00:00:00,000 --> 00:00:20,000
+Generates structured slides with AI-created images and speaker notes.123
+
+2
+00:00:15,000 --> 00:00:35,000
+Saves hours of manual work while ensuring consistent, professional results.
+
+3
+00:00:30,000 --> 00:00:50,000
+Upload documents or paste content to create compelling narratives.
+
+4
+00:00:45,000 --> 00:01:05,000
+Gemini AI creates professional visuals to enhance your message.
+

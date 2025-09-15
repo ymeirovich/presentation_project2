@@ -38,6 +38,8 @@ load_dotenv()
 
 log = logging.getLogger("service")
 
+PRESGEN_USE_CACHE = os.getenv("PRESGEN_USE_CACHE", "true").lower() == "true"
+
 # --- Env & globals ---
 SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
@@ -215,7 +217,7 @@ class RenderRequest(BaseModel):
     report_text: str
     request_id: Optional[str] = None
     slides: int = 1
-    use_cache: bool = True
+    use_cache: bool = PRESGEN_USE_CACHE
     channel_id: Optional[str] = None  # not used by /render, but kept for compatibility
 
 
@@ -459,7 +461,7 @@ class DataAsk(BaseModel):
     questions: List[str]
     report_text: str = "Data insights"
     slides: int = 1
-    use_cache: bool = True
+    use_cache: bool = PRESGEN_USE_CACHE
 
 
 # Video Processing Models

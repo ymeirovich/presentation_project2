@@ -11,7 +11,10 @@ def _coerce_types(df: pd.DataFrame) -> pd.DataFrame:
     for c in df.columns:
         if pd.api.types.is_object_dtype(df[c]):
             # try numeric
-            df[c] = pd.to_numeric(df[c], errors="ignore")
+            try:
+                df[c] = pd.to_numeric(df[c])
+            except (ValueError, TypeError):
+                pass
     return df
 
 

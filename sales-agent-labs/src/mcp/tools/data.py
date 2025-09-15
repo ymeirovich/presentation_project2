@@ -898,6 +898,14 @@ def data_query_tool(params: Dict[str, Any]) -> Dict[str, Any]:
             req_id=req_id,
         )
 
+        jlog(
+            log,
+            logging.INFO,
+            event="query_result_schema",
+            schema=[{"name": c, "dtype": str(out_df[c].dtype)} for c in out_df.columns],
+            req_id=req_id,
+        )
+
         # Phase 4: Generate chart
         chart_start = time.time()
         png_path = _chart_png_path(dataset_id, question)
@@ -943,9 +951,7 @@ def data_query_tool(params: Dict[str, Any]) -> Dict[str, Any]:
                     req_id=req_id,
                 )
             except Exception as e:
-                bullet_time = (
-                    time.time() - bullet_start if "bullet_start" in locals() else 0
-                )
+                bullet_time = time.time() - bullet_start if "bullet_start" in locals() else 0
                 jlog(
                     log,
                     logging.WARNING,

@@ -141,6 +141,15 @@ def slides_create_tool(params: dict) -> dict:
     """
     p = SlidesCreateParams.model_validate(params)
 
+    jlog(
+        log,
+        logging.INFO,
+        tool="slides.create",
+        event="use_cache_value",
+        use_cache=p.use_cache,
+        client_request_id=p.client_request_id,
+    )
+
     # 1) Idempotency: check file-backed cache (only if use_cache=True)
     cache = load_cache()
     if p.use_cache and p.client_request_id and p.client_request_id in cache:
