@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, asdict
 from datetime import datetime
+import tempfile
+import base64
+from pydub import AudioSegment
 
 import logging
 # Use simple logging for now - can integrate with parent project later
@@ -50,11 +53,19 @@ class VoiceProfileManager:
         # Load existing profiles
         self.profiles = self._load_profiles()
 
-        # TTS engine priority (will implement Coqui TTS first, then fallbacks)
+        # TTS engine priority (ElevenLabs > OpenAI > built-in fallback)
         self.tts_engines = {
-            "coqui": {
-                "available": self._check_coqui_availability(),
+            "elevenlabs": {
+                "available": self._check_elevenlabs_availability(),
                 "priority": 1
+            },
+            "openai": {
+                "available": self._check_openai_availability(),
+                "priority": 2
+            },
+            "coqui": {
+                "available": False,  # Disabled due to Python 3.13 incompatibility
+                "priority": 3
             },
             "piper": {
                 "available": self._check_piper_availability(),
@@ -104,13 +115,28 @@ class VoiceProfileManager:
         except Exception as e:
             self.logger.error(f"Error saving voice profiles: {e}")
 
-    def _check_coqui_availability(self) -> bool:
-        """Check if Coqui TTS is available"""
+    def _check_elevenlabs_availability(self) -> bool:
+        """Check if ElevenLabs API is available"""
         try:
-            import TTS
-            return True
+            import elevenlabs
+            # Check if API key is available
+            return bool(os.getenv("ELEVENLABS_API_KEY"))
         except ImportError:
             return False
+
+    def _check_openai_availability(self) -> bool:
+        """Check if OpenAI TTS API is available"""
+        try:
+            import openai
+            # Check if API key is available
+            return bool(os.getenv("OPENAI_API_KEY"))
+        except ImportError:
+            return False
+
+    def _check_coqui_availability(self) -> bool:
+        """Check if Coqui TTS is available"""
+        # Disabled due to Python 3.13 incompatibility
+        return False
 
     def _check_piper_availability(self) -> bool:
         """Check if Piper TTS is available"""
@@ -141,8 +167,12 @@ class VoiceProfileManager:
             self.logger.info(f"Starting voice cloning for profile: {profile_name}")
 
             # Step 1: Extract enhanced audio
-            temp_audio_path = self._extract_enhanced_audio(video_path)
-            if not temp_audio_path:
+            temp_audio_path = tempfile.mktemp(suffix=".wav")
+            if not self._extract_audio_from_video(video_path, temp_audio_path):
+                return None
+
+            # Validate audio for cloning
+            if not self._validate_audio_for_cloning(temp_audio_path):
                 return None
 
             # Step 2: Language detection
@@ -191,30 +221,33 @@ class VoiceProfileManager:
             return None
 
     def _extract_enhanced_audio(self, video_path: str) -> Optional[str]:
-        """Extract and enhance audio for voice cloning"""
+        """Extract and enhance audio for voice cloning - permanent storage"""
 
         try:
-            output_path = f"temp/enhanced_audio_{uuid.uuid4().hex}.wav"
-            os.makedirs("temp", exist_ok=True)
+            # Create permanent storage directory for enhanced audio
+            audio_storage_dir = Path("presgen-training2/temp")
+            audio_storage_dir.mkdir(parents=True, exist_ok=True)
 
-            # FFmpeg command for enhanced audio extraction
+            # Generate filename based on source video for potential reuse
+            import hashlib
+            video_hash = hashlib.md5(video_path.encode()).hexdigest()[:12]
+            output_path = audio_storage_dir / f"enhanced_audio_{video_hash}.wav"
+
+            # Check if we already have this audio file (reuse existing)
+            if output_path.exists():
+                self.logger.info(f"Reusing existing enhanced audio: {output_path}")
+                return str(output_path)
+
+            # FFmpeg command for enhanced audio extraction (simplified to avoid empty output)
             enhancement_cmd = [
                 "ffmpeg", "-i", video_path,
                 "-vn",  # No video
                 "-acodec", "pcm_s16le",
                 "-ar", "22050",  # Optimal sample rate for voice cloning
                 "-ac", "1",  # Mono
-                "-af", (
-                    # Audio enhancement filter chain
-                    "highpass=f=80,"              # Remove low-frequency noise
-                    "lowpass=f=8000,"             # Remove high-frequency noise
-                    "afftdn=nf=-25,"              # Dynamic noise reduction
-                    "compand=attacks=0.3:decays=0.8:points=0/-90|0/-70|0.5/-20|1/0,"  # Compression
-                    "volume=1.5,"                 # Normalize volume
-                    "silenceremove=start_periods=1:start_silence=0.1:start_threshold=0.02"  # Trim silence
-                ),
+                "-af", "volume=1.2",  # Light volume boost only
                 "-t", "60",  # Use first 60 seconds for voice sample
-                "-y", output_path
+                "-y", str(output_path)  # Convert Path object to string
             ]
 
             result = subprocess.run(enhancement_cmd, capture_output=True, text=True)
@@ -223,7 +256,8 @@ class VoiceProfileManager:
                 self.logger.error(f"Audio enhancement failed: {result.stderr}")
                 return None
 
-            return output_path
+            self.logger.info(f"Enhanced audio saved permanently: {output_path}")
+            return str(output_path)  # Return string path
 
         except Exception as e:
             self.logger.error(f"Error extracting enhanced audio: {e}")
@@ -242,7 +276,11 @@ class VoiceProfileManager:
         # Get the best available TTS engine
         best_engine = self._get_best_tts_engine()
 
-        if best_engine == "coqui":
+        if best_engine == "elevenlabs":
+            return self._train_elevenlabs_model(audio_path, profile_name, language)
+        elif best_engine == "openai":
+            return self._train_openai_model(audio_path, profile_name, language)
+        elif best_engine == "coqui":
             return self._train_coqui_model(audio_path, profile_name, language)
         elif best_engine == "piper":
             return self._train_piper_model(audio_path, profile_name, language)
@@ -263,6 +301,84 @@ class VoiceProfileManager:
         # Sort by priority and return the best one
         best_engine = min(available_engines, key=lambda x: x[1]["priority"])
         return best_engine[0]
+
+    def _train_elevenlabs_model(self, audio_path: str, profile_name: str, language: str) -> Optional[str]:
+        """Train voice model using ElevenLabs voice cloning"""
+
+        try:
+            import elevenlabs
+            from elevenlabs import VoiceSettings
+
+            # Set API key
+            elevenlabs.set_api_key(os.getenv("ELEVENLABS_API_KEY"))
+
+            # Read audio file
+            with open(audio_path, "rb") as audio_file:
+                audio_data = audio_file.read()
+
+            # Create voice clone on ElevenLabs
+            voice = elevenlabs.clone(
+                name=profile_name,
+                description=f"Cloned voice for {profile_name}",
+                files=[audio_data]
+            )
+
+            # Save voice ID as our model reference
+            model_path = self.models_dir / f"{profile_name}_elevenlabs.json"
+            model_data = {
+                "engine": "elevenlabs",
+                "profile_name": profile_name,
+                "language": language,
+                "voice_id": voice.voice_id,
+                "audio_path": audio_path,
+                "created_at": datetime.now().isoformat()
+            }
+
+            model_path.write_text(json.dumps(model_data, indent=2))
+
+            self.logger.info(f"ElevenLabs voice cloned successfully: {voice.voice_id}")
+            return str(model_path)
+
+        except Exception as e:
+            self.logger.error(f"ElevenLabs voice cloning failed: {e}")
+            return None
+
+    def _train_openai_model(self, audio_path: str, profile_name: str, language: str) -> Optional[str]:
+        """Train voice model using OpenAI (Note: OpenAI TTS doesn't support custom voice cloning)"""
+
+        try:
+            # OpenAI TTS doesn't support voice cloning, so we'll create a profile
+            # that uses the closest available voice and save the audio sample for reference
+            model_path = self.models_dir / f"{profile_name}_openai.json"
+
+            # Analyze audio to suggest closest OpenAI voice
+            closest_voice = self._analyze_voice_for_openai_match(audio_path)
+
+            model_data = {
+                "engine": "openai",
+                "profile_name": profile_name,
+                "language": language,
+                "voice_name": closest_voice,
+                "audio_path": audio_path,
+                "created_at": datetime.now().isoformat(),
+                "note": "OpenAI TTS doesn't support custom voice cloning - using closest available voice"
+            }
+
+            model_path.write_text(json.dumps(model_data, indent=2))
+
+            self.logger.info(f"OpenAI voice profile created with voice: {closest_voice}")
+            return str(model_path)
+
+        except Exception as e:
+            self.logger.error(f"OpenAI voice profile creation failed: {e}")
+            return None
+
+    def _analyze_voice_for_openai_match(self, audio_path: str) -> str:
+        """Analyze audio to suggest closest OpenAI voice"""
+        # Simple voice matching - could be enhanced with audio analysis
+        openai_voices = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
+        # For now, return a default - could analyze pitch, gender, etc.
+        return "alloy"
 
     def _train_coqui_model(self, audio_path: str, profile_name: str, language: str) -> Optional[str]:
         """Train voice model using Coqui TTS"""
@@ -350,7 +466,11 @@ class VoiceProfileManager:
 
         try:
             # Determine engine from model path
-            if "coqui" in profile.model_path:
+            if "elevenlabs" in profile.model_path:
+                return self._generate_elevenlabs_speech(text, profile, output_path)
+            elif "openai" in profile.model_path:
+                return self._generate_openai_speech(text, profile, output_path)
+            elif "coqui" in profile.model_path:
                 return self._generate_coqui_speech(text, profile, output_path)
             elif "piper" in profile.model_path:
                 return self._generate_piper_speech(text, profile, output_path)
@@ -359,6 +479,67 @@ class VoiceProfileManager:
 
         except Exception as e:
             self.logger.error(f"Speech generation failed: {e}")
+            return False
+
+    def _generate_elevenlabs_speech(self, text: str, profile: VoiceProfile, output_path: str) -> bool:
+        """Generate speech using ElevenLabs voice cloning"""
+
+        try:
+            import elevenlabs
+
+            # Load model data to get voice ID
+            model_data = json.loads(Path(profile.model_path).read_text())
+            voice_id = model_data["voice_id"]
+
+            # Set API key
+            elevenlabs.set_api_key(os.getenv("ELEVENLABS_API_KEY"))
+
+            # Generate speech with cloned voice
+            audio = elevenlabs.generate(
+                text=text,
+                voice=voice_id,
+                model="eleven_multilingual_v2"
+            )
+
+            # Save audio to file
+            with open(output_path, "wb") as f:
+                f.write(audio)
+
+            self.logger.info(f"ElevenLabs speech generated successfully: {output_path}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"ElevenLabs speech generation failed: {e}")
+            return False
+
+    def _generate_openai_speech(self, text: str, profile: VoiceProfile, output_path: str) -> bool:
+        """Generate speech using OpenAI TTS"""
+
+        try:
+            import openai
+
+            # Load model data to get voice name
+            model_data = json.loads(Path(profile.model_path).read_text())
+            voice_name = model_data["voice_name"]
+
+            # Initialize OpenAI client
+            client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+            # Generate speech
+            response = client.audio.speech.create(
+                model="tts-1",
+                voice=voice_name,
+                input=text
+            )
+
+            # Save audio to file
+            response.stream_to_file(output_path)
+
+            self.logger.info(f"OpenAI speech generated successfully: {output_path}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"OpenAI speech generation failed: {e}")
             return False
 
     def _generate_coqui_speech(self, text: str, profile: VoiceProfile, output_path: str) -> bool:
@@ -437,4 +618,57 @@ class VoiceProfileManager:
 
         except Exception as e:
             self.logger.error(f"Error deleting profile {name}: {e}")
+            return False
+
+    def _extract_audio_from_video(self, video_path: str, output_audio_path: str) -> bool:
+        """Extract audio from video file for voice cloning"""
+
+        try:
+            # Use FFmpeg to extract audio
+            cmd = [
+                "ffmpeg", "-i", video_path,
+                "-vn",  # No video
+                "-acodec", "pcm_s16le",  # Uncompressed audio
+                "-ar", "22050",  # Sample rate
+                "-ac", "1",  # Mono
+                "-y",  # Overwrite output
+                output_audio_path
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if result.returncode != 0:
+                self.logger.error(f"Audio extraction failed: {result.stderr}")
+                return False
+
+            self.logger.info(f"Audio extracted successfully: {output_audio_path}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Audio extraction error: {e}")
+            return False
+
+    def _validate_audio_for_cloning(self, audio_path: str) -> bool:
+        """Validate audio file for voice cloning requirements"""
+
+        try:
+            # Load audio with pydub
+            audio = AudioSegment.from_file(audio_path)
+
+            # Check duration (need at least 10 seconds for good cloning)
+            duration_seconds = len(audio) / 1000.0
+            if duration_seconds < 10:
+                self.logger.warning(f"Audio too short for cloning: {duration_seconds}s (minimum 10s)")
+                return False
+
+            # Check if too long (some services have limits)
+            if duration_seconds > 300:  # 5 minutes
+                self.logger.warning(f"Audio too long: {duration_seconds}s (maximum 300s)")
+                return False
+
+            self.logger.info(f"Audio validation passed: {duration_seconds}s")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Audio validation failed: {e}")
             return False

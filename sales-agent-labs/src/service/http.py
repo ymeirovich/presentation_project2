@@ -20,6 +20,7 @@ from urllib.parse import parse_qs
 import threading
 import httpx
 from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
@@ -57,7 +58,7 @@ app = FastAPI()
 # Add CORS middleware to allow frontend requests
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3003", "http://localhost:3000"],  # Next.js dev servers
+    allow_origins=["http://localhost:3001", "http://localhost:3003", "http://localhost:3000"],  # Next.js dev servers
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -649,6 +650,7 @@ class TrainingVideoResponse(BaseModel):
     job_id: str
     success: bool
     output_path: Optional[str] = None
+    download_url: Optional[str] = None
     processing_time: Optional[float] = None
     mode: str
     total_duration: Optional[float] = None
@@ -656,9 +658,7 @@ class TrainingVideoResponse(BaseModel):
     presentation_duration: Optional[float] = None
     error: Optional[str] = None
 
-class VoiceCloneRequest(BaseModel):
-    video_path: str
-    profile_name: str
+# VoiceCloneRequest removed - now using file upload directly
 
 class VoiceCloneResponse(BaseModel):
     success: bool
@@ -1180,22 +1180,58 @@ async def update_bullets(job_id: str, summary: dict):
 # ---------- PresGen-Training2 Routes ----------
 
 @app.post("/training/video-only", response_model=TrainingVideoResponse)
-async def training_video_only(req: TrainingVideoRequest):
+async def training_video_only(
+    voice_profile_name: str = Form(...),
+    quality_level: str = Form("standard"),
+    content_text: str = Form(None),
+    content_file_path: str = Form(None),
+    reference_video: UploadFile = File(None),
+    use_cache: bool = Form(True)
+):
     """Generate video-only content with avatar narration"""
     start_time = time.time()
     job_id = str(uuid.uuid4())
 
+    upload_info = {
+        "job_id": job_id,
+        "voice_profile": voice_profile_name,
+        "content_length": len(content_text) if content_text else 0,
+        "quality_level": quality_level,
+        "has_reference_video": reference_video is not None,
+        "reference_video_name": reference_video.filename if reference_video else None
+    }
+
     jlog(log, logging.INFO,
          event="training_video_only_start",
-         job_id=job_id,
-         voice_profile=req.voice_profile_name,
-         content_length=len(req.content_text) if req.content_text else 0,
-         quality_level=req.quality_level)
+         **upload_info)
 
     try:
+        reference_video_path = None
+
+        # Handle reference video upload if provided
+        if reference_video:
+            upload_dir = Path("out/uploads/videos")
+            upload_dir.mkdir(parents=True, exist_ok=True)
+
+            # Generate unique filename to avoid conflicts
+            file_extension = Path(reference_video.filename).suffix
+            temp_video_path = upload_dir / f"{uuid.uuid4()}{file_extension}"
+
+            # Save uploaded file
+            with open(temp_video_path, "wb") as buffer:
+                content = await reference_video.read()
+                buffer.write(content)
+                upload_info["reference_video_size_bytes"] = len(content)
+
+            reference_video_path = str(temp_video_path)
+
+            jlog(log, logging.INFO,
+                 event="reference_video_uploaded",
+                 temp_path=reference_video_path,
+                 **upload_info)
+
         # Import and initialize ModeOrchestrator
         import sys
-        from pathlib import Path
         training_src = Path(__file__).parent.parent.parent / "presgen-training2" / "src"
         sys.path.insert(0, str(training_src))
 
@@ -1206,17 +1242,21 @@ async def training_video_only(req: TrainingVideoRequest):
         # Create generation request
         generation_request = GenerationRequest(
             mode=OperationMode.VIDEO_ONLY,
-            voice_profile_name=req.voice_profile_name,
-            quality_level=req.quality_level,
-            content_text=req.content_text,
-            content_file_path=req.content_file_path,
-            reference_video_path=req.reference_video_path,
+            voice_profile_name=voice_profile_name,
+            quality_level=quality_level,
+            content_text=content_text,
+            content_file_path=content_file_path,
+            reference_video_path=reference_video_path,
             output_path=f"output/training_video_{job_id}.mp4",
             temp_dir=f"temp/training_{job_id}"
         )
 
         # Generate video
         result = orchestrator.generate_video(generation_request)
+
+        # Clean up temporary video file if uploaded
+        if reference_video_path and Path(reference_video_path).exists():
+            Path(reference_video_path).unlink()
 
         total_time = time.time() - start_time
 
@@ -1231,6 +1271,7 @@ async def training_video_only(req: TrainingVideoRequest):
             job_id=job_id,
             success=result.success,
             output_path=result.output_path,
+            download_url=f"/training/download/{job_id}" if result.success else None,
             processing_time=result.processing_time,
             mode="video_only",
             total_duration=result.total_duration,
@@ -1240,6 +1281,10 @@ async def training_video_only(req: TrainingVideoRequest):
         )
 
     except Exception as e:
+        # Clean up temporary video file if uploaded
+        if 'reference_video_path' in locals() and reference_video_path and Path(reference_video_path).exists():
+            Path(reference_video_path).unlink()
+
         total_time = time.time() - start_time
         error_msg = f"Training video-only generation failed: {str(e)}"
 
@@ -1252,6 +1297,7 @@ async def training_video_only(req: TrainingVideoRequest):
         return TrainingVideoResponse(
             job_id=job_id,
             success=False,
+            download_url=None,
             mode="video_only",
             error=error_msg
         )
@@ -1307,6 +1353,7 @@ async def training_presentation_only(req: TrainingVideoRequest):
             job_id=job_id,
             success=result.success,
             output_path=result.output_path,
+            download_url=f"/training/download/{job_id}" if result.success else None,
             processing_time=result.processing_time,
             mode="presentation_only",
             total_duration=result.total_duration,
@@ -1328,6 +1375,7 @@ async def training_presentation_only(req: TrainingVideoRequest):
         return TrainingVideoResponse(
             job_id=job_id,
             success=False,
+            download_url=None,
             mode="presentation_only",
             error=error_msg
         )
@@ -1387,6 +1435,7 @@ async def training_video_presentation(req: TrainingVideoRequest):
             job_id=job_id,
             success=result.success,
             output_path=result.output_path,
+            download_url=f"/training/download/{job_id}" if result.success else None,
             processing_time=result.processing_time,
             mode="video_presentation",
             total_duration=result.total_duration,
@@ -1408,25 +1457,54 @@ async def training_video_presentation(req: TrainingVideoRequest):
         return TrainingVideoResponse(
             job_id=job_id,
             success=False,
+            download_url=None,
             mode="video_presentation",
             error=error_msg
         )
 
 
 @app.post("/training/clone-voice", response_model=VoiceCloneResponse)
-async def training_clone_voice(req: VoiceCloneRequest):
-    """Clone voice from video and save as profile"""
+async def training_clone_voice(
+    video_file: UploadFile = File(...),
+    profile_name: str = Form(...),
+    language: str = Form("en")
+):
+    """Clone voice from video upload and save as profile"""
     start_time = time.time()
+
+    upload_info = {
+        "filename": video_file.filename,
+        "content_type": video_file.content_type,
+        "profile_name": profile_name,
+        "language": language
+    }
 
     jlog(log, logging.INFO,
          event="training_clone_voice_start",
-         profile_name=req.profile_name,
-         video_path=req.video_path)
+         **upload_info)
 
     try:
+        # Save uploaded video file temporarily
+        upload_dir = Path("out/uploads/videos")
+        upload_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate unique filename to avoid conflicts
+        file_extension = Path(video_file.filename).suffix
+        temp_video_path = upload_dir / f"{uuid.uuid4()}{file_extension}"
+
+        # Save uploaded file
+        with open(temp_video_path, "wb") as buffer:
+            content = await video_file.read()
+            buffer.write(content)
+            upload_info["size_bytes"] = len(content)
+
+        jlog(log, logging.INFO,
+             event="video_file_saved",
+             temp_path=str(temp_video_path),
+             **upload_info)
+
         # Import and initialize ModeOrchestrator
         import sys
-        from pathlib import Path
         training_src = Path(__file__).parent.parent.parent / "presgen-training2" / "src"
         sys.path.insert(0, str(training_src))
 
@@ -1436,21 +1514,26 @@ async def training_clone_voice(req: VoiceCloneRequest):
 
         # Clone voice
         success = orchestrator.clone_voice_from_video(
-            video_path=req.video_path,
-            profile_name=req.profile_name
+            video_path=str(temp_video_path),
+            profile_name=profile_name,
+            language=language
         )
+
+        # Clean up temporary video file
+        if temp_video_path.exists():
+            temp_video_path.unlink()
 
         total_time = time.time() - start_time
 
         jlog(log, logging.INFO,
              event="training_clone_voice_complete",
-             profile_name=req.profile_name,
+             profile_name=profile_name,
              success=success,
              total_time=round(total_time, 2))
 
         return VoiceCloneResponse(
             success=success,
-            profile_name=req.profile_name,
+            profile_name=profile_name,
             error=None if success else "Voice cloning failed"
         )
 
@@ -1460,13 +1543,13 @@ async def training_clone_voice(req: VoiceCloneRequest):
 
         jlog(log, logging.ERROR,
              event="training_clone_voice_exception",
-             profile_name=req.profile_name,
+             profile_name=profile_name,
              error=error_msg,
              total_time=round(total_time, 2))
 
         return VoiceCloneResponse(
             success=False,
-            profile_name=req.profile_name,
+            profile_name=profile_name,
             error=error_msg
         )
 
@@ -1708,8 +1791,6 @@ async def download_video(job_id: str):
     if not final_video_path or not Path(final_video_path).exists():
         raise HTTPException(status_code=404, detail="Video file not found")
     
-    from fastapi.responses import FileResponse
-    
     # Generate a meaningful filename
     filename = f"presgen_video_{job_id}.mp4"
     
@@ -1937,3 +2018,55 @@ async def data_upload(file: UploadFile = File(...)):
              stack_trace=traceback.format_exc(), **upload_info)
         log.error(f"Data upload failed: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"File upload failed: {str(e)}")
+
+
+# ---------- Training Video Download Endpoints ----------
+
+@app.get("/training/download/{job_id}")
+async def download_training_video(job_id: str):
+    """Download generated training video"""
+    try:
+        jlog(log, logging.INFO, event="training_video_download_start", job_id=job_id)
+
+        # Find the video file in the temp directory
+        temp_dir = Path("temp") / f"training_{job_id}"
+
+        if not temp_dir.exists():
+            raise HTTPException(status_code=404, detail=f"Training job {job_id} not found")
+
+        # Look for the final generated video (concat version)
+        video_files = list(temp_dir.glob("*_concat.mp4"))
+
+        if not video_files:
+            # If no concat version, look for any mp4 files (fallback)
+            video_files = list(temp_dir.glob("*.mp4"))
+            # Exclude driving videos (they are intermediate files)
+            video_files = [f for f in video_files if not f.name.startswith("driving_video_")]
+
+        if not video_files:
+            raise HTTPException(status_code=404, detail=f"No video found for job {job_id}")
+
+        # Use the first/most recent video file
+        video_file = video_files[0]
+
+        jlog(log, logging.INFO,
+             event="training_video_download_success",
+             job_id=job_id,
+             file_path=str(video_file),
+             file_size=video_file.stat().st_size)
+
+        # Return the video file for download
+        return FileResponse(
+            path=str(video_file),
+            filename=f"avatar_video_{job_id}.mp4",
+            media_type="video/mp4"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        jlog(log, logging.ERROR,
+             event="training_video_download_error",
+             job_id=job_id,
+             error=str(e))
+        raise HTTPException(status_code=500, detail=f"Download failed: {str(e)}")
