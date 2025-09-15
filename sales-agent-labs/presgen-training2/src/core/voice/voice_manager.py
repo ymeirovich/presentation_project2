@@ -10,7 +10,10 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 
 import logging
-from src.common.jsonlog import jlog
+# Use simple logging for now - can integrate with parent project later
+def jlog(logger, level, event, **kwargs):
+    """Simple logging wrapper"""
+    logger.log(level, f"Event: {event}, Data: {kwargs}")
 
 @dataclass
 class VoiceProfile:
