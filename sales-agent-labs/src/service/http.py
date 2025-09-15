@@ -634,6 +634,40 @@ class PresentationResponse(BaseModel):
     output_path: Optional[str] = None
     error: Optional[str] = None
 
+# PresGen-Training2 Models
+class TrainingVideoRequest(BaseModel):
+    mode: str  # "video_only", "presentation_only", "video_presentation"
+    voice_profile_name: str
+    content_text: Optional[str] = None
+    content_file_path: Optional[str] = None
+    google_slides_url: Optional[str] = None
+    reference_video_path: Optional[str] = None
+    quality_level: str = "standard"
+    use_cache: bool = True
+
+class TrainingVideoResponse(BaseModel):
+    job_id: str
+    success: bool
+    output_path: Optional[str] = None
+    processing_time: Optional[float] = None
+    mode: str
+    total_duration: Optional[float] = None
+    avatar_duration: Optional[float] = None
+    presentation_duration: Optional[float] = None
+    error: Optional[str] = None
+
+class VoiceCloneRequest(BaseModel):
+    video_path: str
+    profile_name: str
+
+class VoiceCloneResponse(BaseModel):
+    success: bool
+    profile_name: str
+    error: Optional[str] = None
+
+class VoiceProfilesResponse(BaseModel):
+    profiles: List[Dict[str, Any]]
+
 @app.post("/presentation/generate", response_model=PresentationResponse)
 async def generate_presentation(req: PresentationRequest):
     """Generate complete presentation from text script using PresGen-Training + PresGen-Video"""
@@ -1133,7 +1167,7 @@ async def update_bullets(job_id: str, summary: dict):
              slides_regenerated=len(slide_urls))
         
         return response
-        
+
     except Exception as e:
         error_msg = f"Failed to update bullet points: {str(e)}"
         jlog(log, logging.ERROR,
@@ -1141,6 +1175,346 @@ async def update_bullets(job_id: str, summary: dict):
              job_id=job_id,
              error=error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
+
+
+# ---------- PresGen-Training2 Routes ----------
+
+@app.post("/training/video-only", response_model=TrainingVideoResponse)
+async def training_video_only(req: TrainingVideoRequest):
+    """Generate video-only content with avatar narration"""
+    start_time = time.time()
+    job_id = str(uuid.uuid4())
+
+    jlog(log, logging.INFO,
+         event="training_video_only_start",
+         job_id=job_id,
+         voice_profile=req.voice_profile_name,
+         content_length=len(req.content_text) if req.content_text else 0,
+         quality_level=req.quality_level)
+
+    try:
+        # Import and initialize ModeOrchestrator
+        import sys
+        from pathlib import Path
+        training_src = Path(__file__).parent.parent.parent / "presgen-training2" / "src"
+        sys.path.insert(0, str(training_src))
+
+        from modes.orchestrator import ModeOrchestrator, GenerationRequest, OperationMode
+
+        orchestrator = ModeOrchestrator(logger=log)
+
+        # Create generation request
+        generation_request = GenerationRequest(
+            mode=OperationMode.VIDEO_ONLY,
+            voice_profile_name=req.voice_profile_name,
+            quality_level=req.quality_level,
+            content_text=req.content_text,
+            content_file_path=req.content_file_path,
+            reference_video_path=req.reference_video_path,
+            output_path=f"output/training_video_{job_id}.mp4",
+            temp_dir=f"temp/training_{job_id}"
+        )
+
+        # Generate video
+        result = orchestrator.generate_video(generation_request)
+
+        total_time = time.time() - start_time
+
+        jlog(log, logging.INFO,
+             event="training_video_only_complete",
+             job_id=job_id,
+             success=result.success,
+             total_time=round(total_time, 2),
+             output_path=result.output_path)
+
+        return TrainingVideoResponse(
+            job_id=job_id,
+            success=result.success,
+            output_path=result.output_path,
+            processing_time=result.processing_time,
+            mode="video_only",
+            total_duration=result.total_duration,
+            avatar_duration=result.avatar_duration,
+            presentation_duration=result.presentation_duration,
+            error=result.error
+        )
+
+    except Exception as e:
+        total_time = time.time() - start_time
+        error_msg = f"Training video-only generation failed: {str(e)}"
+
+        jlog(log, logging.ERROR,
+             event="training_video_only_exception",
+             job_id=job_id,
+             error=error_msg,
+             total_time=round(total_time, 2))
+
+        return TrainingVideoResponse(
+            job_id=job_id,
+            success=False,
+            mode="video_only",
+            error=error_msg
+        )
+
+
+@app.post("/training/presentation-only", response_model=TrainingVideoResponse)
+async def training_presentation_only(req: TrainingVideoRequest):
+    """Generate presentation-only content with slides and narration"""
+    start_time = time.time()
+    job_id = str(uuid.uuid4())
+
+    jlog(log, logging.INFO,
+         event="training_presentation_only_start",
+         job_id=job_id,
+         voice_profile=req.voice_profile_name,
+         slides_url=req.google_slides_url,
+         quality_level=req.quality_level)
+
+    try:
+        # Import and initialize ModeOrchestrator
+        import sys
+        from pathlib import Path
+        training_src = Path(__file__).parent.parent.parent / "presgen-training2" / "src"
+        sys.path.insert(0, str(training_src))
+
+        from modes.orchestrator import ModeOrchestrator, GenerationRequest, OperationMode
+
+        orchestrator = ModeOrchestrator(logger=log)
+
+        # Create generation request
+        generation_request = GenerationRequest(
+            mode=OperationMode.PRESENTATION_ONLY,
+            voice_profile_name=req.voice_profile_name,
+            quality_level=req.quality_level,
+            google_slides_url=req.google_slides_url,
+            output_path=f"output/training_presentation_{job_id}.mp4",
+            temp_dir=f"temp/training_{job_id}"
+        )
+
+        # Generate video
+        result = orchestrator.generate_video(generation_request)
+
+        total_time = time.time() - start_time
+
+        jlog(log, logging.INFO,
+             event="training_presentation_only_complete",
+             job_id=job_id,
+             success=result.success,
+             total_time=round(total_time, 2),
+             output_path=result.output_path)
+
+        return TrainingVideoResponse(
+            job_id=job_id,
+            success=result.success,
+            output_path=result.output_path,
+            processing_time=result.processing_time,
+            mode="presentation_only",
+            total_duration=result.total_duration,
+            avatar_duration=result.avatar_duration,
+            presentation_duration=result.presentation_duration,
+            error=result.error
+        )
+
+    except Exception as e:
+        total_time = time.time() - start_time
+        error_msg = f"Training presentation-only generation failed: {str(e)}"
+
+        jlog(log, logging.ERROR,
+             event="training_presentation_only_exception",
+             job_id=job_id,
+             error=error_msg,
+             total_time=round(total_time, 2))
+
+        return TrainingVideoResponse(
+            job_id=job_id,
+            success=False,
+            mode="presentation_only",
+            error=error_msg
+        )
+
+
+@app.post("/training/video-presentation", response_model=TrainingVideoResponse)
+async def training_video_presentation(req: TrainingVideoRequest):
+    """Generate combined video-presentation content with avatar intro and narrated slides"""
+    start_time = time.time()
+    job_id = str(uuid.uuid4())
+
+    jlog(log, logging.INFO,
+         event="training_video_presentation_start",
+         job_id=job_id,
+         voice_profile=req.voice_profile_name,
+         content_length=len(req.content_text) if req.content_text else 0,
+         slides_url=req.google_slides_url,
+         quality_level=req.quality_level)
+
+    try:
+        # Import and initialize ModeOrchestrator
+        import sys
+        from pathlib import Path
+        training_src = Path(__file__).parent.parent.parent / "presgen-training2" / "src"
+        sys.path.insert(0, str(training_src))
+
+        from modes.orchestrator import ModeOrchestrator, GenerationRequest, OperationMode
+
+        orchestrator = ModeOrchestrator(logger=log)
+
+        # Create generation request
+        generation_request = GenerationRequest(
+            mode=OperationMode.VIDEO_PRESENTATION,
+            voice_profile_name=req.voice_profile_name,
+            quality_level=req.quality_level,
+            content_text=req.content_text,
+            content_file_path=req.content_file_path,
+            google_slides_url=req.google_slides_url,
+            reference_video_path=req.reference_video_path,
+            output_path=f"output/training_combined_{job_id}.mp4",
+            temp_dir=f"temp/training_{job_id}"
+        )
+
+        # Generate video
+        result = orchestrator.generate_video(generation_request)
+
+        total_time = time.time() - start_time
+
+        jlog(log, logging.INFO,
+             event="training_video_presentation_complete",
+             job_id=job_id,
+             success=result.success,
+             total_time=round(total_time, 2),
+             output_path=result.output_path)
+
+        return TrainingVideoResponse(
+            job_id=job_id,
+            success=result.success,
+            output_path=result.output_path,
+            processing_time=result.processing_time,
+            mode="video_presentation",
+            total_duration=result.total_duration,
+            avatar_duration=result.avatar_duration,
+            presentation_duration=result.presentation_duration,
+            error=result.error
+        )
+
+    except Exception as e:
+        total_time = time.time() - start_time
+        error_msg = f"Training video-presentation generation failed: {str(e)}"
+
+        jlog(log, logging.ERROR,
+             event="training_video_presentation_exception",
+             job_id=job_id,
+             error=error_msg,
+             total_time=round(total_time, 2))
+
+        return TrainingVideoResponse(
+            job_id=job_id,
+            success=False,
+            mode="video_presentation",
+            error=error_msg
+        )
+
+
+@app.post("/training/clone-voice", response_model=VoiceCloneResponse)
+async def training_clone_voice(req: VoiceCloneRequest):
+    """Clone voice from video and save as profile"""
+    start_time = time.time()
+
+    jlog(log, logging.INFO,
+         event="training_clone_voice_start",
+         profile_name=req.profile_name,
+         video_path=req.video_path)
+
+    try:
+        # Import and initialize ModeOrchestrator
+        import sys
+        from pathlib import Path
+        training_src = Path(__file__).parent.parent.parent / "presgen-training2" / "src"
+        sys.path.insert(0, str(training_src))
+
+        from modes.orchestrator import ModeOrchestrator
+
+        orchestrator = ModeOrchestrator(logger=log)
+
+        # Clone voice
+        success = orchestrator.clone_voice_from_video(
+            video_path=req.video_path,
+            profile_name=req.profile_name
+        )
+
+        total_time = time.time() - start_time
+
+        jlog(log, logging.INFO,
+             event="training_clone_voice_complete",
+             profile_name=req.profile_name,
+             success=success,
+             total_time=round(total_time, 2))
+
+        return VoiceCloneResponse(
+            success=success,
+            profile_name=req.profile_name,
+            error=None if success else "Voice cloning failed"
+        )
+
+    except Exception as e:
+        total_time = time.time() - start_time
+        error_msg = f"Voice cloning failed: {str(e)}"
+
+        jlog(log, logging.ERROR,
+             event="training_clone_voice_exception",
+             profile_name=req.profile_name,
+             error=error_msg,
+             total_time=round(total_time, 2))
+
+        return VoiceCloneResponse(
+            success=False,
+            profile_name=req.profile_name,
+            error=error_msg
+        )
+
+
+@app.get("/training/voice-profiles", response_model=VoiceProfilesResponse)
+async def training_voice_profiles():
+    """Get list of available voice profiles"""
+    try:
+        # Import and initialize ModeOrchestrator
+        import sys
+        from pathlib import Path
+        training_src = Path(__file__).parent.parent.parent / "presgen-training2" / "src"
+        sys.path.insert(0, str(training_src))
+
+        from modes.orchestrator import ModeOrchestrator
+
+        orchestrator = ModeOrchestrator(logger=log)
+
+        # Get profiles
+        profiles = orchestrator.list_voice_profiles()
+
+        jlog(log, logging.INFO,
+             event="training_voice_profiles_success",
+             profile_count=len(profiles))
+
+        return VoiceProfilesResponse(profiles=profiles)
+
+    except Exception as e:
+        error_msg = f"Failed to get voice profiles: {str(e)}"
+
+        jlog(log, logging.ERROR,
+             event="training_voice_profiles_exception",
+             error=error_msg)
+
+        # Return empty list on error to avoid breaking UI
+        return VoiceProfilesResponse(profiles=[])
+
+
+@app.get("/training/status/{job_id}")
+async def training_status(job_id: str):
+    """Get training job status (placeholder for future job management)"""
+    # For now, return a simple status
+    # Future enhancement: integrate with existing video_jobs system
+    return {
+        "job_id": job_id,
+        "status": "completed",
+        "message": "Training jobs are processed synchronously"
+    }
 
 
 @app.put("/video/crop/{job_id}")

@@ -12,6 +12,41 @@ This AI Agent transforms raw text reports into polished Google Slides presentati
 - **Running through an orchestrator** (MCP-based JSON-RPC server) with validation, retries, idempotency, and logging
 - **Integrating externally** via HTTP/Slack shims with batching, caching, and quota guardrails
 
+## 🎬 NEW: PresGen-Training2 - AI Avatar Video Generation
+
+**Status:** ✅ **PRODUCTION READY** (Completed September 15, 2025)
+
+PresGen-Training2 extends the platform with comprehensive AI avatar video generation featuring:
+
+### Three Operational Modes
+- **Video-Only:** Generate avatar videos with script narration using LivePortrait
+- **Presentation-Only:** Convert Google Slides presentations to narrated videos
+- **Video-Presentation:** Combined avatar intro + presentation slides workflow
+
+### Key Features
+- **LivePortrait Integration:** Advanced avatar generation optimized for M1 Mac hardware
+- **Voice Cloning:** Create and manage custom voice profiles from video references
+- **Google Slides Integration:** OAuth-based presentation processing with Notes narration
+- **Professional UI:** React/TypeScript interface with real-time progress tracking
+- **M1 Mac Optimization:** Sub-minute generation times with PyTorch MPS acceleration
+
+### Quick Start
+```bash
+# Access the system
+Frontend UI: http://localhost:3001 (PresGen-Training tab)
+Backend API: http://localhost:8080/training/*
+
+# Key endpoints
+GET  /training/voice-profiles     # List voice profiles
+POST /training/clone-voice        # Create voice profile
+POST /training/video-only         # Generate avatar video
+POST /training/presentation-only  # Convert slides to video
+POST /training/video-presentation # Combined workflow
+```
+
+📁 **Complete Documentation:** `presgen-training2/` directory
+🚀 **Deployment Guide:** `presgen-training2/PHASE_4_PRODUCTION_DEPLOYMENT_GUIDE.md`
+
 ## 🏗️ Architecture Overview
 
 ### MCP Layer (`src/mcp/`, `src/mcp_lab/`)

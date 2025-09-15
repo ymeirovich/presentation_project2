@@ -10,26 +10,54 @@ import { MAX_FILE_SIZE_BYTES } from "@/lib/types"
 
 interface FileDropProps {
   accept?: Record<string, string[]>
+  acceptedFiles?: Record<string, string[]>  // Alternative prop name for compatibility
   maxSizeMB?: number
+  maxSizeText?: string  // Alternative prop for displaying size
   onFileSelect: (file: File) => void
   onFileRemove?: () => void
+  onRemoveFile?: () => void  // Alternative prop name for compatibility
   selectedFile?: File
+  uploadedFile?: File  // Alternative prop name for compatibility
   disabled?: boolean
   className?: string
   placeholder?: string
+  helpText?: string  // Custom help text override
 }
 
 export function FileDrop({
   accept,
+  acceptedFiles,
   maxSizeMB = 10,
+  maxSizeText,
   onFileSelect,
   onFileRemove,
+  onRemoveFile,
   selectedFile,
+  uploadedFile,
   disabled = false,
   className,
-  placeholder = "Drop files here or click to upload"
+  placeholder = "Drop files here or click to upload",
+  helpText
 }: FileDropProps) {
   const [error, setError] = useState<string>("")
+
+  // Handle alternative prop names for compatibility
+  const acceptTypes = accept || acceptedFiles
+  const currentFile = selectedFile || uploadedFile
+  const removeFileHandler = onFileRemove || onRemoveFile
+  const displayMaxSize = maxSizeText || `${maxSizeMB}MB`
+
+  // Generate help text based on accepted file types
+  const generateHelpText = () => {
+    if (helpText) return helpText
+
+    if (acceptTypes) {
+      const extensions = Object.values(acceptTypes).flat().join(', ')
+      return `Supports ${extensions} files up to ${displayMaxSize}`
+    }
+
+    return `Supports .txt, .pdf, .docx files up to ${displayMaxSize}`
+  }
 
   const onDrop = useCallback((acceptedFiles: File[], rejectedFiles: any[]) => {
     setError("")
@@ -61,7 +89,7 @@ export function FileDrop({
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
-    accept,
+    accept: acceptTypes,
     maxSize: maxSizeMB * 1024 * 1024,
     multiple: false,
     disabled,
@@ -71,7 +99,7 @@ export function FileDrop({
 
   const removeFile = () => {
     setError("")
-    onFileRemove?.()
+    removeFileHandler?.()
   }
 
   const formatFileSize = (bytes: number): string => {
@@ -84,21 +112,21 @@ export function FileDrop({
 
   const getFileIcon = () => <File className="w-4 h-4" />
 
-  if (selectedFile) {
+  if (currentFile) {
     return (
       <Card className={cn("p-4", className)}>
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
             {getFileIcon()}
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium truncate">{selectedFile.name}</p>
+              <p className="text-sm font-medium truncate">{currentFile.name}</p>
               <p className="text-xs text-muted-foreground">
-                {formatFileSize(selectedFile.size)}
+                {formatFileSize(currentFile.size)}
               </p>
             </div>
           </div>
-          
-          {onFileRemove && (
+
+          {removeFileHandler && (
             <Button
               type="button"
               variant="ghost"
@@ -147,7 +175,7 @@ export function FileDrop({
               </p>
               
               <p className="text-xs text-muted-foreground">
-                Supports .txt, .pdf, .docx files up to {maxSizeMB}MB
+                {generateHelpText()}
               </p>
             </div>
 
