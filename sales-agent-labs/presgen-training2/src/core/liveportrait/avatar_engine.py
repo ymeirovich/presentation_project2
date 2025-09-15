@@ -539,9 +539,13 @@ class LivePortraitEngine:
             env = os.environ.copy()
             env["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 
-            # Execute LivePortrait
-            result = subprocess.run(
+            # Execute LivePortrait with progress reporting
+            estimated_duration = min(config["timeout"] * 0.8, 900)  # Estimate 80% of timeout or max 15 min
+            result = run_with_progress(
                 cmd,
+                self.logger,
+                operation_name="LivePortrait Avatar Generation",
+                estimated_duration=estimated_duration,
                 cwd=self.liveportrait_path,
                 capture_output=True,
                 text=True,
@@ -624,18 +628,11 @@ class LivePortraitEngine:
             "--source", source_abs,
             "--driving", driving_abs,
             "--output-dir", output_dir_abs,
-            "--flag-crop-driving-video",  # Crop driving video for better face detection
             "--flag-pasteback",  # Paste back to original image space
             "--flag-do-crop",  # Crop source to face space for single-face avatar
             "--flag-stitching",  # Use stitching for small head movements
             "--flag-relative-motion",  # Use relative motion for natural animation
-            "--flag-smooth",  # Enable smooth animation transitions
-            "--audio-priority", "driving",  # Use driving audio (our cloned voice)
-            "--animation-region", "all",  # Animate all facial regions
-            "--source-max-dim", str(config["source_max_dim"]),
-            "--driving-max-dim", str(config.get("driving_max_dim", 512)),
-            "--output-format", "mp4",  # Ensure MP4 output
-            "--fps", str(config.get("fps", 25))
+            "--source-max-dim", str(config["source_max_dim"])
         ]
 
         # Add half precision flag
