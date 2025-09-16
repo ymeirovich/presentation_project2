@@ -20,6 +20,8 @@ from urllib.parse import parse_qs
 import threading
 import httpx
 from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Form
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -63,6 +65,50 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+# Add validation error handler to help debug 422 errors
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle validation errors with detailed logging"""
+    try:
+        body = await request.body()
+        body_str = body.decode('utf-8') if body else None
+    except Exception:
+        body_str = None
+
+    # Convert errors to serializable format
+    try:
+        errors = [str(error) for error in exc.errors()]
+    except Exception:
+        errors = ["Error details could not be serialized"]
+
+    jlog(log, logging.ERROR,
+         event="validation_error",
+         url=str(request.url),
+         method=request.method,
+         errors=errors,
+         body=body_str)
+
+    # Convert exception errors to serializable format for JSON response
+    def make_serializable(obj):
+        if isinstance(obj, bytes):
+            try:
+                return obj.decode('utf-8')
+            except UnicodeDecodeError:
+                return f"<bytes: {len(obj)} bytes>"
+        elif isinstance(obj, dict):
+            return {k: make_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [make_serializable(item) for item in obj]
+        else:
+            return obj
+
+    serializable_errors = make_serializable(exc.errors())
+
+    return JSONResponse(
+        status_code=422,
+        content={"detail": serializable_errors, "message": "Validation failed"}
+    )
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -1332,6 +1378,7 @@ async def training_presentation_only(req: TrainingVideoRequest):
             mode=OperationMode.PRESENTATION_ONLY,
             voice_profile_name=req.voice_profile_name,
             quality_level=req.quality_level,
+            content_text=req.content_text,
             google_slides_url=req.google_slides_url,
             output_path=f"output/training_presentation_{job_id}.mp4",
             temp_dir=f"temp/training_{job_id}"
@@ -2028,26 +2075,40 @@ async def download_training_video(job_id: str):
     try:
         jlog(log, logging.INFO, event="training_video_download_start", job_id=job_id)
 
-        # Find the video file in the temp directory
-        temp_dir = Path("temp") / f"training_{job_id}"
+        # First check the output directory for the final video
+        output_dir = Path("output")
+        output_patterns = [
+            f"training_presentation_{job_id}.mp4",
+            f"training_video_{job_id}.mp4",
+            f"training_combined_{job_id}.mp4"
+        ]
 
-        if not temp_dir.exists():
-            raise HTTPException(status_code=404, detail=f"Training job {job_id} not found")
+        video_file = None
+        for pattern in output_patterns:
+            potential_file = output_dir / pattern
+            if potential_file.exists():
+                video_file = potential_file
+                break
 
-        # Look for the final generated video (concat version)
-        video_files = list(temp_dir.glob("*_concat.mp4"))
+        # If not found in output, check temp directory (fallback for older jobs)
+        if not video_file:
+            temp_dir = Path("temp") / f"training_{job_id}"
 
-        if not video_files:
-            # If no concat version, look for any mp4 files (fallback)
-            video_files = list(temp_dir.glob("*.mp4"))
-            # Exclude driving videos (they are intermediate files)
-            video_files = [f for f in video_files if not f.name.startswith("driving_video_")]
+            if temp_dir.exists():
+                # Look for the final generated video (concat version)
+                video_files = list(temp_dir.glob("*_concat.mp4"))
 
-        if not video_files:
+                if not video_files:
+                    # If no concat version, look for any mp4 files (fallback)
+                    video_files = list(temp_dir.glob("*.mp4"))
+                    # Exclude driving videos (they are intermediate files)
+                    video_files = [f for f in video_files if not f.name.startswith("driving_video_")]
+
+                if video_files:
+                    video_file = video_files[0]
+
+        if not video_file:
             raise HTTPException(status_code=404, detail=f"No video found for job {job_id}")
-
-        # Use the first/most recent video file
-        video_file = video_files[0]
 
         jlog(log, logging.INFO,
              event="training_video_download_success",

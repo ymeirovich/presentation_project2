@@ -59,24 +59,38 @@ def _setup_gcp_debug_logging():
             
             # Add file handler to relevant loggers
             loggers_to_file = [
-                'google.api_core', 'google.auth', 'google.cloud', 
+                'google.api_core', 'google.auth', 'google.cloud',
                 'googleapiclient', 'google_auth_httplib2', 'urllib3',
-                'agent.slides', 'mcp_lab.rpc_client', 'mcp.tools'
+                'agent.slides', 'mcp_lab.rpc_client', 'mcp.tools',
+                # Training and avatar generation loggers
+                'presgen_training2.orchestrator', 'presgen_training2.liveportrait',
+                'presgen_training2.voice', 'presgen_training2.content',
+                'presgen_training2.slides', 'presgen_training2.video',
+                # HTTP service loggers
+                'src.service.http', 'service.http', 'fastapi', 'uvicorn', 'uvicorn.access', 'uvicorn.error'
             ]
-            
+
             # Add video-specific loggers if video logging is enabled
             if video_logging:
                 video_loggers = [
-                    'video_transcription', 'video_content', 'video_slides', 
-                    'video_phase2', 'video_phase3', 'video_audio', 'video_face',
-                    'service', 'uvicorn', 'uvicorn.access', 'uvicorn.error'
+                    'video_transcription', 'video_content', 'video_slides',
+                    'video_phase2', 'video_phase3', 'video_audio', 'video_face'
                 ]
                 loggers_to_file.extend(video_loggers)
             
             for logger_name in loggers_to_file:
                 logger = logging.getLogger(logger_name)
                 logger.addHandler(file_handler)
-                
+
+            # If verbose logging is enabled, also add file handler to root logger to catch everything
+            if os.getenv("ENABLE_VERBOSE_LOGGING", "false").lower() == "true":
+                root_logger = logging.getLogger()
+                root_logger.addHandler(file_handler)
+                if os.getenv("MCP_SERVER_MODE") != "true":
+                    print(f"📝 Verbose Logging: ENABLED - All logs will be written to file")
+                else:
+                    print(f"📝 Verbose Logging: ENABLED - All logs will be written to file", file=sys.stderr)
+
             if os.getenv("MCP_SERVER_MODE") != "true":
                 print(f"📝 Local Debug File: ENABLED → {debug_file}")
             else:
@@ -111,20 +125,39 @@ def _setup_gcp_debug_logging():
     _GCP_DEBUG_SETUP = True
 
 
+def _json_serializable(obj):
+    """Convert non-serializable objects to strings for JSON logging"""
+    if isinstance(obj, bytes):
+        try:
+            return obj.decode('utf-8')
+        except UnicodeDecodeError:
+            return f"<bytes: {len(obj)} bytes>"
+    elif hasattr(obj, '__dict__'):
+        return str(obj)
+    else:
+        return str(obj)
+
 def jlog(logger: logging.Logger, level: int, **kv: Any) -> None:
     # Setup GCP logging on first call
     _setup_gcp_debug_logging()
-    
+
     kv.setdefault("ts_ms", int(time.time() * 1000))
     kv.setdefault("level", logging.getLevelName(level))
     if "req_id" not in kv:
         kv["req_id"] = str(uuid.uuid4())  # caller can override; useful for tracing
-    
+
     # Add GCP correlation ID for debugging
     if os.getenv("ENABLE_GCP_DEBUG_LOGGING") == "true":
         # Use proper GCP trace format for correlation
         import socket
         trace_id = f"projects/{os.getenv('GOOGLE_CLOUD_PROJECT', 'unknown')}/traces/{uuid.uuid4().hex}"
         kv.setdefault("gcp_trace_id", trace_id)
-    
+
+    # Convert non-serializable objects to strings
+    for key, value in kv.items():
+        try:
+            json.dumps(value)
+        except (TypeError, ValueError):
+            kv[key] = _json_serializable(value)
+
     logger.log(level, json.dumps(kv, ensure_ascii=False))
