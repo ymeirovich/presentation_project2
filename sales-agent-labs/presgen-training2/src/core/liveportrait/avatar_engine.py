@@ -76,6 +76,10 @@ class ProgressReporter:
         self.stop_event = threading.Event()
         self.thread = None
 
+        # Log start of operation with clear visibility
+        self.logger.info(f"🚀 Starting {self.operation_name} (estimated: {estimated_duration/60:.1f} minutes)")
+        print(f"🚀 Starting {self.operation_name} (estimated: {estimated_duration/60:.1f} minutes)", flush=True)
+
     def start(self):
         """Start progress reporting in background thread"""
         self.thread = threading.Thread(target=self._progress_loop, daemon=True)
@@ -100,8 +104,9 @@ class ProgressReporter:
                 progress_pct = min(100, (elapsed / self.estimated_duration) * 100) if self.estimated_duration > 0 else 0
                 remaining = max(0, self.estimated_duration - elapsed) if self.estimated_duration > 0 else 0
 
-                self.logger.info(f"⏳ {self.operation_name} Progress: {elapsed:.0f}s elapsed "
-                               f"({progress_pct:.1f}% estimated), ~{remaining:.0f}s remaining")
+                progress_msg = f"⏳ {self.operation_name} Progress: {elapsed:.0f}s elapsed ({progress_pct:.1f}% estimated), ~{remaining:.0f}s remaining"
+                self.logger.info(progress_msg)
+                print(progress_msg, flush=True)  # Also print to console for visibility
 
                 verbose_log(self.logger, f"{self.operation_name} progress update",
                            elapsed_seconds=elapsed,
@@ -179,7 +184,7 @@ class LivePortraitEngine:
                 "source_max_dim": 512,
                 "driving_max_dim": 512,
                 "device_options": "--flag-force-cpu",
-                "timeout": 1800,  # 30 minutes - optimized for avatar generation
+                "timeout": 600,  # 10 minutes - reasonable for avatar generation
                 "fps": 25,
                 "enable_face_cropping": True,
                 "smooth_animation": True
@@ -189,7 +194,7 @@ class LivePortraitEngine:
                 "source_max_dim": 512,  # Optimized for avatar consistency
                 "driving_max_dim": 512,
                 "device_options": "",
-                "timeout": 3600,  # 60 minutes
+                "timeout": 900,  # 15 minutes - balanced timeout
                 "fps": 25,
                 "enable_face_cropping": True,
                 "smooth_animation": True
@@ -199,7 +204,7 @@ class LivePortraitEngine:
                 "source_max_dim": 768,  # Higher quality for avatars
                 "driving_max_dim": 768,
                 "device_options": "",
-                "timeout": 5400,  # 90 minutes
+                "timeout": 1200,  # 20 minutes - maximum for high quality
                 "fps": 30,
                 "enable_face_cropping": True,
                 "smooth_animation": True
@@ -541,7 +546,7 @@ class LivePortraitEngine:
 
             # Execute LivePortrait with progress reporting
             estimated_duration = min(config["timeout"] * 0.8, 900)  # Estimate 80% of timeout or max 15 min
-            result = run_with_progress(
+            result = run_subprocess_with_progress(
                 cmd,
                 self.logger,
                 operation_name="LivePortrait Avatar Generation",
