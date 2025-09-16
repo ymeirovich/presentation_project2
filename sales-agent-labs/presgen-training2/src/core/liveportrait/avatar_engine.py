@@ -120,16 +120,70 @@ class ProgressReporter:
                 self.logger.info(f"⏳ {self.operation_name} still running: {elapsed/60:.1f} minutes elapsed...")
 
 def run_subprocess_with_progress(cmd, logger, operation_name: str, estimated_duration: float = 0, **kwargs):
-    """Run subprocess with progress reporting"""
+    """Run subprocess with progress reporting and enhanced logging"""
 
     # Start progress reporting
     progress = ProgressReporter(logger, operation_name, estimated_duration)
     progress.start()
 
+    # Log the command being executed for transparency
+    cmd_str = " ".join(cmd) if isinstance(cmd, list) else str(cmd)
+    logger.info(f"🔧 Executing command: {cmd_str[:150]}...")
+    print(f"🔧 Executing command: {cmd_str[:150]}...", flush=True)
+
+    # Log working directory if provided
+    if 'cwd' in kwargs:
+        logger.info(f"📁 Working directory: {kwargs['cwd']}")
+        print(f"📁 Working directory: {kwargs['cwd']}", flush=True)
+
+    # Log timeout setting
+    if 'timeout' in kwargs:
+        timeout_minutes = kwargs['timeout'] / 60
+        logger.info(f"⏰ Timeout set to: {kwargs['timeout']}s ({timeout_minutes:.1f} minutes)")
+        print(f"⏰ Timeout set to: {kwargs['timeout']}s ({timeout_minutes:.1f} minutes)", flush=True)
+
+    start_time = time.time()
+
     try:
+        # Log start of execution
+        logger.info("🚀 Starting subprocess execution...")
+        print("🚀 Starting subprocess execution...", flush=True)
+
         # Run the subprocess
         result = subprocess.run(cmd, **kwargs)
+
+        # Calculate actual execution time
+        execution_time = time.time() - start_time
+        logger.info(f"⏱️ Subprocess completed in {execution_time:.1f}s ({execution_time/60:.2f} minutes)")
+        print(f"⏱️ Subprocess completed in {execution_time:.1f}s ({execution_time/60:.2f} minutes)", flush=True)
+
+        # Log result status
+        if result.returncode == 0:
+            logger.info(f"✅ {operation_name} completed successfully")
+            print(f"✅ {operation_name} completed successfully", flush=True)
+        else:
+            logger.error(f"❌ {operation_name} failed with return code: {result.returncode}")
+            print(f"❌ {operation_name} failed with return code: {result.returncode}", flush=True)
+
+            # Log error details if available
+            if hasattr(result, 'stderr') and result.stderr:
+                logger.error(f"🔍 Error details: {result.stderr[:500]}...")
+                print(f"🔍 Error details: {result.stderr[:500]}...", flush=True)
+
         return result
+
+    except subprocess.TimeoutExpired as e:
+        execution_time = time.time() - start_time
+        logger.error(f"⏰ {operation_name} timed out after {execution_time:.1f}s")
+        print(f"⏰ {operation_name} timed out after {execution_time:.1f}s", flush=True)
+        raise e
+
+    except Exception as e:
+        execution_time = time.time() - start_time
+        logger.error(f"💥 {operation_name} failed with exception after {execution_time:.1f}s: {e}")
+        print(f"💥 {operation_name} failed with exception after {execution_time:.1f}s: {e}", flush=True)
+        raise e
+
     finally:
         # Stop progress reporting
         progress.stop()
@@ -184,7 +238,7 @@ class LivePortraitEngine:
                 "source_max_dim": 512,
                 "driving_max_dim": 512,
                 "device_options": "--flag-force-cpu",
-                "timeout": 600,  # 10 minutes - reasonable for avatar generation
+                "timeout": 1800,  # 30 minutes - LivePortrait needs more time for quality generation
                 "fps": 25,
                 "enable_face_cropping": True,
                 "smooth_animation": True
@@ -194,7 +248,7 @@ class LivePortraitEngine:
                 "source_max_dim": 512,  # Optimized for avatar consistency
                 "driving_max_dim": 512,
                 "device_options": "",
-                "timeout": 900,  # 15 minutes - balanced timeout
+                "timeout": 2400,  # 40 minutes - standard quality needs time
                 "fps": 25,
                 "enable_face_cropping": True,
                 "smooth_animation": True
@@ -204,7 +258,7 @@ class LivePortraitEngine:
                 "source_max_dim": 768,  # Higher quality for avatars
                 "driving_max_dim": 768,
                 "device_options": "",
-                "timeout": 1200,  # 20 minutes - maximum for high quality
+                "timeout": 3600,  # 60 minutes - high quality takes significant time
                 "fps": 30,
                 "enable_face_cropping": True,
                 "smooth_animation": True
@@ -366,19 +420,51 @@ class LivePortraitEngine:
 
             # Execute LivePortrait with progress tracking
             liveportrait_start = time.time()
+
+            # Detailed step-by-step logging
             self.logger.info("🚀 Executing LivePortrait avatar generation...")
+            print("🚀 Executing LivePortrait avatar generation...", flush=True)
+
             self.logger.info("💡 This process can take several minutes. Progress updates will be shown below.")
+            print("💡 This process can take several minutes. Progress updates will be shown below.", flush=True)
+
+            # Log all key parameters for debugging
+            self.logger.info(f"📋 Generation Parameters:")
+            print(f"📋 Generation Parameters:", flush=True)
+            self.logger.info(f"   • Source image: {reference_image}")
+            print(f"   • Source image: {reference_image}", flush=True)
+            self.logger.info(f"   • Audio file: {audio_path}")
+            print(f"   • Audio file: {audio_path}", flush=True)
+            self.logger.info(f"   • Output directory: {output_dir}")
+            print(f"   • Output directory: {output_dir}", flush=True)
+            self.logger.info(f"   • Quality level: {quality_level}")
+            print(f"   • Quality level: {quality_level}", flush=True)
+            self.logger.info(f"   • Working directory: {self.liveportrait_path}")
+            print(f"   • Working directory: {self.liveportrait_path}", flush=True)
+
+            # Log command for transparency
+            cmd_str = " ".join(cmd)
+            self.logger.info(f"🔧 Full command: {cmd_str}")
+            print(f"🔧 Full command: {cmd_str}", flush=True)
+
+            # Processing phases
             self.logger.info("🔄 Phase 1: Model loading and initialization...")
+            print("🔄 Phase 1: Model loading and initialization...", flush=True)
             self.logger.info("🔄 Phase 2: Face detection and feature extraction...")
+            print("🔄 Phase 2: Face detection and feature extraction...", flush=True)
             self.logger.info("🔄 Phase 3: Avatar animation generation...")
+            print("🔄 Phase 3: Avatar animation generation...", flush=True)
             self.logger.info("🔄 Phase 4: Video encoding and finalization...")
-            verbose_log(self.logger, f"Working directory: {self.liveportrait_path}")
+            print("🔄 Phase 4: Video encoding and finalization...", flush=True)
 
             # Calculate estimated duration for progress reporting
-            estimated_duration = time_estimate['estimated_total_seconds'] if audio_duration else 600  # Default 10 min
+            estimated_duration = time_estimate['estimated_total_seconds'] if audio_duration else 1800  # Default 30 min
             self.logger.info(f"📊 Estimated total processing time: {estimated_duration/60:.1f} minutes")
+            print(f"📊 Estimated total processing time: {estimated_duration/60:.1f} minutes", flush=True)
             self.logger.info("⏰ Progress updates every 30 seconds, 1 minute, 2 minutes, 5 minutes...")
+            print("⏰ Progress updates every 30 seconds, 1 minute, 2 minutes, 5 minutes...", flush=True)
             self.logger.info("───────────────────────────────────────────────────────")
+            print("───────────────────────────────────────────────────────", flush=True)
 
             # Use progress-aware subprocess execution
             result = run_subprocess_with_progress(
