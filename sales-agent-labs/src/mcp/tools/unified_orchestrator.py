@@ -48,8 +48,9 @@ class UnifiedOrchestrator:
     3. Content + Avatar → PresGen-Video Phase 3 (Final Composition)
     """
     
-    def __init__(self, job_id: str):
+    def __init__(self, job_id: str, config: Dict[str, Any] = None):
         self.job_id = job_id
+        self.config = config or {}
         self.avatar_generator = AvatarGenerator()
         
     async def generate_presentation(self, 
@@ -287,9 +288,12 @@ class UnifiedOrchestrator:
             content_agent = ContentAgent(self.job_id)
             
             # Generate structured bullet points using LLM
+            # Get max_bullets from config, default to 5
+            max_bullets = self.config.get('maxBullets', 5)
+
             content_result = await content_agent.batch_summarize(
                 segments=script_segments,
-                max_bullets=5
+                max_bullets=max_bullets
             )
             
             if not content_result.success:

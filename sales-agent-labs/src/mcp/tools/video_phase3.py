@@ -219,55 +219,73 @@ class Phase3Orchestrator:
                  video_duration=video_duration,
                  bullet_count=len(bullet_points))
             
-            # Sort bullets by original timestamp to maintain order
+            # Sort bullets by original timestamp to maintain chronological order
             sorted_bullets = []
             for i, bullet in enumerate(bullet_points):
                 # Convert MM:SS timestamp to seconds
                 timestamp_parts = bullet["timestamp"].split(":")
                 start_seconds = int(timestamp_parts[0]) * 60 + int(timestamp_parts[1])
                 sorted_bullets.append((i, bullet, start_seconds))
-            
-            # Use timing that fits within the actual video duration
-            # Distribute bullets evenly across the available time
+
+            # Sort by original timestamp to respect content timing
+            sorted_bullets.sort(key=lambda x: x[2])
+
+            # Process bullets while respecting original timestamps from content analysis
+            buffer = 3  # 3-second buffer before video ends
+            max_valid_time = max(video_duration - buffer, 1)
+
             for idx, (original_index, bullet, original_timestamp) in enumerate(sorted_bullets):
-                if len(bullet_points) > 1:
-                    # Calculate timing based on actual video duration
-                    if video_duration <= 15:
-                        # Short video: use tight spacing (0s, 3s, 6s for 10s video)
-                        interval = max(3, int(video_duration / len(bullet_points)))
-                        adjusted_start = idx * interval
-                    elif video_duration <= 60:
-                        # Medium video: use moderate spacing
-                        interval = max(5, int(video_duration / (len(bullet_points) + 1)))
-                        adjusted_start = idx * interval
+                # Default: use the timestamp from content analysis (respects actual content timing)
+                start_time = original_timestamp
+
+                # Only adjust if the original timestamp exceeds video duration
+                if start_time > max_valid_time:
+                    # If content timestamp is too late, distribute remaining bullets evenly in remaining time
+                    remaining_bullets = len(sorted_bullets) - idx
+                    available_time = max_valid_time
+                    if remaining_bullets > 1:
+                        interval = available_time / remaining_bullets
+                        start_time = min(available_time, idx * interval)
                     else:
-                        # Long video: use original 15-second intervals
-                        timing_intervals = [0, 15, 30, 45, 60]
-                        adjusted_start = timing_intervals[idx] if idx < len(timing_intervals) else idx * 15
-                        
-                    # Ensure we don't exceed video duration minus small buffer
-                    buffer = 2  # 2-second buffer before video ends
-                    max_start_time = max(video_duration - buffer, 1)
-                    adjusted_start = min(adjusted_start, max_start_time)
-                else:
-                    adjusted_start = 0
-                
-                # Log if timestamp was adjusted
-                if original_timestamp != adjusted_start:
+                        start_time = max_valid_time
+
                     jlog(log, logging.WARNING,
-                         event="timestamp_adjusted",
+                         event="timestamp_adjusted_for_video_duration",
                          job_id=self.job_id,
                          bullet_index=idx+1,
                          original_timestamp=original_timestamp,
-                         adjusted_timestamp=adjusted_start,
-                         video_duration=video_duration)
-                
+                         adjusted_timestamp=start_time,
+                         video_duration=video_duration,
+                         reason="content_timestamp_exceeds_video_duration")
+
+                # Calculate duration to next bullet (or end of video)
+                if idx < len(sorted_bullets) - 1:
+                    next_bullet_time = sorted_bullets[idx + 1][2]
+                    if next_bullet_time <= max_valid_time:
+                        duration = next_bullet_time - start_time
+                    else:
+                        duration = max_valid_time - start_time
+                else:
+                    # Last bullet: show until end of video
+                    duration = max_valid_time - start_time
+
+                # Ensure minimum duration for readability
+                duration = max(duration, 3.0)
+
                 timeline.append({
                     "slide_index": original_index,
-                    "start_time": adjusted_start,
-                    "duration": bullet["duration"],
+                    "start_time": start_time,
+                    "duration": duration,
                     "text": bullet["text"]
                 })
+
+                jlog(log, logging.INFO,
+                     event="bullet_timeline_entry",
+                     job_id=self.job_id,
+                     bullet_index=idx+1,
+                     start_time=start_time,
+                     duration=duration,
+                     text_preview=bullet["text"][:50] + "..." if len(bullet["text"]) > 50 else bullet["text"])
             
             jlog(log, logging.INFO,
                  event="slide_timeline_generated",

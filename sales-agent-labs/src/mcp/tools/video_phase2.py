@@ -33,11 +33,12 @@ class Phase2Result:
 
 class Phase2Orchestrator:
     """Sequential orchestrator for content processing pipeline"""
-    
-    def __init__(self, job_id: str):
+
+    def __init__(self, job_id: str, job_config: Dict[str, Any] = None):
         self.job_id = job_id
         self.job_dir = Path(f"/tmp/jobs/{job_id}")
-        
+        self.job_config = job_config or {}
+
         # Initialize agents
         self.transcription_agent = TranscriptionAgent(job_id)
         self.content_agent = ContentAgent(job_id)
@@ -88,12 +89,16 @@ class Phase2Orchestrator:
                  duration=round(transcription_result.processing_time, 2))
             
             # Step 2: Content Summarization (LLM)
+            # Get max_bullets from config, default to 5
+            max_bullets = self.job_config.get('maxBullets', 5)
+
             jlog(log, logging.INFO,
                  event="phase2_step2_content_start",
-                 job_id=self.job_id)
-            
+                 job_id=self.job_id,
+                 max_bullets=max_bullets)
+
             content_result = await self.content_agent.batch_summarize(
-                transcription_result.segments, max_bullets=5
+                transcription_result.segments, max_bullets=max_bullets
             )
             
             if not content_result.success:

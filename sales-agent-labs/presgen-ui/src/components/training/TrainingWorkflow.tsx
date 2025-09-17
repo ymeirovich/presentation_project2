@@ -28,10 +28,16 @@ export function TrainingWorkflow({ className }: TrainingWorkflowProps) {
   const [isProcessing, setIsProcessing] = useState(false)
 
   // Handle job creation from form submission
-  const handleJobCreated = (jobId: string) => {
+  const handleJobCreated = (jobId: string, result?: TrainingVideoResponse) => {
     setCurrentJobId(jobId)
-    setCurrentStep('processing')
-    setIsProcessing(true)
+    if (result) {
+      // If we have the result immediately (synchronous processing), go straight to complete
+      handleProcessingComplete(result)
+    } else {
+      // Otherwise show processing status
+      setCurrentStep('processing')
+      setIsProcessing(true)
+    }
   }
 
   // Handle processing completion
@@ -119,14 +125,24 @@ export function TrainingWorkflow({ className }: TrainingWorkflowProps) {
                     </div>
                   </div>
 
-                  {processingResult.success && processingResult.output_path && (
+                  {processingResult.success && processingResult.download_url && (
                     <div className="flex gap-2">
                       <Button
                         variant="default"
                         className="flex-1"
                         onClick={() => {
-                          // TODO: Implement download functionality
-                          toast.info("Download functionality coming soon")
+                          const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"
+                          const downloadUrl = `${API_BASE_URL}${processingResult.download_url}`
+
+                          // Create a temporary anchor element to trigger download
+                          const link = document.createElement('a')
+                          link.href = downloadUrl
+                          link.download = `avatar_video_${processingResult.job_id}.mp4`
+                          document.body.appendChild(link)
+                          link.click()
+                          document.body.removeChild(link)
+
+                          toast.success("Download started!")
                         }}
                       >
                         <Download className="h-4 w-4 mr-2" />

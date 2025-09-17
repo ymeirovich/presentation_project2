@@ -731,7 +731,7 @@ async def generate_presentation(req: PresentationRequest):
         from src.mcp.tools.unified_orchestrator import UnifiedOrchestrator, PresentationOptions
         
         # Create orchestrator
-        orchestrator = UnifiedOrchestrator(job_id)
+        orchestrator = UnifiedOrchestrator(job_id, req.options or {})
         
         # Convert options
         options = PresentationOptions()
@@ -918,8 +918,10 @@ async def video_process_phase2(job_id: str):
     try:
         # Import and initialize Phase 2 orchestrator
         from src.mcp.tools.video_phase2 import Phase2Orchestrator
-        
-        orchestrator = Phase2Orchestrator(job_id)
+
+        job = video_jobs.get(job_id, {})
+        job_config = job.get('config', {})
+        orchestrator = Phase2Orchestrator(job_id, job_config)
         
         # Execute Phase 2 sequential processing
         jlog(log, logging.INFO, event="phase2_starting", job_id=job_id)
@@ -1380,6 +1382,7 @@ async def training_presentation_only(req: TrainingVideoRequest):
             quality_level=req.quality_level,
             content_text=req.content_text,
             google_slides_url=req.google_slides_url,
+            generate_new_slides=bool(req.content_text and not req.google_slides_url),
             output_path=f"output/training_presentation_{job_id}.mp4",
             temp_dir=f"temp/training_{job_id}"
         )

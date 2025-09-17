@@ -53,14 +53,14 @@ class VoiceProfileManager:
         # Load existing profiles
         self.profiles = self._load_profiles()
 
-        # TTS engine priority (ElevenLabs > OpenAI > built-in fallback)
+        # TTS engine priority (OpenAI > ElevenLabs > built-in fallback)
         self.tts_engines = {
-            "elevenlabs": {
-                "available": self._check_elevenlabs_availability(),
-                "priority": 1
-            },
             "openai": {
                 "available": self._check_openai_availability(),
+                "priority": 1
+            },
+            "elevenlabs": {
+                "available": self._check_elevenlabs_availability(),
                 "priority": 2
             },
             "coqui": {
@@ -118,7 +118,7 @@ class VoiceProfileManager:
     def _check_elevenlabs_availability(self) -> bool:
         """Check if ElevenLabs API is available"""
         try:
-            import elevenlabs
+            from elevenlabs.client import ElevenLabs
             # Check if API key is available
             return bool(os.getenv("ELEVENLABS_API_KEY"))
         except ImportError:
@@ -132,6 +132,43 @@ class VoiceProfileManager:
             return bool(os.getenv("OPENAI_API_KEY"))
         except ImportError:
             return False
+
+    def _test_openai_quota(self) -> bool:
+        """Test if OpenAI API has sufficient quota with comprehensive error handling"""
+        try:
+            import openai
+
+            api_key = os.getenv("OPENAI_API_KEY")
+            if not api_key:
+                return False
+
+            client = openai.OpenAI(api_key=api_key)
+
+            # Test with minimal TTS request to check quota
+            response = client.audio.speech.create(
+                model="tts-1",
+                voice="alloy",
+                input="Test"  # Minimal 4-character test (~$0.00006)
+            )
+
+            # If we got here, quota is available
+            self.logger.info("OpenAI API quota check passed")
+            return True
+
+        except openai.RateLimitError as e:
+            self.logger.error(f"OpenAI rate limit exceeded: {e}")
+            return False
+        except openai.AuthenticationError as e:
+            self.logger.error(f"OpenAI authentication failed: {e}")
+            return False
+        except Exception as e:
+            if "insufficient_quota" in str(e).lower():
+                self.logger.error(f"OpenAI quota exhausted: {e}")
+                self.logger.error("💡 Please add credits to your OpenAI account - manual recharge required")
+                return False
+            else:
+                self.logger.error(f"OpenAI API test failed: {e}")
+                return False
 
     def _check_coqui_availability(self) -> bool:
         """Check if Coqui TTS is available"""
@@ -220,6 +257,81 @@ class VoiceProfileManager:
             self.logger.error(f"Voice cloning failed: {e}")
             return None
 
+    def clone_voice_from_audio(self,
+                             audio_path: str,
+                             profile_name: str,
+                             language: str = "auto") -> Optional[VoiceProfile]:
+        """
+        Clone voice directly from audio file (bypasses video extraction)
+
+        Process:
+        1. Validate existing audio file
+        2. Detect language if needed
+        3. Train voice cloning model
+        4. Save profile with metadata
+
+        Args:
+            audio_path: Path to existing .wav audio file
+            profile_name: Name for the voice profile
+            language: Language code or "auto" for detection
+
+        Returns:
+            VoiceProfile object with cloning model
+        """
+
+        try:
+            self.logger.info(f"Starting direct audio voice cloning for profile: {profile_name}")
+
+            # Validate that audio file exists
+            if not Path(audio_path).exists():
+                self.logger.error(f"Audio file not found: {audio_path}")
+                return None
+
+            # Validate audio for cloning
+            if not self._validate_audio_for_cloning(audio_path):
+                return None
+
+            # Step 1: Language detection
+            if language == "auto":
+                detected_language = self._detect_language(audio_path)
+            else:
+                detected_language = language
+
+            # Step 2: Create voice cloning model
+            model_path = self._train_voice_model(
+                audio_path=audio_path,
+                profile_name=profile_name,
+                language=detected_language
+            )
+
+            if not model_path:
+                return None
+
+            # Step 3: Save profile
+            profile = VoiceProfile(
+                name=profile_name,
+                language=detected_language,
+                created_at=datetime.now().isoformat(),
+                model_path=model_path,
+                source_video="direct_audio",  # Mark as direct audio source
+                quality="standard"
+            )
+
+            self.profiles[profile_name] = profile
+            self._save_profiles()
+
+            jlog(self.logger, logging.INFO,
+                event="voice_profile_created_from_audio",
+                profile_name=profile_name,
+                language=detected_language,
+                audio_path=audio_path)
+
+            return profile
+
+        except Exception as e:
+            self.logger.error(f"Direct audio voice cloning failed: {e}")
+            return None
+
     def _extract_enhanced_audio(self, video_path: str) -> Optional[str]:
         """Extract and enhance audio for voice cloning - permanent storage"""
 
@@ -306,18 +418,17 @@ class VoiceProfileManager:
         """Train voice model using ElevenLabs voice cloning"""
 
         try:
-            import elevenlabs
-            from elevenlabs import VoiceSettings
+            from elevenlabs.client import ElevenLabs
 
-            # Set API key
-            elevenlabs.set_api_key(os.getenv("ELEVENLABS_API_KEY"))
+            # Initialize ElevenLabs client
+            client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
             # Read audio file
             with open(audio_path, "rb") as audio_file:
                 audio_data = audio_file.read()
 
             # Create voice clone on ElevenLabs
-            voice = elevenlabs.clone(
+            voice = client.clone(
                 name=profile_name,
                 description=f"Cloned voice for {profile_name}",
                 files=[audio_data]
@@ -347,6 +458,13 @@ class VoiceProfileManager:
         """Train voice model using OpenAI (Note: OpenAI TTS doesn't support custom voice cloning)"""
 
         try:
+            import openai
+
+            # Test OpenAI API availability with quota monitoring
+            if not self._test_openai_quota():
+                self.logger.error("OpenAI API quota insufficient - please add credits to your account")
+                return None
+
             # OpenAI TTS doesn't support voice cloning, so we'll create a profile
             # that uses the closest available voice and save the audio sample for reference
             model_path = self.models_dir / f"{profile_name}_openai.json"
@@ -485,17 +603,17 @@ class VoiceProfileManager:
         """Generate speech using ElevenLabs voice cloning"""
 
         try:
-            import elevenlabs
+            from elevenlabs.client import ElevenLabs
 
             # Load model data to get voice ID
             model_data = json.loads(Path(profile.model_path).read_text())
             voice_id = model_data["voice_id"]
 
-            # Set API key
-            elevenlabs.set_api_key(os.getenv("ELEVENLABS_API_KEY"))
+            # Initialize ElevenLabs client
+            client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
             # Generate speech with cloned voice
-            audio = elevenlabs.generate(
+            audio = client.generate(
                 text=text,
                 voice=voice_id,
                 model="eleven_multilingual_v2"
@@ -503,7 +621,8 @@ class VoiceProfileManager:
 
             # Save audio to file
             with open(output_path, "wb") as f:
-                f.write(audio)
+                for chunk in audio:
+                    f.write(chunk)
 
             self.logger.info(f"ElevenLabs speech generated successfully: {output_path}")
             return True
@@ -618,6 +737,139 @@ class VoiceProfileManager:
 
         except Exception as e:
             self.logger.error(f"Error deleting profile {name}: {e}")
+            return False
+
+    def synthesize_speech(self, text: str, profile_name: str, output_path: str) -> bool:
+        """Synthesize speech using a voice profile with quota monitoring"""
+
+        try:
+            profile = self.get_profile(profile_name)
+            if not profile:
+                self.logger.error(f"Voice profile not found: {profile_name}")
+                return False
+
+            # Read model configuration
+            model_path = Path(profile.model_path)
+            if not model_path.exists():
+                self.logger.error(f"Model file not found: {profile.model_path}")
+                return False
+
+            with open(model_path, 'r') as f:
+                model_data = json.load(f)
+
+            engine = model_data.get('engine', 'builtin')
+
+            if engine == "openai":
+                return self._synthesize_openai_speech(text, model_data, output_path)
+            elif engine == "elevenlabs":
+                return self._synthesize_elevenlabs_speech(text, model_data, output_path)
+            else:
+                return self._synthesize_builtin_speech(text, model_data, output_path)
+
+        except Exception as e:
+            self.logger.error(f"Speech synthesis failed: {e}")
+            return False
+
+    def _synthesize_openai_speech(self, text: str, model_data: dict, output_path: str) -> bool:
+        """Synthesize speech using OpenAI TTS with quota monitoring"""
+
+        try:
+            import openai
+
+            # Test quota before synthesis
+            if not self._test_openai_quota():
+                self.logger.error("OpenAI API quota insufficient for speech synthesis")
+                return False
+
+            api_key = os.getenv("OPENAI_API_KEY")
+            client = openai.OpenAI(api_key=api_key)
+
+            voice_name = model_data.get('voice_name', 'alloy')
+
+            self.logger.info(f"Synthesizing speech with OpenAI voice: {voice_name}")
+            self.logger.info(f"Text length: {len(text)} characters (~${len(text) * 0.000015:.5f})")
+
+            response = client.audio.speech.create(
+                model="tts-1",  # Use cheaper model for demo
+                voice=voice_name,
+                input=text
+            )
+
+            # Ensure output directory exists
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+            # Save audio file
+            with open(output_path, "wb") as f:
+                f.write(response.content)
+
+            file_size = Path(output_path).stat().st_size
+            self.logger.info(f"OpenAI TTS synthesis completed: {output_path} ({file_size} bytes)")
+
+            return True
+
+        except openai.RateLimitError as e:
+            self.logger.error(f"OpenAI rate limit exceeded: {e}")
+            return False
+        except Exception as e:
+            if "insufficient_quota" in str(e).lower():
+                self.logger.error(f"OpenAI quota exhausted: {e}")
+                self.logger.error("💡 Please add credits to your OpenAI account")
+            else:
+                self.logger.error(f"OpenAI TTS synthesis failed: {e}")
+            return False
+
+    def _synthesize_elevenlabs_speech(self, text: str, model_data: dict, output_path: str) -> bool:
+        """Synthesize speech using ElevenLabs voice cloning"""
+
+        try:
+            from elevenlabs.client import ElevenLabs
+
+            client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
+            voice_id = model_data.get('voice_id')
+
+            if not voice_id:
+                self.logger.error("ElevenLabs voice ID not found in profile")
+                return False
+
+            audio = client.generate(
+                text=text,
+                voice=voice_id,
+                model="eleven_monolingual_v1"
+            )
+
+            # Ensure output directory exists
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+            with open(output_path, "wb") as f:
+                f.write(audio)
+
+            self.logger.info(f"ElevenLabs TTS synthesis completed: {output_path}")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"ElevenLabs TTS synthesis failed: {e}")
+            return False
+
+    def _synthesize_builtin_speech(self, text: str, model_data: dict, output_path: str) -> bool:
+        """Synthesize speech using built-in Mac 'say' command"""
+
+        try:
+            # Ensure output directory exists
+            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+
+            # Use Mac 'say' command to generate audio
+            cmd = ["say", "-o", output_path, text]
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if result.returncode == 0:
+                self.logger.info(f"Builtin TTS synthesis completed: {output_path}")
+                return True
+            else:
+                self.logger.error(f"Builtin TTS failed: {result.stderr}")
+                return False
+
+        except Exception as e:
+            self.logger.error(f"Builtin TTS synthesis failed: {e}")
             return False
 
     def _extract_audio_from_video(self, video_path: str, output_audio_path: str) -> bool:

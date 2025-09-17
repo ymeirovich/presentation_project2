@@ -440,19 +440,36 @@ class ModeOrchestrator:
         """List available voice profiles"""
         return self.voice_manager.list_profiles()
 
-    def clone_voice_from_video(self, video_path: str, profile_name: str) -> bool:
+    def clone_voice_from_video(self, video_path: str, profile_name: str, language: str = "auto") -> bool:
         """Clone voice from video and save as profile"""
 
         try:
             profile = self.voice_manager.clone_voice_from_video(
                 video_path=video_path,
-                profile_name=profile_name
+                profile_name=profile_name,
+                language=language
             )
 
             return profile is not None
 
         except Exception as e:
             self.logger.error(f"Voice cloning failed: {e}")
+            return False
+
+    def clone_voice_from_audio(self, audio_path: str, profile_name: str, language: str = "auto") -> bool:
+        """Clone voice directly from audio file and save as profile"""
+
+        try:
+            profile = self.voice_manager.clone_voice_from_audio(
+                audio_path=audio_path,
+                profile_name=profile_name,
+                language=language
+            )
+
+            return profile is not None
+
+        except Exception as e:
+            self.logger.error(f"Direct audio voice cloning failed: {e}")
             return False
 
     def validate_google_slides_url(self, url: str) -> bool:

@@ -17,7 +17,7 @@ import { FileText, Loader2, Video, Presentation, PlayCircle } from "lucide-react
 import { ACCEPTED_VIDEO_FILES } from "@/lib/types"
 
 interface TrainingFormProps {
-  onJobCreated: (jobId: string) => void
+  onJobCreated: (jobId: string, result?: import("@/lib/training-schemas").TrainingVideoResponse) => void
   className?: string
 }
 
@@ -107,19 +107,23 @@ export function TrainingForm({ onJobCreated, className }: TrainingFormProps) {
         quality_level: data.quality_level,
         content_text: data.content_text || undefined,
         google_slides_url: data.google_slides_url || undefined,
-        reference_video_path: uploadedFile ? "/tmp/reference_video.mp4" : undefined, // TODO: Handle file upload
         use_cache: true,
       }
 
       console.log('Submitting training request:', requestData)
+      if (uploadedFile) {
+        console.log('Reference video file:', uploadedFile.name, uploadedFile.size)
+      }
 
-      const result = await generateTrainingVideo(requestData)
+      const result = await generateTrainingVideo(requestData, uploadedFile || undefined)
 
       if (result.success) {
-        toast.success("Video generation started successfully!")
-        onJobCreated(result.job_id)
+        toast.success("Video generation completed successfully!")
+        onJobCreated(result.job_id, result)
       } else {
         toast.error(`Generation failed: ${result.error}`)
+        // Still call onJobCreated with failed result to show error in UI
+        onJobCreated(result.job_id, result)
       }
     } catch (error: any) {
       console.error('Training generation error:', error)

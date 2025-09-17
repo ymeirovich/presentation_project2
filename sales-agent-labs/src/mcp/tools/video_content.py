@@ -28,7 +28,7 @@ class BulletPoint(BaseModel):
 
 class VideoSummary(BaseModel):
     """Structured video summary output"""
-    bullet_points: List[BulletPoint] = Field(min_items=3, max_items=5)
+    bullet_points: List[BulletPoint] = Field(min_items=3, max_items=10)
     main_themes: List[str] = Field(max_items=3)
     total_duration: str = Field(pattern=r"\d{2}:\d{2}")
     language: str = "en"
@@ -106,7 +106,7 @@ class ContentAgent:
             prompt = self._create_batch_prompt(consolidated_text, segments, max_bullets)
             
             # Process with LLM (structured output)
-            summary = await self._process_with_llm(prompt, consolidated_text, segments)
+            summary = await self._process_with_llm(prompt, consolidated_text, segments, max_bullets)
             
             # Cache the result
             self.cache[cache_key] = summary
@@ -222,7 +222,7 @@ class ContentAgent:
         return prompt.strip()
     
     async def _process_with_llm(self, prompt: str, consolidated_text: str,
-                              segments: List[TranscriptSegment]) -> VideoSummary:
+                              segments: List[TranscriptSegment], max_bullets: int = 5) -> VideoSummary:
         """Process with actual LLM to generate bullet point summaries"""
 
         try:
@@ -237,7 +237,7 @@ class ContentAgent:
             # Prepare LLM parameters according to SummarizeParams schema
             llm_params = {
                 "report_text": consolidated_text[:60000],  # Limit to max length
-                "max_sections": min(len(segments), 5),
+                "max_sections": min(len(segments), max_bullets),
                 "max_script_chars": 700
             }
 
@@ -250,11 +250,11 @@ class ContentAgent:
             slides_data = llm_result["sections"]
             bullet_points = []
             bullet_index = 0
-            for i, slide in enumerate(slides_data[:5]):
-                if bullet_index >= 5:
+            for i, slide in enumerate(slides_data[:max_bullets]):
+                if bullet_index >= max_bullets:
                     break
                 for bullet_text in slide.get("bullets", []):
-                    if bullet_index >= 5:
+                    if bullet_index >= max_bullets:
                         break
                     timestamp = f"{(bullet_index * 20) // 60:02d}:{(bullet_index * 20) % 60:02d}"
                     bullet_points.append({
@@ -294,7 +294,7 @@ class ContentAgent:
                  error=f"LLM processing failed, falling back. Reason: {str(e)}")
 
             # Fallback to improved simulated summary
-            summary = self._create_intelligent_summary(consolidated_text, segments)
+            summary = self._create_intelligent_summary(consolidated_text, segments, max_bullets)
 
             jlog(log, logging.INFO,
                  event="llm_processing_fallback_complete",
@@ -303,63 +303,93 @@ class ContentAgent:
 
             return summary
     
-    def _create_intelligent_summary(self, text: str, segments: List[TranscriptSegment]) -> VideoSummary:
+    def _create_intelligent_summary(self, text: str, segments: List[TranscriptSegment], max_bullets: int = 5) -> VideoSummary:
         """Create intelligent simulated summary based on transcript content"""
-        
-        # Analyze segments for key content
-        bullet_points = []
-        themes = []
-        
-        # Simple keyword-based extraction for demo
-        keywords_found = []
-        
-        # Look for business/presentation keywords
-        business_keywords = [
-            "project", "goal", "target", "result", "achievement", "challenge", 
-            "solution", "strategy", "plan", "proposal", "recommendation",
-            "data", "analysis", "insight", "conclusion", "next steps"
-        ]
-        
-        # Extract segments with business keywords
-        important_segments = []
-        for segment in segments:
-            text_lower = segment.text.lower()
-            segment_keywords = [kw for kw in business_keywords if kw in text_lower]
-            if segment_keywords:
-                important_segments.append((segment, segment_keywords))
-                keywords_found.extend(segment_keywords)
-        
-        # Create bullet points from important segments (max 5)
-        for i, (segment, keywords) in enumerate(important_segments[:5]):
+
+        # Calculate total video duration
+        total_duration = max((s.end_time for s in segments), default=0)
+
+        # Use content-aware sectional assignment (Phase 1 implementation)
+        bullet_points = self._assign_bullets_by_content_sections(segments, total_duration, max_bullets)
+
+        # Extract themes from the generated bullets
+        themes = self._extract_themes_from_bullets(bullet_points)
+
+        jlog(log, logging.INFO,
+             event="content_aware_bullet_assignment",
+             job_id=self.job_id,
+             total_duration=total_duration,
+             bullets_generated=len(bullet_points),
+             assignment_method="sectional_content_aware")
+
+        # Return the summary directly since bullet_points and themes are already generated
+        selected_segments = []
+
+        if len(important_segments) <= optimal_bullets:
+            # Use all available important segments
+            selected_segments = important_segments[:optimal_bullets]
+        else:
+            # Select segments that are well-distributed across the video timeline
+            # Calculate ideal time positions for optimal distribution
+            time_interval = total_duration / optimal_bullets if optimal_bullets > 0 else 30.0
+            ideal_times = [i * time_interval for i in range(optimal_bullets)]
+
+            for ideal_time in ideal_times:
+                # Find the important segment closest to this ideal time
+                best_segment = None
+                best_distance = float('inf')
+
+                for segment_data in important_segments:
+                    segment = segment_data[0]
+                    distance = abs(segment.start_time - ideal_time)
+                    if distance < best_distance and segment_data not in selected_segments:
+                        best_distance = distance
+                        best_segment = segment_data
+
+                if best_segment:
+                    selected_segments.append(best_segment)
+
+        # Create bullet points from selected segments
+        for i, (segment, keywords) in enumerate(selected_segments):
             # Create summarized bullet text instead of raw transcript
             bullet_text = self._summarize_segment_text(segment.text.strip(), keywords)
             if len(bullet_text) > 140:
                 bullet_text = bullet_text[:137] + "..."
-            
-            # Format timestamp
+
+            # Format timestamp from actual segment timing
             timestamp = f"{int(segment.start_time//60):02d}:{int(segment.start_time%60):02d}"
-            
+
             # Calculate confidence based on keywords and position
             confidence = min(0.95, 0.7 + (len(keywords) * 0.1))
-            
-            # Duration to show this bullet (until next one)
-            if i < len(important_segments) - 1:
-                next_segment = important_segments[i + 1][0]
+
+            # Calculate duration to next bullet (for seamless transitions)
+            if i < len(selected_segments) - 1:
+                next_segment = selected_segments[i + 1][0]
                 duration = next_segment.start_time - segment.start_time
             else:
-                duration = 30.0  # Default duration
-            
+                # Last bullet: duration until end of video
+                duration = total_duration - segment.start_time
+
             bullet_points.append(BulletPoint(
                 timestamp=timestamp,
                 text=bullet_text,
                 confidence=confidence,
-                duration=max(15.0, min(45.0, duration))  # Clamp between 15-45s
+                duration=max(3.0, min(45.0, duration))  # Clamp between 3-45s
             ))
+
+            jlog(log, logging.INFO,
+                 event="bullet_point_created_from_content",
+                 job_id=self.job_id,
+                 bullet_index=i+1,
+                 timestamp=timestamp,
+                 duration=duration,
+                 confidence=confidence,
+                 text_preview=bullet_text[:50] + "..." if len(bullet_text) > 50 else bullet_text)
         
-        # Ensure we have at least 3 bullet points
-        if len(bullet_points) < 3 and segments:
+        # Ensure we have at least the minimum required bullet points
+        if len(bullet_points) < optimal_bullets and segments:
             # Take evenly distributed segments to fill remaining slots
-            remaining_needed = 3 - len(bullet_points)
+            remaining_needed = optimal_bullets - len(bullet_points)
             used_segments = set()
             
             # Mark segments already used for bullet points
@@ -374,26 +404,63 @@ class ContentAgent:
             available_segments = [(i, seg) for i, seg in enumerate(segments) if i not in used_segments]
             
             if available_segments:
-                # Take evenly distributed segments
-                step = max(1, len(available_segments) // remaining_needed)
-                for i in range(0, min(len(available_segments), remaining_needed * step), step):
-                    idx, segment = available_segments[i]
-                    # Create summarized bullet text instead of raw transcript
-                    bullet_text = self._summarize_segment_text(segment.text.strip(), [])
-                    if len(bullet_text) > 140:
-                        bullet_text = bullet_text[:137] + "..."
-                    
-                    timestamp = f"{int(segment.start_time//60):02d}:{int(segment.start_time%60):02d}"
-                    
-                    bullet_points.append(BulletPoint(
-                        timestamp=timestamp,
-                        text=bullet_text,
-                        confidence=0.6,  # Lower confidence for generic extraction
-                        duration=30.0
-                    ))
-                    
-                    if len(bullet_points) >= 5:  # Don't exceed max
-                        break
+                # Distribute remaining bullets evenly across video timeline
+                # Calculate time intervals for even distribution
+                time_interval = total_duration / optimal_bullets if optimal_bullets > 0 else 30.0
+
+                # Select segments closest to ideal time positions
+                ideal_times = [i * time_interval for i in range(len(bullet_points), optimal_bullets)]
+
+                for ideal_time in ideal_times:
+                    # Find available segment closest to ideal time
+                    best_segment = None
+                    best_distance = float('inf')
+
+                    for idx, segment in available_segments:
+                        distance = abs(segment.start_time - ideal_time)
+                        if distance < best_distance:
+                            best_distance = distance
+                            best_segment = (idx, segment)
+
+                    if best_segment:
+                        idx, segment = best_segment
+                        # Remove from available segments
+                        available_segments = [(i, s) for i, s in available_segments if i != idx]
+
+                        # Create summarized bullet text instead of raw transcript
+                        bullet_text = self._summarize_segment_text(segment.text.strip(), [])
+                        if len(bullet_text) > 140:
+                            bullet_text = bullet_text[:137] + "..."
+
+                        # Use segment's actual timestamp for proper content synchronization
+                        timestamp = f"{int(segment.start_time//60):02d}:{int(segment.start_time%60):02d}"
+
+                        # Calculate duration to next bullet point (for proper transitions)
+                        current_bullet_index = len(bullet_points)
+                        if current_bullet_index < len(ideal_times) - 1:
+                            next_ideal_time = ideal_times[current_bullet_index + 1]
+                            duration = next_ideal_time - segment.start_time
+                        else:
+                            duration = total_duration - segment.start_time
+
+                        bullet_points.append(BulletPoint(
+                            timestamp=timestamp,
+                            text=bullet_text,
+                            confidence=0.6,  # Lower confidence for generic extraction
+                            duration=max(3.0, min(45.0, duration))  # Clamp between 3-45s
+                        ))
+
+                        jlog(log, logging.INFO,
+                             event="bullet_point_created_from_distribution",
+                             job_id=self.job_id,
+                             bullet_index=len(bullet_points),
+                             ideal_time=ideal_time,
+                             actual_time=segment.start_time,
+                             distance=best_distance,
+                             duration=duration)
+
+                        if len(bullet_points) >= optimal_bullets:  # Don't exceed calculated max
+                            break
         
         # Extract themes from keywords
         theme_keywords = list(set(keywords_found))[:3]
@@ -413,7 +480,7 @@ class ContentAgent:
             avg_confidence = 0.5
         
         return VideoSummary(
-            bullet_points=bullet_points[:5],  # Max 5
+            bullet_points=bullet_points[:optimal_bullets],  # Use calculated optimal
             main_themes=themes,
             total_duration=duration_str,
             language="en",
