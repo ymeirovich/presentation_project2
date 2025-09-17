@@ -12,17 +12,20 @@ import { Badge } from "@/components/ui/badge"
 import { BulletPoint, VideoSummary } from "@/lib/video-schemas"
 import { updateBulletPoints } from "@/lib/video-api"
 import { toast } from "sonner"
-import { 
-  Edit3, 
-  Plus, 
-  X, 
-  Clock, 
-  Eye, 
-  EyeOff, 
-  AlertCircle, 
-  Save, 
+import {
+  Edit3,
+  Plus,
+  X,
+  Clock,
+  Eye,
+  EyeOff,
+  AlertCircle,
+  Save,
   Loader2,
-  Info
+  Info,
+  ChevronUp,
+  ChevronDown,
+  ArrowUpDown
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
@@ -96,9 +99,18 @@ export function BulletEditor({
   }
 
   const updateBullet = (id: string, updates: Partial<BulletPoint>) => {
-    setBullets(prev => prev.map(bullet => 
-      bullet.id === id ? { ...bullet, ...updates } : bullet
-    ))
+    setBullets(prev => {
+      const updated = prev.map(bullet =>
+        bullet.id === id ? { ...bullet, ...updates } : bullet
+      )
+
+      // Auto-reorder bullets by timestamp when timestamp is updated
+      if (updates.timestamp) {
+        return updated.sort((a, b) => parseTimestamp(a.timestamp) - parseTimestamp(b.timestamp))
+      }
+
+      return updated
+    })
     setHasUnsavedChanges(true)
   }
 
@@ -138,8 +150,32 @@ export function BulletEditor({
       toast.error("Cannot remove bullet - minimum 3 required")
       return
     }
-    
+
     setBullets(prev => prev.filter(bullet => bullet.id !== id))
+    setHasUnsavedChanges(true)
+  }
+
+  const moveBulletUp = (id: string) => {
+    setBullets(prev => {
+      const index = prev.findIndex(bullet => bullet.id === id)
+      if (index <= 0) return prev // Already at top or not found
+
+      const newBullets = [...prev]
+      [newBullets[index - 1], newBullets[index]] = [newBullets[index], newBullets[index - 1]]
+      return newBullets
+    })
+    setHasUnsavedChanges(true)
+  }
+
+  const moveBulletDown = (id: string) => {
+    setBullets(prev => {
+      const index = prev.findIndex(bullet => bullet.id === id)
+      if (index >= prev.length - 1) return prev // Already at bottom or not found
+
+      const newBullets = [...prev]
+      [newBullets[index], newBullets[index + 1]] = [newBullets[index + 1], newBullets[index]]
+      return newBullets
+    })
     setHasUnsavedChanges(true)
   }
 
@@ -194,7 +230,7 @@ export function BulletEditor({
               Edit Bullet Points
             </CardTitle>
             <CardDescription>
-              Review and edit the generated bullet points. Minimum 3 required.
+              Review and edit bullet points. Add unlimited bullets, reorder with arrows, or edit timestamps directly. Minimum 3 required.
             </CardDescription>
           </div>
           <div className="flex items-center gap-3">
@@ -292,11 +328,36 @@ export function BulletEditor({
                       )}
 
                       <div className="ml-auto flex items-center gap-1">
+                        {/* Reordering buttons */}
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => moveBulletUp(bullet.id)}
+                          disabled={index === 0}
+                          className="text-gray-500 hover:text-gray-700 disabled:opacity-30"
+                          title="Move up"
+                        >
+                          <ChevronUp className="w-4 h-4" />
+                        </Button>
+
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => moveBulletDown(bullet.id)}
+                          disabled={index === bullets.length - 1}
+                          className="text-gray-500 hover:text-gray-700 disabled:opacity-30"
+                          title="Move down"
+                        >
+                          <ChevronDown className="w-4 h-4" />
+                        </Button>
+
+                        {/* Edit/Save button */}
                         {!bullet.isEditing ? (
                           <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => startEditing(bullet.id)}
+                            title="Edit bullet"
                           >
                             <Edit3 className="w-4 h-4" />
                           </Button>
@@ -305,11 +366,12 @@ export function BulletEditor({
                             size="sm"
                             variant="ghost"
                             onClick={() => stopEditing(bullet.id)}
+                            title="Save changes"
                           >
                             <Save className="w-4 h-4" />
                           </Button>
                         )}
-                        
+
                         <Button
                           size="sm"
                           variant="ghost"
@@ -378,6 +440,17 @@ export function BulletEditor({
           <Plus className="w-4 h-4 mr-2" />
           Add Bullet Point
         </Button>
+
+        {/* Reordering Info */}
+        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+          <div className="flex items-start gap-2">
+            <ArrowUpDown className="w-4 h-4 text-blue-500 mt-0.5" />
+            <div className="text-sm text-blue-800">
+              <p className="font-medium">Bullet Reordering</p>
+              <p>Use ↑↓ arrows to manually reorder, or edit timestamps to auto-sort by time. Bullets automatically stay within video duration.</p>
+            </div>
+          </div>
+        </div>
 
         {/* Themes Section */}
         <div className="space-y-3 pt-4 border-t">

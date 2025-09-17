@@ -28,7 +28,7 @@ class BulletPoint(BaseModel):
 
 class VideoSummary(BaseModel):
     """Structured video summary output"""
-    bullet_points: List[BulletPoint] = Field(min_items=3, max_items=10)
+    bullet_points: List[BulletPoint] = Field(min_items=3)  # Removed max_items=10 for Phase 2
     main_themes: List[str] = Field(max_items=3)
     total_duration: str = Field(pattern=r"\d{2}:\d{2}")
     language: str = "en"
@@ -322,192 +322,227 @@ class ContentAgent:
              bullets_generated=len(bullet_points),
              assignment_method="sectional_content_aware")
 
-        # Return the summary directly since bullet_points and themes are already generated
-        selected_segments = []
-
-        if len(important_segments) <= optimal_bullets:
-            # Use all available important segments
-            selected_segments = important_segments[:optimal_bullets]
-        else:
-            # Select segments that are well-distributed across the video timeline
-            # Calculate ideal time positions for optimal distribution
-            time_interval = total_duration / optimal_bullets if optimal_bullets > 0 else 30.0
-            ideal_times = [i * time_interval for i in range(optimal_bullets)]
-
-            for ideal_time in ideal_times:
-                # Find the important segment closest to this ideal time
-                best_segment = None
-                best_distance = float('inf')
-
-                for segment_data in important_segments:
-                    segment = segment_data[0]
-                    distance = abs(segment.start_time - ideal_time)
-                    if distance < best_distance and segment_data not in selected_segments:
-                        best_distance = distance
-                        best_segment = segment_data
-
-                if best_segment:
-                    selected_segments.append(best_segment)
-
-        # Create bullet points from selected segments
-        for i, (segment, keywords) in enumerate(selected_segments):
-            # Create summarized bullet text instead of raw transcript
-            bullet_text = self._summarize_segment_text(segment.text.strip(), keywords)
-            if len(bullet_text) > 140:
-                bullet_text = bullet_text[:137] + "..."
-
-            # Format timestamp from actual segment timing
-            timestamp = f"{int(segment.start_time//60):02d}:{int(segment.start_time%60):02d}"
-
-            # Calculate confidence based on keywords and position
-            confidence = min(0.95, 0.7 + (len(keywords) * 0.1))
-
-            # Calculate duration to next bullet (for seamless transitions)
-            if i < len(selected_segments) - 1:
-                next_segment = selected_segments[i + 1][0]
-                duration = next_segment.start_time - segment.start_time
-            else:
-                # Last bullet: duration until end of video
-                duration = total_duration - segment.start_time
-
-            bullet_points.append(BulletPoint(
-                timestamp=timestamp,
-                text=bullet_text,
-                confidence=confidence,
-                duration=max(3.0, min(45.0, duration))  # Clamp between 3-45s
-            ))
-
-            jlog(log, logging.INFO,
-                 event="bullet_point_created_from_content",
-                 job_id=self.job_id,
-                 bullet_index=i+1,
-                 timestamp=timestamp,
-                 duration=duration,
-                 confidence=confidence,
-                 text_preview=bullet_text[:50] + "..." if len(bullet_text) > 50 else bullet_text)
-        
-        # Ensure we have at least the minimum required bullet points
-        if len(bullet_points) < optimal_bullets and segments:
-            # Take evenly distributed segments to fill remaining slots
-            remaining_needed = optimal_bullets - len(bullet_points)
-            used_segments = set()
-            
-            # Mark segments already used for bullet points
-            for bp in bullet_points:
-                bp_time = int(bp.timestamp.split(':')[0]) * 60 + int(bp.timestamp.split(':')[1])
-                for i, seg in enumerate(segments):
-                    if abs(seg.start_time - bp_time) < 5:  # Within 5 seconds
-                        used_segments.add(i)
-                        break
-            
-            # Find evenly distributed unused segments
-            available_segments = [(i, seg) for i, seg in enumerate(segments) if i not in used_segments]
-            
-            if available_segments:
-                # Distribute remaining bullets evenly across video timeline
-                # Calculate time intervals for even distribution
-                time_interval = total_duration / optimal_bullets if optimal_bullets > 0 else 30.0
-
-                # Select segments closest to ideal time positions
-                ideal_times = [i * time_interval for i in range(len(bullet_points), optimal_bullets)]
-
-                for ideal_time in ideal_times:
-                    # Find available segment closest to ideal time
-                    best_segment = None
-                    best_distance = float('inf')
-
-                    for idx, segment in available_segments:
-                        distance = abs(segment.start_time - ideal_time)
-                        if distance < best_distance:
-                            best_distance = distance
-                            best_segment = (idx, segment)
-
-                    if best_segment:
-                        idx, segment = best_segment
-                        # Remove from available segments
-                        available_segments = [(i, s) for i, s in available_segments if i != idx]
-
-                        # Create summarized bullet text instead of raw transcript
-                        bullet_text = self._summarize_segment_text(segment.text.strip(), [])
-                        if len(bullet_text) > 140:
-                            bullet_text = bullet_text[:137] + "..."
-
-                        # Use segment's actual timestamp for proper content synchronization
-                        timestamp = f"{int(segment.start_time//60):02d}:{int(segment.start_time%60):02d}"
-
-                        # Calculate duration to next bullet point (for proper transitions)
-                        current_bullet_index = len(bullet_points)
-                        if current_bullet_index < len(ideal_times) - 1:
-                            next_ideal_time = ideal_times[current_bullet_index + 1]
-                            duration = next_ideal_time - segment.start_time
-                        else:
-                            duration = total_duration - segment.start_time
-
-                        bullet_points.append(BulletPoint(
-                            timestamp=timestamp,
-                            text=bullet_text,
-                            confidence=0.6,  # Lower confidence for generic extraction
-                            duration=max(3.0, min(45.0, duration))  # Clamp between 3-45s
-                        ))
-
-                        jlog(log, logging.INFO,
-                             event="bullet_point_created_from_distribution",
-                             job_id=self.job_id,
-                             bullet_index=len(bullet_points),
-                             ideal_time=ideal_time,
-                             actual_time=segment.start_time,
-                             distance=best_distance,
-                             duration=duration)
-
-                        if len(bullet_points) >= optimal_bullets:  # Don't exceed calculated max
-                            break
-        
-        # Extract themes from keywords
-        theme_keywords = list(set(keywords_found))[:3]
-        if not theme_keywords:
-            themes = ["Key Discussion Points", "Main Insights", "Action Items"]
-        else:
-            themes = [kw.title() for kw in theme_keywords[:3]]
-        
-        # Calculate total duration
-        total_duration = max((s.end_time for s in segments), default=0)
+        # Create summary with bullet_points and themes
         duration_str = f"{int(total_duration//60):02d}:{int(total_duration%60):02d}"
-        
+
         # Calculate overall confidence
         if bullet_points:
             avg_confidence = sum(bp.confidence for bp in bullet_points) / len(bullet_points)
         else:
             avg_confidence = 0.5
-        
+
         return VideoSummary(
-            bullet_points=bullet_points[:optimal_bullets],  # Use calculated optimal
+            bullet_points=bullet_points,
             main_themes=themes,
             total_duration=duration_str,
             language="en",
             summary_confidence=avg_confidence
         )
-    
+
+    def _assign_bullets_by_content_sections(self, segments: List[TranscriptSegment],
+                                          video_duration: float, bullet_count: int) -> List[BulletPoint]:
+        """
+        Phase 1: Content-Aware Sectional Assignment
+        Divide video into equal sections and assign bullets based on section content
+        """
+        if not segments or bullet_count <= 0:
+            return []
+
+        # Ensure minimum bullet count
+        bullet_count = max(3, bullet_count)
+
+        # Calculate section duration
+        section_duration = video_duration / bullet_count
+        bullets = []
+
+        jlog(log, logging.INFO,
+             event="sectional_assignment_start",
+             job_id=self.job_id,
+             video_duration=video_duration,
+             bullet_count=bullet_count,
+             section_duration=section_duration)
+
+        for i in range(bullet_count):
+            section_start = i * section_duration
+            section_end = min((i + 1) * section_duration, video_duration)
+            section_midpoint = section_start + (section_duration / 2)
+
+            # Get transcript segments that fall within this time section
+            section_segments = [seg for seg in segments
+                              if section_start <= seg.start_time < section_end]
+
+            if section_segments:
+                # Summarize content specifically for this section
+                section_content = self._summarize_section_content(section_segments)
+
+                # Calculate confidence based on content density
+                confidence = min(0.95, 0.7 + (len(section_segments) * 0.05))
+
+                # Calculate duration (80% of section duration, max 45s)
+                duration = min(45.0, max(15.0, section_duration * 0.8))
+
+                bullet = BulletPoint(
+                    timestamp=self._format_timestamp(section_midpoint),
+                    text=section_content,
+                    confidence=confidence,
+                    duration=duration
+                )
+                bullets.append(bullet)
+
+                jlog(log, logging.INFO,
+                     event="section_bullet_created",
+                     job_id=self.job_id,
+                     section_index=i+1,
+                     section_start=section_start,
+                     section_end=section_end,
+                     midpoint=section_midpoint,
+                     segments_in_section=len(section_segments),
+                     content_preview=section_content[:50] + "..." if len(section_content) > 50 else section_content)
+            else:
+                # No content in this section, create placeholder
+                placeholder_content = f"Key point {i+1} from presentation"
+                bullet = BulletPoint(
+                    timestamp=self._format_timestamp(section_midpoint),
+                    text=placeholder_content,
+                    confidence=0.5,
+                    duration=min(30.0, section_duration * 0.8)
+                )
+                bullets.append(bullet)
+
+                jlog(log, logging.WARNING,
+                     event="section_bullet_placeholder",
+                     job_id=self.job_id,
+                     section_index=i+1,
+                     reason="no_transcript_segments_in_section")
+
+        return bullets
+
+    def _summarize_section_content(self, section_segments: List[TranscriptSegment]) -> str:
+        """
+        Create a concise bullet point summary from transcript segments in a specific time section
+        """
+        if not section_segments:
+            return "Key presentation point"
+
+        # Combine all text from this section
+        combined_text = " ".join(seg.text.strip() for seg in section_segments)
+
+        # Enhanced keyword detection for business presentations
+        business_keywords = [
+            "objective", "goal", "target", "result", "achievement", "challenge",
+            "solution", "strategy", "plan", "proposal", "recommendation",
+            "data", "analysis", "insight", "conclusion", "next steps",
+            "implementation", "outcome", "decision", "action", "priority"
+        ]
+
+        # Find relevant keywords in this section
+        found_keywords = [kw for kw in business_keywords if kw in combined_text.lower()]
+
+        # Use keyword analysis to create focused summary
+        return self._create_focused_summary(combined_text, found_keywords)
+
+    def _create_focused_summary(self, text: str, keywords: List[str]) -> str:
+        """
+        Create a focused summary based on content and detected keywords
+        """
+        # Clean and prepare text
+        text = text.strip()
+
+        # Split into sentences
+        sentences = [s.strip() for s in text.split('.') if s.strip()]
+
+        if not sentences:
+            return text[:100] + "..." if len(text) > 100 else text
+
+        # Find the most keyword-rich sentence
+        best_sentence = sentences[0]
+        max_keyword_count = 0
+
+        for sentence in sentences:
+            keyword_count = sum(1 for kw in keywords if kw in sentence.lower())
+            if keyword_count > max_keyword_count:
+                max_keyword_count = keyword_count
+                best_sentence = sentence
+
+        # If the best sentence is too short, combine with next relevant sentence
+        if len(best_sentence) < 40 and len(sentences) > 1:
+            for sentence in sentences[1:]:
+                combined = f"{best_sentence}. {sentence}"
+                if len(combined) <= 120:  # Keep under reasonable length
+                    best_sentence = combined
+                    break
+
+        # Ensure reasonable length
+        if len(best_sentence) > 140:
+            best_sentence = best_sentence[:137] + "..."
+
+        return best_sentence
+
+    def _extract_themes_from_bullets(self, bullet_points: List[BulletPoint]) -> List[str]:
+        """
+        Extract main themes from the generated bullet points
+        """
+        if not bullet_points:
+            return ["Presentation", "Content", "Summary"]
+
+        # Combine all bullet text
+        all_text = " ".join(bp.text for bp in bullet_points).lower()
+
+        # Common presentation themes
+        theme_keywords = {
+            "Strategy": ["strategy", "strategic", "plan", "planning", "approach"],
+            "Results": ["result", "outcome", "achievement", "success", "performance"],
+            "Analysis": ["analysis", "data", "insight", "finding", "research"],
+            "Implementation": ["implement", "execution", "deploy", "launch", "action"],
+            "Goals": ["goal", "objective", "target", "aim", "purpose"],
+            "Challenges": ["challenge", "problem", "issue", "concern", "obstacle"],
+            "Solutions": ["solution", "resolve", "fix", "address", "answer"],
+            "Innovation": ["innovation", "new", "innovative", "creative", "novel"],
+            "Growth": ["growth", "increase", "expand", "scale", "develop"],
+            "Quality": ["quality", "improvement", "enhance", "optimize", "better"]
+        }
+
+        # Score themes based on keyword presence
+        theme_scores = {}
+        for theme, keywords in theme_keywords.items():
+            score = sum(1 for kw in keywords if kw in all_text)
+            if score > 0:
+                theme_scores[theme] = score
+
+        # Return top 3 themes, or defaults if none found
+        if theme_scores:
+            sorted_themes = sorted(theme_scores.items(), key=lambda x: x[1], reverse=True)
+            return [theme for theme, _ in sorted_themes[:3]]
+        else:
+            return ["Business", "Presentation", "Overview"]
+
+    def _format_timestamp(self, seconds: float) -> str:
+        """Format seconds as MM:SS timestamp"""
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{minutes:02d}:{secs:02d}"
+
     def _summarize_segment_text(self, text: str, keywords: List[str]) -> str:
         """Convert raw transcript text into concise but complete bullet point summary"""
-        
+
         # Clean up the text
         text = text.strip()
-        
+
         # Don't truncate - use complete sentences
         # Find complete sentences first
         sentences = [s.strip() for s in text.split('.') if s.strip()]
-        
+
         if not sentences:
             # If no sentences, use the full text
             return text
-        
+
         # Take the first complete sentence as the main point
         main_sentence = sentences[0]
-        
+
         # If it's too short, add the second sentence
         if len(main_sentence) < 30 and len(sentences) > 1:
             main_sentence = f"{main_sentence}. {sentences[1]}"
-        
+
         # Basic patterns to identify key information types
         patterns = {
             "goal": ["goal", "objective", "aim", "target", "purpose", "want to", "trying to"],
@@ -517,80 +552,62 @@ class ContentAgent:
             "recommendation": ["recommend", "suggest", "should", "need to", "must", "propose"],
             "challenge": ["challenge", "problem", "issue", "difficulty", "concern"],
             "solution": ["solution", "fix", "resolve", "address", "solve", "answer"],
-            "intro": ["meet", "introduce", "presenting", "welcome", "today"]
         }
-        
-        # Identify the type of content
+
+        # Enhance the sentence based on detected patterns and keywords
+        enhanced_sentence = main_sentence
+
+        # Look for patterns that indicate the type of information
         text_lower = main_sentence.lower()
-        content_type = None
-        
-        for category, pattern_words in patterns.items():
+        for pattern_type, pattern_words in patterns.items():
             if any(word in text_lower for word in pattern_words):
-                content_type = category
+                # Pattern found - this gives us context for the bullet type
                 break
-        
-        # Clean up and ensure complete sentence
-        summary = main_sentence
-        
-        # Ensure it ends properly
-        if not summary.endswith(('.', '!', '?')):
-            summary += '.'
-        
-        # Add context based on content type for clarity
-        if content_type == "goal" and not summary.lower().startswith(("goal", "objective", "our goal")):
-            summary = f"Goal: {summary}"
-        elif content_type == "result" and not summary.lower().startswith(("result", "outcome", "data shows")):
-            summary = f"Result: {summary}"
-        elif content_type == "recommendation" and not summary.lower().startswith(("recommend", "suggestion")):
-            summary = f"Recommendation: {summary}"
-        elif content_type == "intro" and summary.lower().startswith("meet"):
-            # Keep intro statements as-is, they're clear
-            pass
-        
-        # Ensure reasonable length (but complete)
-        if len(summary) > 120:
-            # Find last complete word before 120 chars
-            truncated = summary[:117]
-            last_space = truncated.rfind(' ')
-            if last_space > 80:  # Only truncate if we have a reasonable amount
-                summary = summary[:last_space] + '...'
-        
-        return summary.strip()
+
+        # Ensure we don't exceed reasonable length
+        if len(enhanced_sentence) > 140:
+            enhanced_sentence = enhanced_sentence[:137] + "..."
+
+        return enhanced_sentence
 
 
 if __name__ == "__main__":
-    # Test ContentAgent
+    # Test ContentAgent with new sectional assignment
     async def test_content_agent():
-        print("Testing ContentAgent...")
-        
+        print("Testing ContentAgent with new sectional assignment...")
+
         # Create mock transcript segments for testing
         mock_segments = [
             TranscriptSegment(0.0, 10.0, "Welcome to our project presentation on sales automation.", 0.9),
             TranscriptSegment(10.0, 25.0, "Our goal is to increase sales efficiency by 40% through AI integration.", 0.9),
             TranscriptSegment(25.0, 45.0, "The data shows significant improvement in lead conversion rates.", 0.8),
-            TranscriptSegment(45.0, 60.0, "Our recommendation is to implement this solution company-wide.", 0.9),
-            TranscriptSegment(60.0, 75.0, "Next steps include pilot testing and stakeholder approval.", 0.8),
+            TranscriptSegment(45.0, 65.0, "Implementation strategy involves three key phases for deployment.", 0.9),
+            TranscriptSegment(65.0, 80.0, "Next steps include team training and system rollout schedule.", 0.8),
         ]
-        
-        agent = ContentAgent("test_content_job")
+
+        # Test with job configuration
+        test_job_id = "test-sectional-assignment"
+        agent = ContentAgent(test_job_id)
+
+        # Test sectional assignment with 5 bullets
         result = await agent.batch_summarize(mock_segments, max_bullets=5)
-        
-        print(f"Content summarization: {'SUCCESS' if result.success else 'FAILED'}")
+
+        print(f"Processing: {'SUCCESS' if result.success else 'FAILED'}")
         print(f"Processing time: {result.processing_time:.2f} seconds")
-        print(f"Model used: {result.model_used}")
+        print(f"Bullets generated: {len(result.summary.bullet_points) if result.summary else 0}")
         print(f"Cache hit: {result.cache_hit}")
-        print(f"Tokens used: {result.tokens_used}")
-        
+
         if result.summary:
-            print(f"\nBullet Points ({len(result.summary.bullet_points)}):")
-            for i, bullet in enumerate(result.summary.bullet_points):
-                print(f"  {i+1}. [{bullet.timestamp}] {bullet.text} (conf: {bullet.confidence:.2f})")
-            
-            print(f"\nMain Themes: {', '.join(result.summary.main_themes)}")
-            print(f"Duration: {result.summary.total_duration}")
-            print(f"Overall Confidence: {result.summary.summary_confidence:.2f}")
-        
+            print(f"\\nBullet Points ({len(result.summary.bullet_points)}):")
+            for i, bullet in enumerate(result.summary.bullet_points, 1):
+                print(f"  {i}. [{bullet.timestamp}] {bullet.text}")
+                print(f"     Confidence: {bullet.confidence:.2f}, Duration: {bullet.duration}s")
+
+            print(f"\\nThemes: {result.summary.main_themes}")
+            print(f"Total Duration: {result.summary.total_duration}")
+            print(f"Summary Confidence: {result.summary.summary_confidence:.2f}")
+
         if result.error:
             print(f"Error: {result.error}")
-    
+
     asyncio.run(test_content_agent())
