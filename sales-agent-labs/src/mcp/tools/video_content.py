@@ -262,28 +262,53 @@ class ContentAgent:
                 if len(all_bullet_texts) >= max_bullets:
                     break
 
-            # Use sectional assignment for timestamps instead of bullet_index * 20
-            bullet_points_with_sections = self._assign_bullets_by_content_sections(
+            # Use content-importance assignment for timestamps instead of bullet_index * 20
+            bullet_points_with_importance = self._assign_bullets_by_content_importance(
                 segments, total_duration, len(all_bullet_texts)
             )
 
-            # Replace the generic content with LLM-generated content
+            # Map LLM-generated content to best-matching transcript segments
             bullet_points = []
             for i, bullet_text in enumerate(all_bullet_texts):
-                if i < len(bullet_points_with_sections):
+                # Find the segment that best matches this LLM content
+                best_segment = self._find_best_matching_segment(bullet_text, segments)
+
+                if best_segment:
+                    # Use the actual segment's timestamp
+                    timestamp = best_segment.start_time + (best_segment.end_time - best_segment.start_time) / 2
+                    duration = min(45.0, max(15.0, (best_segment.end_time - best_segment.start_time) * 1.2))
+
                     bullet_points.append({
-                        "timestamp": bullet_points_with_sections[i].timestamp,
+                        "timestamp": self._format_timestamp(timestamp),
                         "text": bullet_text,
                         "confidence": 0.85,  # Higher confidence for LLM
-                        "duration": bullet_points_with_sections[i].duration
+                        "duration": duration
                     })
 
+                    jlog(log, logging.INFO,
+                         event="llm_content_matched_to_segment",
+                         job_id=self.job_id,
+                         bullet_index=i+1,
+                         segment_start=best_segment.start_time,
+                         segment_end=best_segment.end_time,
+                         bullet_timestamp=timestamp,
+                         content_preview=bullet_text[:50] + "..." if len(bullet_text) > 50 else bullet_text)
+                else:
+                    # Fallback to importance-based timestamp if no good match
+                    if i < len(bullet_points_with_importance):
+                        bullet_points.append({
+                            "timestamp": bullet_points_with_importance[i].timestamp,
+                            "text": bullet_text,
+                            "confidence": 0.75,  # Lower confidence for fallback
+                            "duration": bullet_points_with_importance[i].duration
+                        })
+
             jlog(log, logging.INFO,
-                 event="llm_sectional_assignment_applied",
+                 event="llm_importance_assignment_applied",
                  job_id=self.job_id,
                  total_duration=total_duration,
                  bullets_assigned=len(bullet_points),
-                 assignment_method="sectional_with_llm_content")
+                 assignment_method="content_importance_with_llm_content")
 
             if len(bullet_points) < 3:
                 raise ValueError(f"LLM generated {len(bullet_points)} bullets, but need at least 3.")
@@ -665,6 +690,77 @@ class ContentAgent:
                 return f"{first_sentence}. {second_sentence}"
             else:
                 return first_sentence if len(first_sentence) <= 80 else first_sentence[:77] + '...'
+
+    def _find_best_matching_segment(self, bullet_text: str, segments: List[TranscriptSegment]) -> TranscriptSegment:
+        """
+        Find the transcript segment that best matches the given bullet text content
+        """
+        if not segments or not bullet_text:
+            return None
+
+        bullet_words = set(bullet_text.lower().split())
+        best_segment = None
+        best_score = 0
+
+        for segment in segments:
+            segment_words = set(segment.text.lower().split())
+
+            # Calculate word overlap score
+            common_words = bullet_words & segment_words
+            overlap_score = len(common_words)
+
+            # Calculate similarity ratio
+            total_words = len(bullet_words | segment_words)
+            similarity_ratio = overlap_score / max(total_words, 1)
+
+            # Boost score for longer overlaps and higher similarity
+            final_score = overlap_score * similarity_ratio
+
+            # Additional boost for exact phrase matches
+            bullet_lower = bullet_text.lower()
+            segment_lower = segment.text.lower()
+
+            # Check for key phrase matches
+            for phrase_length in [3, 2]:  # Check 3-word then 2-word phrases
+                bullet_phrases = [' '.join(bullet_lower.split()[i:i+phrase_length])
+                                for i in range(len(bullet_lower.split()) - phrase_length + 1)]
+                for phrase in bullet_phrases:
+                    if len(phrase.strip()) > 6 and phrase in segment_lower:  # Avoid short meaningless phrases
+                        final_score += phrase_length * 2  # Phrase match bonus
+
+            # Log scoring for debugging
+            if final_score > 0:
+                jlog(log, logging.DEBUG,
+                     event="segment_matching_score",
+                     job_id=self.job_id,
+                     bullet_preview=bullet_text[:30] + "...",
+                     segment_preview=segment.text[:30] + "...",
+                     overlap_words=overlap_score,
+                     similarity_ratio=round(similarity_ratio, 3),
+                     final_score=round(final_score, 3),
+                     segment_timestamp=f"{segment.start_time:.1f}s")
+
+            if final_score > best_score:
+                best_score = final_score
+                best_segment = segment
+
+        # Only return a match if the score is reasonable
+        if best_score >= 1.0:  # At least one meaningful word overlap
+            jlog(log, logging.INFO,
+                 event="best_segment_match_found",
+                 job_id=self.job_id,
+                 bullet_preview=bullet_text[:50] + "...",
+                 segment_preview=best_segment.text[:50] + "...",
+                 match_score=round(best_score, 3),
+                 segment_timestamp=f"{best_segment.start_time:.1f}s")
+            return best_segment
+        else:
+            jlog(log, logging.WARNING,
+                 event="no_good_segment_match",
+                 job_id=self.job_id,
+                 bullet_preview=bullet_text[:50] + "...",
+                 best_score=round(best_score, 3))
+            return None
 
     def _extract_themes_from_bullets(self, bullet_points: List[BulletPoint]) -> List[str]:
         """
