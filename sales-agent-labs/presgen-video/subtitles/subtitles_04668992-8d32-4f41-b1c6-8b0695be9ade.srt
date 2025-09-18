@@ -1,0 +1,40 @@
+1
+00:00:07,000 --> 00:00:21,000
+Identified workflow obstacles hindering sales team effectiveness.
+
+2
+00:00:21,000 --> 00:00:36,000
+Designed systems to eliminate barriers and accelerate success.
+
+3
+00:00:36,000 --> 00:00:51,000
+Measured results through tangible business outcomes, like reduced ramp-up times.
+
+4
+00:00:51,000 --> 00:01:05,000
+Presgen was created to solve the workflow problems hindering sales teams.
+
+5
+00:01:05,000 --> 00:01:20,000
+The platform automates presentation creation and video editing.
+
+6
+00:01:20,000 --> 00:01:35,000
+It enables faster content creation and consistent messaging.
+
+7
+00:01:35,000 --> 00:01:49,000
+Reduced new hire ramp times from weeks to days.
+
+8
+00:01:49,000 --> 00:02:04,000
+Ensured consistent messaging across hundreds of countries.
+
+9
+00:02:04,000 --> 00:02:18,000
+Generated over $1 million in training revenue at AWS.
+
+10
+00:02:18,000 --> 00:02:25,151
+Bringing a proven track record of innovation and results.
+

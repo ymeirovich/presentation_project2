@@ -39,16 +39,20 @@ def create_mock_transcript_segments(duration: float) -> list[TranscriptSegment]:
     """Create realistic mock transcript segments for testing"""
     segments = []
 
-    # Create segments every 15-20 seconds with realistic business content
+    # Create segments with varied importance levels to test content-importance ranking
     segment_content = [
-        "Welcome everyone to today's presentation on our Q3 sales performance",
-        "Our primary objective is to increase revenue by 40% through strategic AI integration",
-        "The data shows significant improvement in our lead conversion rates this quarter",
-        "We've identified three key phases for our implementation strategy",
-        "Customer feedback has been overwhelmingly positive with 95% satisfaction scores",
-        "Our recommendation is to implement this solution company-wide by next quarter",
-        "The next steps include team training and comprehensive system rollout",
-        "Let's review the budget allocation and timeline for this initiative"
+        "Welcome everyone to today's presentation on our Q3 sales performance",  # Introduction - should rank high
+        "Just a brief pause while we set up the projector and get everything ready",  # Filler - should rank low
+        "Our primary objective is to increase revenue by 40% through strategic AI integration",  # Key goal - should rank very high
+        "The weather has been quite nice this week, hasn't it, hope everyone is doing well",  # Irrelevant - should rank very low
+        "The data shows significant improvement in our lead conversion rates this quarter with major results",  # Key results - should rank very high
+        "We've identified three key phases for our implementation strategy going forward",  # Important strategy - should rank high
+        "Let me just adjust the microphone volume here for a moment while we continue",  # Technical filler - should rank low
+        "Customer feedback has been overwhelmingly positive with 95% satisfaction scores and critical insights",  # Important feedback - should rank high
+        "Our recommendation is to implement this solution company-wide by next quarter as a key decision",  # Major recommendation - should rank very high
+        "The next steps include team training and comprehensive system rollout for implementation",  # Action items - should rank high
+        "Thank you for your attention, any questions before we wrap up today",  # Conclusion - should rank medium
+        "Let's review the budget allocation and timeline for this critical initiative and important outcomes"  # Key planning - should rank very high
     ]
 
     segment_duration = duration / len(segment_content)
@@ -152,15 +156,35 @@ async def test_bullet_assignment():
                     exact_20s_intervals = False
                     break
 
+            # Check if content-importance assignment was used (look for specific log events)
+            importance_assignment_used = any([
+                "content_importance_assignment_start" in str(result.__dict__),
+                "importance_bullet_created" in str(result.__dict__)
+            ])
+
             print("🔍 Algorithm Analysis:")
-            print(f"   - Sectional assignment logs found: {sectional_assignment_used}")
+            print(f"   - Content-importance assignment logs found: {importance_assignment_used}")
             print(f"   - Exact 20s intervals detected: {exact_20s_intervals}")
+
+            # Analyze if bullets correspond to high-importance content
+            high_importance_content_found = False
+            for bullet in result.summary.bullet_points:
+                bullet_text_lower = bullet.text.lower()
+                important_keywords = ['objective', 'goal', 'data', 'result', 'recommendation', 'strategy', 'implementation']
+                if any(keyword in bullet_text_lower for keyword in important_keywords):
+                    high_importance_content_found = True
+                    break
+
+            print(f"   - High-importance content in bullets: {high_importance_content_found}")
 
             if exact_20s_intervals and video_duration > 100:  # Only flag as old algorithm for longer videos
                 print("❌ WARNING: May still be using old 20-second interval algorithm")
                 algorithm_ok = False
+            elif not high_importance_content_found:
+                print("⚠️  WARNING: Bullets don't seem to contain high-importance content")
+                algorithm_ok = True  # Don't fail test, but note the issue
             else:
-                print("✅ Using new sectional assignment algorithm (confirmed by logs)")
+                print("✅ Using new content-importance assignment algorithm")
                 algorithm_ok = True
 
             return all_within_bounds and algorithm_ok

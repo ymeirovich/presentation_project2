@@ -330,18 +330,18 @@ class ContentAgent:
         # Calculate total video duration
         total_duration = max((s.end_time for s in segments), default=0)
 
-        # Use content-aware sectional assignment (Phase 1 implementation)
-        bullet_points = self._assign_bullets_by_content_sections(segments, total_duration, max_bullets)
+        # Use content-importance-based assignment (Option 4 implementation)
+        bullet_points = self._assign_bullets_by_content_importance(segments, total_duration, max_bullets)
 
         # Extract themes from the generated bullets
         themes = self._extract_themes_from_bullets(bullet_points)
 
         jlog(log, logging.INFO,
-             event="content_aware_bullet_assignment",
+             event="content_importance_bullet_assignment",
              job_id=self.job_id,
              total_duration=total_duration,
              bullets_generated=len(bullet_points),
-             assignment_method="sectional_content_aware")
+             assignment_method="content_importance_based")
 
         # Create summary with bullet_points and themes
         duration_str = f"{int(total_duration//60):02d}:{int(total_duration%60):02d}"
@@ -498,6 +498,173 @@ class ContentAgent:
             best_sentence = best_sentence[:137] + "..."
 
         return best_sentence
+
+    def _assign_bullets_by_content_importance(self, segments: List[TranscriptSegment],
+                                             video_duration: float, bullet_count: int) -> List[BulletPoint]:
+        """
+        Option 4: Enhanced Transcript-Guided Distribution
+        Assign bullets based on content importance analysis and keyword density
+        """
+        if not segments or bullet_count <= 0:
+            return []
+
+        # Ensure minimum bullet count
+        bullet_count = max(3, bullet_count)
+
+        jlog(log, logging.INFO,
+             event="content_importance_assignment_start",
+             job_id=self.job_id,
+             segments_count=len(segments),
+             bullet_count=bullet_count,
+             video_duration=video_duration)
+
+        # Calculate importance scores for all segments
+        scored_segments = self._calculate_content_importance(segments)
+
+        # Select segments based on importance with minimum spacing
+        selected_segments = self._distribute_by_content_density(scored_segments, bullet_count)
+
+        # Create bullets from selected segments
+        bullets = []
+        for i, segment in enumerate(selected_segments):
+            # Use segment's actual start time as bullet timestamp
+            timestamp = segment.start_time + (segment.end_time - segment.start_time) / 2  # Midpoint of segment
+
+            # Extract the actual content from this segment
+            bullet_content = self._create_segment_summary(segment)
+
+            # Calculate duration based on segment length
+            segment_duration = segment.end_time - segment.start_time
+            duration = min(45.0, max(15.0, segment_duration * 1.2))  # 120% of segment duration, capped
+
+            bullet = BulletPoint(
+                timestamp=self._format_timestamp(timestamp),
+                text=bullet_content,
+                confidence=0.85,  # High confidence for importance-based assignment
+                duration=duration
+            )
+            bullets.append(bullet)
+
+            jlog(log, logging.INFO,
+                 event="importance_bullet_created",
+                 job_id=self.job_id,
+                 bullet_index=i+1,
+                 segment_start=segment.start_time,
+                 segment_end=segment.end_time,
+                 bullet_timestamp=timestamp,
+                 content_preview=bullet_content[:50] + "..." if len(bullet_content) > 50 else bullet_content)
+
+        return bullets
+
+    def _calculate_content_importance(self, segments: List[TranscriptSegment]) -> List[tuple]:
+        """
+        Calculate importance scores for transcript segments based on multiple factors
+        """
+        business_keywords = [
+            'objective', 'goal', 'strategy', 'result', 'achievement',
+            'challenge', 'solution', 'recommendation', 'action item',
+            'decision', 'outcome', 'analysis', 'insight', 'conclusion',
+            'data', 'performance', 'improvement', 'implementation',
+            'key', 'important', 'critical', 'significant', 'major'
+        ]
+
+        importance_weights = {
+            'keyword_density': 0.4,
+            'position_in_video': 0.2,
+            'segment_length': 0.2,
+            'confidence_boost': 0.2
+        }
+
+        importance_scores = []
+        total_duration = max(s.end_time for s in segments) if segments else 1
+
+        for segment in segments:
+            score = 0
+
+            # 1. Keyword density analysis
+            text_lower = segment.text.lower()
+            keyword_count = sum(1 for keyword in business_keywords if keyword in text_lower)
+            word_count = len(segment.text.split())
+            keyword_density = keyword_count / max(word_count, 1)
+            score += keyword_density * importance_weights['keyword_density']
+
+            # 2. Position weighting (intro and conclusion get higher scores)
+            position_ratio = segment.start_time / total_duration
+            if position_ratio < 0.2 or position_ratio > 0.8:  # First 20% or last 20%
+                position_weight = 1.0
+            elif position_ratio < 0.4 or position_ratio > 0.6:  # Second/fourth quarter
+                position_weight = 0.7
+            else:  # Middle 20%
+                position_weight = 0.5
+            score += position_weight * importance_weights['position_in_video']
+
+            # 3. Segment length weighting (longer segments often more important)
+            segment_duration = segment.end_time - segment.start_time
+            avg_segment_duration = total_duration / len(segments)
+            length_ratio = min(segment_duration / avg_segment_duration, 2.0)  # Cap at 2x average
+            score += length_ratio * importance_weights['segment_length']
+
+            # 4. Confidence boost
+            confidence_normalized = min(segment.confidence, 1.0)
+            score += confidence_normalized * importance_weights['confidence_boost']
+
+            importance_scores.append((segment, score))
+
+        # Sort by importance score (highest first)
+        return sorted(importance_scores, key=lambda x: x[1], reverse=True)
+
+    def _distribute_by_content_density(self, scored_segments: List[tuple], max_bullets: int) -> List[TranscriptSegment]:
+        """
+        Select segments with highest importance scores while maintaining minimum time spacing
+        """
+        selected_segments = []
+        min_spacing = 15  # seconds minimum between bullets
+
+        for segment, score in scored_segments:
+            if len(selected_segments) >= max_bullets:
+                break
+
+            # Check minimum spacing from already selected segments
+            can_add = True
+            for selected in selected_segments:
+                time_gap = abs(segment.start_time - selected.start_time)
+                if time_gap < min_spacing:
+                    can_add = False
+                    break
+
+            if can_add:
+                selected_segments.append(segment)
+
+        # Sort selected segments by timestamp for proper ordering
+        return sorted(selected_segments, key=lambda s: s.start_time)
+
+    def _create_segment_summary(self, segment: TranscriptSegment) -> str:
+        """
+        Create a bullet point summary from a single transcript segment
+        """
+        text = segment.text.strip()
+
+        # If text is short enough, use as-is
+        if len(text) <= 80:
+            return text
+
+        # For longer text, create a concise summary
+        sentences = text.split('. ')
+        if len(sentences) == 1:
+            # Single long sentence - truncate intelligently
+            words = text.split()
+            if len(words) <= 15:
+                return text
+            else:
+                return ' '.join(words[:12]) + '...'
+        else:
+            # Multiple sentences - use first sentence or combine short ones
+            first_sentence = sentences[0]
+            if len(first_sentence) <= 60 and len(sentences) > 1:
+                second_sentence = sentences[1] if len(sentences[1]) <= 40 else sentences[1][:40] + '...'
+                return f"{first_sentence}. {second_sentence}"
+            else:
+                return first_sentence if len(first_sentence) <= 80 else first_sentence[:77] + '...'
 
     def _extract_themes_from_bullets(self, bullet_points: List[BulletPoint]) -> List[str]:
         """
