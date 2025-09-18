@@ -19,15 +19,17 @@ from typing import Optional
 from urllib.parse import parse_qs
 import threading
 import httpx
-from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, Request, HTTPException, UploadFile, File, Form, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import BaseHTTPMiddleware
 from pydantic import BaseModel
 from pathlib import Path
 import re, json, time
+import subprocess
+from starlette.status import HTTP_206_PARTIAL_CONTENT
 from src.mcp_lab.orchestrator import orchestrate, orchestrate_mixed
 from src.common.jsonlog import jlog
 from dotenv import load_dotenv
@@ -1822,6 +1824,338 @@ async def video_result(job_id: str):
     else:
         return {"job_id": job_id, "status": job["status"], "message": "Ready for processing"}
 
+
+VIDEO_STREAM_CHUNK_SIZE = 1024 * 1024  # 1MB chunks for smooth playback
+
+
+def stream_file_segment(file_path: Path, start: int, end: int):
+    with file_path.open("rb") as video_file:
+        video_file.seek(start)
+        bytes_to_send = end - start + 1
+
+        while bytes_to_send > 0:
+            chunk = video_file.read(min(VIDEO_STREAM_CHUNK_SIZE, bytes_to_send))
+            if not chunk:
+                break
+            bytes_to_send -= len(chunk)
+            yield chunk
+
+
+def probe_video_file(file_path: Path) -> dict:
+    """Run ffprobe on a video file and return metadata"""
+    cmd = [
+        "ffprobe",
+        "-v", "quiet",
+        "-print_format", "json",
+        "-show_format",
+        "-show_streams",
+        str(file_path)
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "ffprobe failed")
+
+    return json.loads(result.stdout)
+
+
+def summarize_streams(metadata: dict) -> dict:
+    """Summarize video/audio stream information from ffprobe metadata"""
+    streams = metadata.get("streams", [])
+    video_streams = [s for s in streams if s.get("codec_type") == "video"]
+    audio_streams = [s for s in streams if s.get("codec_type") == "audio"]
+
+    summary = {
+        "video_streams": len(video_streams),
+        "audio_streams": len(audio_streams),
+        "has_video": len(video_streams) > 0,
+        "has_audio": len(audio_streams) > 0,
+        "video_codec": video_streams[0].get("codec_name") if video_streams else None,
+        "audio_codec": audio_streams[0].get("codec_name") if audio_streams else None,
+        "pixel_format": video_streams[0].get("pix_fmt") if video_streams else None,
+        "width": video_streams[0].get("width") if video_streams else None,
+        "height": video_streams[0].get("height") if video_streams else None,
+        "duration": metadata.get("format", {}).get("duration")
+    }
+
+    return summary
+
+
+TRANSCODE_LOCKS: dict[str, threading.Lock] = {}
+TRANSCODE_LOCKS_MUTEX = threading.Lock()
+
+
+def get_transcode_lock(path: Path) -> threading.Lock:
+    with TRANSCODE_LOCKS_MUTEX:
+        lock = TRANSCODE_LOCKS.get(str(path))
+        if not lock:
+            lock = threading.Lock()
+            TRANSCODE_LOCKS[str(path)] = lock
+        return lock
+
+
+def ensure_streamable_video(raw_video_path: Path) -> tuple[Path, dict]:
+    """
+    Ensure the preview uses a browser-friendly H.264/AAC file when needed.
+    Returns the path to stream and associated stream metadata.
+    """
+
+    preview_path = raw_video_path.with_name(f"{raw_video_path.stem}_preview.mp4")
+
+    try:
+        metadata = probe_video_file(raw_video_path)
+        stream_info = summarize_streams(metadata)
+    except Exception as e:
+        jlog(log, logging.ERROR,
+             event="video_probe_failed",
+             file_path=str(raw_video_path),
+             error=str(e))
+        return raw_video_path, {
+            "has_video": False,
+            "has_audio": False,
+            "probe_error": str(e)
+        }
+
+    if not stream_info["has_video"]:
+        return raw_video_path, {**stream_info, "used_preview_file": False}
+
+    codec_ok = stream_info["video_codec"] in {"h264", "vp9", "av1"}
+    pixel_format_ok = stream_info["pixel_format"] in {"yuv420p", "yuvj420p", None}
+
+    format_info = metadata.get("format", {})
+    major_brand = (format_info.get("tags", {}) or {}).get("major_brand")
+    format_name = (format_info.get("format_name") or "").lower()
+
+    # QuickTime recordings (major_brand == "qt  ") or MOV-first containers often buffer poorly in browsers
+    is_quicktime_container = major_brand == "qt  " or ("mov" in format_name and "mp4" not in format_name)
+
+    # Accept common MP4 brands; anything else forces a faststart rebuild
+    preferred_major_brands = {"isom", "mp42", "iso8", "msnv", "avc1"}
+    brand_supported = major_brand in preferred_major_brands if major_brand else True
+
+    requires_transcode = (
+        not codec_ok
+        or not pixel_format_ok
+        or is_quicktime_container
+        or not brand_supported
+        or raw_video_path.suffix.lower() not in {".mp4", ".m4v"}
+    )
+
+    if not requires_transcode:
+        return raw_video_path, {**stream_info, "used_preview_file": False}
+
+    lock = get_transcode_lock(raw_video_path)
+    with lock:
+        needs_transcode = True
+        if preview_path.exists():
+            needs_transcode = preview_path.stat().st_mtime < raw_video_path.stat().st_mtime
+
+        if needs_transcode:
+            preview_path.parent.mkdir(parents=True, exist_ok=True)
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-i", str(raw_video_path),
+                "-c:v", "libx264",
+                "-preset", "veryfast",
+                "-pix_fmt", "yuv420p",
+                "-c:a", "aac",
+                "-movflags", "faststart",
+                str(preview_path)
+            ]
+
+            jlog(log, logging.INFO,
+                 event="video_transcode_start",
+                 input=str(raw_video_path),
+                 output=str(preview_path))
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                jlog(log, logging.ERROR,
+                     event="video_transcode_failed",
+                     input=str(raw_video_path),
+                     stderr=result.stderr[:500])
+                return raw_video_path, {**stream_info, "used_preview_file": False, "transcode_error": result.stderr}
+
+            jlog(log, logging.INFO,
+                 event="video_transcode_complete",
+                 input=str(raw_video_path),
+                 output=str(preview_path),
+                 size=preview_path.stat().st_size)
+
+    try:
+        preview_metadata = probe_video_file(preview_path)
+        preview_info = summarize_streams(preview_metadata)
+    except Exception as e:
+        preview_info = {**stream_info, "preview_probe_error": str(e)}
+
+    return preview_path, {
+        **preview_info,
+        "used_preview_file": True,
+        "source_codec": stream_info.get("video_codec"),
+        "source_major_brand": major_brand,
+        "source_format_name": format_name
+    }
+
+
+@app.get("/video/raw/{job_id}")
+async def stream_raw_video(job_id: str, request: Request):
+    """Stream the raw video file for preview with Range support"""
+    job_dir = Path("/tmp/jobs") / job_id
+    raw_video_path = job_dir / "raw_video.mp4"
+
+    if not job_dir.exists():
+        jlog(log, logging.ERROR,
+             event="job_directory_not_found",
+             job_id=job_id,
+             expected_path=str(job_dir))
+        raise HTTPException(status_code=404, detail=f"Job directory {job_id} not found")
+
+    if not raw_video_path.exists():
+        jlog(log, logging.ERROR,
+             event="raw_video_not_found",
+             job_id=job_id,
+             expected_path=str(raw_video_path))
+        raise HTTPException(status_code=404, detail="Raw video file not found")
+
+    stream_path, stream_metadata = ensure_streamable_video(raw_video_path)
+    file_size = stream_path.stat().st_size
+    range_header = request.headers.get("range") or request.headers.get("Range")
+    method = request.method.upper()
+
+    if range_header:
+        match = re.match(r"bytes=(\d+)-(\d*)", range_header)
+        if match:
+            start = int(match.group(1))
+            end = int(match.group(2)) if match.group(2) else file_size - 1
+        else:
+            start = 0
+            end = file_size - 1
+
+        end = min(end, file_size - 1)
+        start = min(start, end)
+
+        jlog(log, logging.INFO,
+             event="raw_video_range_request",
+             job_id=job_id,
+             range_header=range_header,
+             start=start,
+             end=end,
+             file_size=file_size,
+             used_preview_file=stream_metadata.get("used_preview_file"),
+             video_codec=stream_metadata.get("video_codec"),
+             source_codec=stream_metadata.get("source_codec"))
+
+        headers = {
+            "Content-Range": f"bytes {start}-{end}/{file_size}",
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(end - start + 1),
+            "Cache-Control": "no-cache",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "GET, HEAD",
+            "Access-Control-Allow-Headers": "Range"
+        }
+
+        if method == "HEAD":
+            return Response(status_code=HTTP_206_PARTIAL_CONTENT, headers=headers)
+
+        return StreamingResponse(
+            stream_file_segment(stream_path, start, end),
+            media_type="video/mp4",
+            status_code=HTTP_206_PARTIAL_CONTENT,
+            headers=headers
+        )
+
+    # No Range header: stream entire file
+    jlog(log, logging.INFO,
+         event="raw_video_full_stream",
+         job_id=job_id,
+         file_size=file_size,
+         used_preview_file=stream_metadata.get("used_preview_file"),
+         video_codec=stream_metadata.get("video_codec"),
+         source_codec=stream_metadata.get("source_codec"))
+
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(file_size),
+        "Cache-Control": "no-cache",
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, HEAD",
+        "Access-Control-Allow-Headers": "Range"
+    }
+
+    if method == "HEAD":
+        return Response(status_code=200, headers=headers)
+
+    return StreamingResponse(
+        stream_file_segment(stream_path, 0, file_size - 1),
+        media_type="video/mp4",
+        headers=headers
+    )
+
+@app.get("/api/video/metadata/{job_id}")
+async def get_video_metadata(job_id: str):
+    """Get detailed video metadata using ffprobe"""
+    try:
+        job_dir = Path("/tmp/jobs") / job_id
+        raw_video_path = job_dir / "raw_video.mp4"
+
+        if not raw_video_path.exists():
+            jlog(log, logging.ERROR,
+                 event="video_metadata_file_not_found",
+                 job_id=job_id,
+                 expected_path=str(raw_video_path))
+            raise HTTPException(status_code=404, detail="Video file not found")
+
+        stream_path, stream_info = ensure_streamable_video(raw_video_path)
+
+        jlog(log, logging.INFO,
+             event="video_metadata_analysis_start",
+             job_id=job_id,
+             file_path=str(raw_video_path),
+             stream_path=str(stream_path),
+             used_preview_file=stream_info.get("used_preview_file"))
+
+        raw_metadata = probe_video_file(raw_video_path)
+        raw_summary = summarize_streams(raw_metadata)
+
+        preview_summary = None
+        if stream_info.get("used_preview_file"):
+            try:
+                preview_metadata = probe_video_file(stream_path)
+                preview_summary = summarize_streams(preview_metadata)
+            except Exception as e:
+                preview_summary = {"error": str(e)}
+
+        analysis = {
+            "raw_file": str(raw_video_path),
+            "raw_size": raw_video_path.stat().st_size,
+            "raw_summary": raw_summary,
+            "stream_file": str(stream_path),
+            "stream_size": stream_path.stat().st_size,
+            "stream_summary": stream_info,
+            "preview_summary": preview_summary,
+            "used_preview_file": stream_info.get("used_preview_file"),
+            "source_codec": stream_info.get("source_codec"),
+            "video_codec": stream_info.get("video_codec"),
+            "pixel_format": stream_info.get("pixel_format")
+        }
+
+        jlog(log, logging.INFO,
+             event="video_metadata_analysis_complete",
+             job_id=job_id,
+             used_preview_file=analysis["used_preview_file"],
+             raw_video_codec=analysis["raw_summary"].get("video_codec"),
+             stream_video_codec=analysis["stream_summary"].get("video_codec"))
+
+        return analysis
+
+    except Exception as e:
+        jlog(log, logging.ERROR,
+             event="video_metadata_analysis_error",
+             job_id=job_id,
+             error=str(e))
+        raise HTTPException(status_code=500, detail=f"Error analyzing video: {str(e)}")
 
 @app.get("/video/download/{job_id}")
 async def download_video(job_id: str):

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -33,6 +33,7 @@ interface BulletEditorProps {
   jobId: string
   initialSummary: VideoSummary
   onSummaryChange?: (summary: VideoSummary) => void
+  onBulletPointsChange?: (bulletPoints: VideoSummary['bullet_points']) => void
   className?: string
 }
 
@@ -41,26 +42,50 @@ interface BulletEditingState extends BulletPoint {
   isEditing: boolean
 }
 
-export function BulletEditor({ 
-  jobId, 
-  initialSummary, 
-  onSummaryChange, 
-  className 
+export function BulletEditor({
+  jobId,
+  initialSummary,
+  onSummaryChange,
+  onBulletPointsChange,
+  className
 }: BulletEditorProps) {
   const [bullets, setBullets] = useState<BulletEditingState[]>([])
   const [themes, setThemes] = useState<string[]>(initialSummary.main_themes)
   const [showConfidence, setShowConfidence] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const internalChangeRef = useRef({ pending: false, notify: false })
+  const isDevEnv = process.env.NODE_ENV !== 'production'
 
-  // Initialize bullets from summary
+  const debugLog = (...args: unknown[]) => {
+    if (isDevEnv) {
+      console.debug('[BulletEditor]', ...args)
+    }
+  }
+
+  // Helper function for internal bullet changes
+  const setBulletsInternal = (
+    updater: Parameters<typeof setBullets>[0],
+    notifyParent: boolean = true
+  ) => {
+    internalChangeRef.current = { pending: true, notify: notifyParent }
+    setBullets(updater)
+  }
+
+  // Initialize bullets from summary (sorted by timestamp)
   useEffect(() => {
     const initialBullets = initialSummary.bullet_points.map((bullet, index) => ({
       ...bullet,
       id: `bullet-${index}`,
       isEditing: false
     }))
-    setBullets(initialBullets)
+
+    // Sort bullets by timestamp to ensure chronological order
+    const sortedBullets = initialBullets.sort((a, b) =>
+      parseTimestamp(a.timestamp) - parseTimestamp(b.timestamp)
+    )
+
+    setBullets(sortedBullets)
   }, [initialSummary])
 
   // Check for minimum bullet count
@@ -98,19 +123,39 @@ export function BulletEditor({
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
   }
 
+  // Notify parent of bullet changes for synchronization
+  const notifyBulletChanges = (bulletEditingStates: BulletEditingState[]) => {
+    const bulletPoints = bulletEditingStates.map(({ id, isEditing, ...bullet }) => bullet)
+    onBulletPointsChange?.(bulletPoints)
+  }
+
+  // Notify parent when bullets change (for timeline sync)
+  useEffect(() => {
+    if (bullets.length > 0 && internalChangeRef.current.pending) {
+      if (internalChangeRef.current.notify) {
+        notifyBulletChanges(bullets)
+      }
+      internalChangeRef.current = { pending: false, notify: false }
+    }
+  }, [bullets])
+
   const updateBullet = (id: string, updates: Partial<BulletPoint>) => {
-    setBullets(prev => {
+    const shouldNotifyParent = Boolean(
+      updates.timestamp !== undefined || updates.duration !== undefined
+    )
+
+    setBulletsInternal(prev => {
       const updated = prev.map(bullet =>
         bullet.id === id ? { ...bullet, ...updates } : bullet
       )
 
       // Auto-reorder bullets by timestamp when timestamp is updated
-      if (updates.timestamp) {
-        return updated.sort((a, b) => parseTimestamp(a.timestamp) - parseTimestamp(b.timestamp))
-      }
+      const finalUpdated = updates.timestamp
+        ? updated.sort((a, b) => parseTimestamp(a.timestamp) - parseTimestamp(b.timestamp))
+        : updated
 
-      return updated
-    })
+      return finalUpdated
+    }, shouldNotifyParent)
     setHasUnsavedChanges(true)
   }
 
@@ -128,10 +173,10 @@ export function BulletEditor({
 
   const addBullet = () => {
     const lastBullet = bullets[bullets.length - 1]
-    const newStartTime = lastBullet 
-      ? parseTimestamp(lastBullet.timestamp) + lastBullet.duration + 5 
+    const newStartTime = lastBullet
+      ? parseTimestamp(lastBullet.timestamp) + lastBullet.duration + 5
       : 0
-    
+
     const newBullet: BulletEditingState = {
       id: `bullet-${Date.now()}`,
       timestamp: formatTimestamp(newStartTime),
@@ -140,8 +185,8 @@ export function BulletEditor({
       duration: 30,
       isEditing: true
     }
-    
-    setBullets(prev => [...prev, newBullet])
+
+    setBulletsInternal(prev => [...prev, newBullet])
     setHasUnsavedChanges(true)
   }
 
@@ -151,41 +196,53 @@ export function BulletEditor({
       return
     }
 
-    setBullets(prev => prev.filter(bullet => bullet.id !== id))
+    setBulletsInternal(prev => prev.filter(bullet => bullet.id !== id))
     setHasUnsavedChanges(true)
   }
 
   const moveBulletUp = (id: string) => {
-    setBullets(prev => {
+    setBulletsInternal(prev => {
       const index = prev.findIndex(bullet => bullet.id === id)
       if (index <= 0) return prev // Already at top or not found
 
       const newBullets = [...prev]
-      // Ensure array elements exist before swapping
-      if (newBullets[index] && newBullets[index - 1]) {
-        const temp = newBullets[index - 1]
-        newBullets[index - 1] = newBullets[index]
-        newBullets[index] = temp
-      }
+
+      const currentBullet = { ...newBullets[index] }
+      const targetBullet = { ...newBullets[index - 1] }
+
+      const tempTimestamp = currentBullet.timestamp
+      currentBullet.timestamp = targetBullet.timestamp
+      targetBullet.timestamp = tempTimestamp
+
+      newBullets[index] = targetBullet
+      newBullets[index - 1] = currentBullet
+
       return newBullets
     })
+    debugLog('moveBulletUp', { id })
     setHasUnsavedChanges(true)
   }
 
   const moveBulletDown = (id: string) => {
-    setBullets(prev => {
+    setBulletsInternal(prev => {
       const index = prev.findIndex(bullet => bullet.id === id)
       if (index >= prev.length - 1) return prev // Already at bottom or not found
 
       const newBullets = [...prev]
-      // Ensure array elements exist before swapping
-      if (newBullets[index] && newBullets[index + 1]) {
-        const temp = newBullets[index]
-        newBullets[index] = newBullets[index + 1]
-        newBullets[index + 1] = temp
-      }
+
+      const currentBullet = { ...newBullets[index] }
+      const targetBullet = { ...newBullets[index + 1] }
+
+      const tempTimestamp = currentBullet.timestamp
+      currentBullet.timestamp = targetBullet.timestamp
+      targetBullet.timestamp = tempTimestamp
+
+      newBullets[index] = targetBullet
+      newBullets[index + 1] = currentBullet
+
       return newBullets
     })
+    debugLog('moveBulletDown', { id })
     setHasUnsavedChanges(true)
   }
 

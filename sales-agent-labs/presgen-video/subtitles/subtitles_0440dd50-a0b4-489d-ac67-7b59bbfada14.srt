@@ -1,0 +1,20 @@
+1
+00:00:04,000 --> 00:00:23,000
+AI-powered slide generation with voice cloning.
+
+2
+00:00:23,000 --> 00:00:49,000
+Automated summarization and key point extraction.
+
+3
+00:00:49,000 --> 00:01:00,000
+Consistent templates and scripts for all presentations.
+
+4
+00:01:00,000 --> 00:01:56,000
+Ensures branded message consistency across markets.
+
+5
+00:01:56,000 --> 00:02:13,986
+Removes barriers to immediate sales team productivity.
+

@@ -313,6 +313,15 @@ class ContentAgent:
             if len(bullet_points) < 3:
                 raise ValueError(f"LLM generated {len(bullet_points)} bullets, but need at least 3.")
 
+            # Sort bullets by timestamp to ensure chronological order
+            bullet_points.sort(key=lambda bp: self._parse_timestamp_to_seconds(bp["timestamp"]))
+
+            jlog(log, logging.INFO,
+                 event="llm_bullets_sorted_chronologically",
+                 job_id=self.job_id,
+                 bullets_count=len(bullet_points),
+                 timestamps=[bp["timestamp"] for bp in bullet_points])
+
             # Use actual video duration instead of bullet_count * 20
             duration_str = f"{int(total_duration//60):02d}:{int(total_duration%60):02d}"
             llm_response = {
@@ -761,6 +770,19 @@ class ContentAgent:
                  bullet_preview=bullet_text[:50] + "...",
                  best_score=round(best_score, 3))
             return None
+
+    def _parse_timestamp_to_seconds(self, timestamp: str) -> float:
+        """
+        Convert timestamp string (MM:SS) to seconds for sorting
+        """
+        try:
+            time_parts = timestamp.split(":")
+            minutes = int(time_parts[0])
+            seconds = int(time_parts[1])
+            return minutes * 60 + seconds
+        except (ValueError, IndexError):
+            # Fallback for malformed timestamps
+            return 0.0
 
     def _extract_themes_from_bullets(self, bullet_points: List[BulletPoint]) -> List[str]:
         """

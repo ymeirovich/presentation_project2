@@ -14,7 +14,7 @@
       },
       "performance_tips": "Use hardware acceleration with -hwaccel auto for speed"
     },
-    "cached_at": 1758109999.961484,
+    "cached_at": 1758196983.081873,
     "library": "ffmpeg",
     "topic": "audio_extraction"
   },
@@ -34,7 +34,7 @@
       },
       "alternative": "Consider MediaPipe for better accuracy"
     },
-    "cached_at": 1758109999.982,
+    "cached_at": 1758196983.091257,
     "library": "opencv-python",
     "topic": "face_detection"
   },
@@ -55,7 +55,7 @@
       },
       "optimization": "Use GPU with device='cuda' if available"
     },
-    "cached_at": 1758110008.039207,
+    "cached_at": 1758196989.5730329,
     "library": "whisper",
     "topic": "transcription"
   },
@@ -71,7 +71,7 @@
         "Optimize for performance in demo scenarios"
       ]
     },
-    "cached_at": 1758110032.783865,
+    "cached_at": 1758197008.3984199,
     "library": "playwright",
     "topic": "html_to_png"
   }

@@ -121,10 +121,34 @@ export function VideoWorkflow({ className }: VideoWorkflowProps) {
   // Handle summary changes from bullet editor
   const handleSummaryChange = (newSummary: VideoSummary) => {
     if (!previewData) return
-    
+
     setPreviewData({
       ...previewData,
       summary: newSummary
+    })
+  }
+
+  // Handle bullet changes with automatic reordering
+  const handleBulletPointsChange = (newBulletPoints: VideoSummary['bullet_points']) => {
+    if (!previewData) return
+
+    // Sort bullets by timestamp to maintain chronological order
+    const sortedBullets = [...newBulletPoints].sort((a, b) => {
+      const parseTimestamp = (timestamp: string): number => {
+        const [minutes, seconds] = timestamp.split(':').map(Number)
+        return minutes * 60 + seconds
+      }
+      return parseTimestamp(a.timestamp) - parseTimestamp(b.timestamp)
+    })
+
+    const updatedSummary = {
+      ...previewData.summary,
+      bullet_points: sortedBullets
+    }
+
+    setPreviewData({
+      ...previewData,
+      summary: updatedSummary
     })
   }
 
@@ -247,6 +271,7 @@ export function VideoWorkflow({ className }: VideoWorkflowProps) {
               jobId={jobId}
               initialSummary={previewData.summary}
               onSummaryChange={handleSummaryChange}
+              onBulletPointsChange={handleBulletPointsChange}
             />
             <SlidePreview
               jobId={jobId}
@@ -259,9 +284,10 @@ export function VideoWorkflow({ className }: VideoWorkflowProps) {
           <VideoPreview
             jobId={jobId}
             summary={previewData.summary}
-            videoUrl={`/tmp/jobs/${jobId}/raw_video.mp4`}
+            videoUrl={`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080'}/video/raw/${jobId}`}
             initialCropRegion={previewData.crop_region}
             faceDetectionConfidence={0.82}
+            onBulletPointsChange={handleBulletPointsChange}
           />
 
           {/* Generate Final Video Button */}

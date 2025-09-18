@@ -1,0 +1,36 @@
+1
+00:00:22,000 --> 00:00:27,000
+Built Presgen, a platform addressing real sales enablement challenges with AI.
+
+2
+00:00:27,000 --> 00:00:30,000
+Presgen is a platform built to address real problems faced by global sales teams.
+
+3
+00:00:27,000 --> 00:00:44,000
+Identified workflow obstacles hindering sales team success at All Cloud.
+
+4
+00:00:44,000 --> 00:00:57,000
+Effective sales enablement is about removing barriers, not just creating courses.
+
+5
+00:00:57,000 --> 00:01:37,000
+Generated over $1 million in training revenue at AWS by focusing on behavior change.
+
+6
+00:01:37,000 --> 00:01:55,000
+Features an AI avatar for narration and a video agent for automated editing.
+
+7
+00:01:55,000 --> 00:01:59,000
+Reduce new hire ramp times from weeks to days through streamlined systems.
+
+8
+00:01:59,000 --> 00:02:04,000
+Ensure consistent messaging across hundreds of countries.
+
+9
+00:02:04,000 --> 00:02:25,151
+Focus on solutions that drive measurable performance improvements.
+
