@@ -248,31 +248,52 @@ class ContentAgent:
                 raise ValueError("LLM response is not a dict or missing 'sections'")
 
             slides_data = llm_result["sections"]
-            bullet_points = []
-            bullet_index = 0
-            for i, slide in enumerate(slides_data[:max_bullets]):
-                if bullet_index >= max_bullets:
-                    break
+
+            # Calculate total video duration for sectional assignment
+            total_duration = max((s.end_time for s in segments), default=0)
+
+            # Collect all bullet texts from LLM response
+            all_bullet_texts = []
+            for slide in slides_data[:max_bullets]:
                 for bullet_text in slide.get("bullets", []):
-                    if bullet_index >= max_bullets:
+                    if len(all_bullet_texts) >= max_bullets:
                         break
-                    timestamp = f"{(bullet_index * 20) // 60:02d}:{(bullet_index * 20) % 60:02d}"
+                    all_bullet_texts.append(bullet_text)
+                if len(all_bullet_texts) >= max_bullets:
+                    break
+
+            # Use sectional assignment for timestamps instead of bullet_index * 20
+            bullet_points_with_sections = self._assign_bullets_by_content_sections(
+                segments, total_duration, len(all_bullet_texts)
+            )
+
+            # Replace the generic content with LLM-generated content
+            bullet_points = []
+            for i, bullet_text in enumerate(all_bullet_texts):
+                if i < len(bullet_points_with_sections):
                     bullet_points.append({
-                        "timestamp": timestamp,
+                        "timestamp": bullet_points_with_sections[i].timestamp,
                         "text": bullet_text,
                         "confidence": 0.85,  # Higher confidence for LLM
-                        "duration": 20.0
+                        "duration": bullet_points_with_sections[i].duration
                     })
-                    bullet_index += 1
+
+            jlog(log, logging.INFO,
+                 event="llm_sectional_assignment_applied",
+                 job_id=self.job_id,
+                 total_duration=total_duration,
+                 bullets_assigned=len(bullet_points),
+                 assignment_method="sectional_with_llm_content")
 
             if len(bullet_points) < 3:
                 raise ValueError(f"LLM generated {len(bullet_points)} bullets, but need at least 3.")
 
-            total_duration_secs = len(bullet_points) * 20
+            # Use actual video duration instead of bullet_count * 20
+            duration_str = f"{int(total_duration//60):02d}:{int(total_duration%60):02d}"
             llm_response = {
                 "bullet_points": bullet_points,
                 "main_themes": [slide.get("title", f"Theme {i+1}") for i, slide in enumerate(slides_data[:3])],
-                "total_duration": f"{total_duration_secs // 60:02d}:{total_duration_secs % 60:02d}",
+                "total_duration": duration_str,
                 "language": "en",
                 "summary_confidence": 0.85
             }

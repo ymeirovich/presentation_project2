@@ -190,11 +190,87 @@ interface AdvancedBulletEditor {
 
 ---
 
+## 🐛 **Critical Bug Fixes - September 18, 2025**
+
+### Issue Resolution Summary
+After implementation, user testing revealed that the sectional assignment algorithm was **not being used** in the main code path. The Phase 1 & 2 implementations had a critical integration gap.
+
+### Problems Identified ❌
+1. **Backend Integration Gap**: Main LLM processing path in `_process_with_llm()` still used `bullet_index * 20` algorithm
+2. **Frontend Runtime Error**: ReferenceError in chevron reordering functions due to array destructuring
+3. **Code Path Isolation**: New sectional algorithm only used in fallback path, not main LLM path
+
+### Bug Fixes Applied ✅
+
+#### Backend Algorithm Integration
+**File**: `src/mcp/tools/video_content.py` (Lines 250-286)
+```python
+# BEFORE: bullet_index * 20 (old algorithm)
+timestamp = f"{(bullet_index * 20) // 60:02d}:{(bullet_index * 20) % 60:02d}"
+
+# AFTER: Integrated sectional assignment
+bullet_points_with_sections = self._assign_bullets_by_content_sections(
+    segments, total_duration, len(all_bullet_texts)
+)
+# Use LLM content with sectional timestamps
+```
+
+#### Frontend Error Resolution
+**File**: `presgen-ui/src/components/video/BulletEditor.tsx` (Lines 158-190)
+```typescript
+// BEFORE: Array destructuring causing ReferenceError
+[newBullets[index - 1], newBullets[index]] = [newBullets[index], newBullets[index - 1]]
+
+// AFTER: Safe element swapping with existence checks
+if (newBullets[index] && newBullets[index - 1]) {
+  const temp = newBullets[index - 1]
+  newBullets[index - 1] = newBullets[index]
+  newBullets[index] = temp
+}
+```
+
+### Testing & Verification ✅
+
+#### Test Results with `presgen_test.mp4` (65.6s duration)
+```
+🎯 Bullet Points (5):
+  1. [00:06] Welcome everyone to today's presentation... ✅
+  2. [00:19] The data shows significant improvement... ✅
+  3. [00:32] Customer feedback has been overwhelmingly... ✅
+  4. [00:45] Our recommendation is to implement... ✅
+  5. [00:59] Let's review the budget allocation... ✅
+
+📋 ASSESSMENT:
+✅ All bullets assigned within video duration bounds
+✅ Using new sectional assignment algorithm (confirmed by logs)
+```
+
+#### Algorithm Verification Logs
+```
+sectional_assignment_start: video_duration=65.630333, section_duration=13.126
+section_bullet_created: midpoint=6.563 (00:06)
+section_bullet_created: midpoint=19.689 (00:19)
+section_bullet_created: midpoint=32.815 (00:32)
+section_bullet_created: midpoint=45.941 (00:45)
+section_bullet_created: midpoint=59.067 (00:59)
+```
+
+### Resolution Impact ✅
+- **No More Timing Overruns**: Bullets guaranteed within video duration bounds
+- **Content-Aware Assignment**: Bullets placed at meaningful section midpoints
+- **Error-Free UI**: Chevron reordering works without runtime errors
+- **Comprehensive Logging**: Full visibility into assignment process
+
+---
+
+## 📊 **Final Implementation Status**
+
 **Implementation Date**: September 2025
-**Status**: ✅ Phases 1 & 2 Complete, Phase 3 Planned
+**Status**: ✅ **Phases 1 & 2 Complete + Critical Bug Fixes Applied**
 **Repository**: `sales-agent-labs/presgen-video`
 **Primary Files Modified**:
-- `src/mcp/tools/video_content.py` (Backend Algorithm)
-- `presgen-ui/src/components/video/BulletEditor.tsx` (Frontend UI)
+- `src/mcp/tools/video_content.py` (Backend Algorithm + Bug Fixes)
+- `presgen-ui/src/components/video/BulletEditor.tsx` (Frontend UI + Error Fixes)
+- `test_bullet_assignment_fix.py` (Comprehensive Testing Suite)
 
-**Next Action**: Phase 3 implementation pending user requirements and priority
+**Next Action**: Phase 3 implementation (drag-and-drop interface) pending user requirements and priority

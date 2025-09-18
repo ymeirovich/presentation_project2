@@ -1,0 +1,40 @@
+1
+00:00:00,000 --> 00:00:20,000
+Identified workflow obstacles hindering sales team success at All Cloud.
+
+2
+00:00:20,000 --> 00:00:40,000
+Generated over $1 million in training revenue at AWS by focusing on behavioral change.
+
+3
+00:00:40,000 --> 00:01:00,000
+Built Presgen, a platform addressing real sales enablement challenges with AI-driven solutions.
+
+4
+00:01:00,000 --> 00:01:20,000
+Focus on identifying and eliminating real workflow obstacles.
+
+5
+00:01:20,000 --> 00:01:40,000
+Design systems that change behavior, not just transfer knowledge.
+
+6
+00:01:40,000 --> 00:02:00,000
+Measure results through tangible business outcomes, like reduced ramp times.
+
+7
+00:02:00,000 --> 00:02:20,000
+Presgen is an AI platform built to address real sales team challenges.
+
+8
+00:02:20,000 --> 00:02:25,151
+Features video editing and auto-presentation capabilities.
+
+9
+00:02:25,151 --> 00:02:28,151
+Demonstrates a commitment to innovation and practical problem-solving.
+
+10
+00:02:25,151 --> 00:02:28,151
+Proven ability to transform how teams work through innovative solutions.
+

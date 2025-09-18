@@ -161,7 +161,12 @@ export function BulletEditor({
       if (index <= 0) return prev // Already at top or not found
 
       const newBullets = [...prev]
-      [newBullets[index - 1], newBullets[index]] = [newBullets[index], newBullets[index - 1]]
+      // Ensure array elements exist before swapping
+      if (newBullets[index] && newBullets[index - 1]) {
+        const temp = newBullets[index - 1]
+        newBullets[index - 1] = newBullets[index]
+        newBullets[index] = temp
+      }
       return newBullets
     })
     setHasUnsavedChanges(true)
@@ -173,7 +178,12 @@ export function BulletEditor({
       if (index >= prev.length - 1) return prev // Already at bottom or not found
 
       const newBullets = [...prev]
-      [newBullets[index], newBullets[index + 1]] = [newBullets[index + 1], newBullets[index]]
+      // Ensure array elements exist before swapping
+      if (newBullets[index] && newBullets[index + 1]) {
+        const temp = newBullets[index]
+        newBullets[index] = newBullets[index + 1]
+        newBullets[index + 1] = temp
+      }
       return newBullets
     })
     setHasUnsavedChanges(true)
