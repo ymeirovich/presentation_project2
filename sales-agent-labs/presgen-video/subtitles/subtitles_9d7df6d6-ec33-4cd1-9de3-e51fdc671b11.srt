@@ -1,0 +1,64 @@
+1
+00:00:11,000 --> 00:00:21,000
+Presgen assesses skills gaps and creates personalized training.
+
+2
+00:00:21,000 --> 00:00:33,000
+Technical Trainer with 27+ years of experience.
+
+3
+00:00:33,000 --> 00:01:16,000
+Aims to disrupt traditional education with AI-powered innovation.
+
+4
+00:01:16,000 --> 00:01:20,000
+Millions are overlooked for jobs due to missing skills.
+
+5
+00:01:20,000 --> 00:01:25,000
+Current training: expensive, generic, time-intensive
+
+6
+00:01:25,000 --> 00:01:35,000
+Learning one competency can take months.
+
+7
+00:01:35,000 --> 00:01:41,000
+Presgen Core: Generates tailored presentations.
+
+8
+00:01:41,000 --> 00:01:48,000
+Presgen Data: Analyzes data and inserts intelligent charts.
+
+9
+00:01:48,000 --> 00:01:57,000
+Presgen Video: Transforms content into engaging videos.
+
+10
+00:01:57,000 --> 00:02:10,000
+Presgen Training: AI-narrates AI-generated presentations
+
+11
+00:02:10,000 --> 00:02:17,000
+Advanced models → better content generation
+
+12
+00:02:17,000 --> 00:02:27,000
+OpenAI mentorship → optimized education AI
+
+13
+00:02:27,000 --> 00:02:33,000
+AI-powered education for everyone
+
+14
+00:02:33,000 --> 00:03:08,000
+Provides world-class training in resource-limited regions.
+
+15
+00:03:08,000 --> 00:03:17,000
+Presgen is a working platform ready to scale.
+
+16
+00:03:17,000 --> 00:03:29,854
+Grove partnership = global impact
+

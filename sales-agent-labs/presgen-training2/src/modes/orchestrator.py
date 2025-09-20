@@ -271,8 +271,9 @@ class ModeOrchestrator:
                     error="Must provide Google Slides URL or enable new slide generation"
                 )
 
-            # Step 2: Generate TTS audio for each slide
+            # Step 2: Generate TTS audio for each slide and update durations
             audio_files = []
+            updated_slides = []
 
             for i, slide in enumerate(slides_data):
                 if not slide.notes_text.strip():
@@ -288,7 +289,19 @@ class ModeOrchestrator:
                 )
 
                 if tts_success:
+                    # Get actual audio duration using ffprobe
+                    actual_duration = self._get_audio_duration(str(audio_path))
+                    if actual_duration:
+                        # Update slide with actual duration
+                        slide.estimated_duration = actual_duration
+                        jlog(self.logger, logging.INFO,
+                            event="slide_duration_updated",
+                            slide_index=i+1,
+                            actual_duration=actual_duration,
+                            notes_length=len(slide.notes_text))
+
                     audio_files.append(str(audio_path))
+                    updated_slides.append(slide)
                 else:
                     self.logger.warning(f"Failed to generate audio for slide {i + 1}")
 
@@ -298,9 +311,9 @@ class ModeOrchestrator:
                     error="No audio generated for any slides"
                 )
 
-            # Step 3: Render slides to video
+            # Step 3: Render slides to video with updated durations
             video_result = self.slides_renderer.render_presentation_video(
-                slides=[slide for slide in slides_data if slide.notes_text.strip()],
+                slides=updated_slides,
                 audio_files=audio_files,
                 output_path=request.output_path
             )
@@ -475,3 +488,30 @@ class ModeOrchestrator:
     def validate_google_slides_url(self, url: str) -> bool:
         """Validate Google Slides URL access"""
         return self.slides_processor.validate_slides_access(url)
+
+    def _get_audio_duration(self, audio_path: str) -> Optional[float]:
+        """Get precise audio duration using ffprobe"""
+        try:
+            import subprocess
+
+            cmd = [
+                "ffprobe",
+                "-v", "quiet",
+                "-show_entries", "format=duration",
+                "-of", "csv=p=0",
+                audio_path
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+            if result.returncode == 0:
+                duration_str = result.stdout.strip()
+                if duration_str:
+                    return float(duration_str)
+
+            self.logger.warning(f"Could not get audio duration for {audio_path}")
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Error getting audio duration: {e}")
+            return None

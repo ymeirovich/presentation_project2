@@ -1,6 +1,19 @@
 from __future__ import annotations
+import os
 from typing import List, Literal, Optional
 from pydantic import BaseModel, Field, constr, HttpUrl
+
+# Environment variable for cache control with development mode support
+def _get_cache_setting():
+    # Option C: Auto-disable cache in development mode
+    dev_mode = os.getenv("NODE_ENV") == "development" or os.getenv("PRESGEN_DEV_MODE", "false").lower() == "true"
+    if dev_mode:
+        return False
+
+    # Otherwise use explicit setting or default to true for production
+    return os.getenv("PRESGEN_USE_CACHE", "true").lower() == "true"
+
+PRESGEN_USE_CACHE = _get_cache_setting()
 
 # ---------- LLM summarize (Gemini 1.5) ---------------------------------------
 
@@ -67,7 +80,7 @@ class SlidesCreateParams(BaseModel):
 
     aspect: Literal["16:9", "4:3"] = "16:9"
     share_image_public: bool = True
-    use_cache: bool = True  # NEW: Allow bypassing idempotency cache
+    use_cache: bool = PRESGEN_USE_CACHE  # Use environment variable for cache control
 
 
 class SlidesCreateResult(BaseModel):

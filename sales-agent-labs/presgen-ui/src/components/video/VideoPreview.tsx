@@ -33,6 +33,7 @@ interface VideoPreviewProps {
   faceDetectionConfidence?: number
   onCropChange?: (cropRegion: CropRegion) => void
   onBulletPointsChange?: (bulletPoints: VideoSummary['bullet_points']) => void
+  onDurationChange?: (duration: number) => void
   className?: string
 }
 
@@ -44,6 +45,7 @@ export function VideoPreview({
   faceDetectionConfidence = 0.82,
   onCropChange,
   onBulletPointsChange,
+  onDurationChange,
   className
 }: VideoPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -152,6 +154,7 @@ export function VideoPreview({
     const video = videoRef.current
     const videoDuration = video.duration
     setDuration(videoDuration)
+    onDurationChange?.(videoDuration)
 
     console.log('[VideoPreview] Video metadata loaded:', {
       duration: videoDuration,
@@ -271,19 +274,32 @@ export function VideoPreview({
             ctx.drawImage(video, 0, 0)
             const sampleWidth = Math.min(video.videoWidth, 10)
             const sampleHeight = Math.min(video.videoHeight, 10)
-            const imageData = ctx.getImageData(0, 0, sampleWidth, sampleHeight)
-            const pixelData = Array.from(imageData.data)
-            const hasNonBlackPixels = pixelData.some(pixel => pixel > 0)
-            const avgBrightness = pixelData.length > 0
-              ? pixelData.reduce((sum, pixel) => sum + pixel, 0) / pixelData.length
-              : 0
+
+            let hasNonBlackPixels = false
+            let avgBrightness = 0
+            let pixelData: number[] = []
+
+            try {
+              const imageData = ctx.getImageData(0, 0, sampleWidth, sampleHeight)
+              pixelData = Array.from(imageData.data)
+              hasNonBlackPixels = pixelData.some(pixel => pixel > 0)
+              avgBrightness = pixelData.length > 0
+                ? pixelData.reduce((sum, pixel) => sum + pixel, 0) / pixelData.length
+                : 0
+            } catch (imageDataError) {
+              console.warn('[VideoPreview] Canvas getImageData failed (likely CORS):', imageDataError)
+              // Skip pixel analysis but continue with video debugging
+              hasNonBlackPixels = true // Assume video has content
+              avgBrightness = 128 // Assume reasonable brightness
+            }
 
             console.log('[VideoPreview] Video frame test:', {
               hasNonBlackPixels,
               avgBrightness: Math.round(avgBrightness * 100) / 100,
               samplePixels: pixelData.slice(0, 12),
               totalPixels: Math.floor(pixelData.length / 4),
-              canvasSize: `${canvas.width}x${canvas.height}`
+              canvasSize: `${canvas.width}x${canvas.height}`,
+              corsError: pixelData.length === 0
             })
 
             // Additional test: Try to extract a data URL
@@ -519,6 +535,7 @@ export function VideoPreview({
           <video
             ref={videoRef}
             src={videoUrl}
+            crossOrigin="anonymous"
             className="w-full h-auto"
             onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata}

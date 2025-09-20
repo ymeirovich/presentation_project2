@@ -34,6 +34,8 @@ interface BulletEditorProps {
   initialSummary: VideoSummary
   onSummaryChange?: (summary: VideoSummary) => void
   onBulletPointsChange?: (bulletPoints: VideoSummary['bullet_points']) => void
+  onUnsavedChangesChange?: (hasUnsavedChanges: boolean) => void
+  videoDuration?: number
   className?: string
 }
 
@@ -47,6 +49,8 @@ export function BulletEditor({
   initialSummary,
   onSummaryChange,
   onBulletPointsChange,
+  onUnsavedChangesChange,
+  videoDuration = 0,
   className
 }: BulletEditorProps) {
   const [bullets, setBullets] = useState<BulletEditingState[]>([])
@@ -54,6 +58,9 @@ export function BulletEditor({
   const [showConfidence, setShowConfidence] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+
+  // Local editing state - stores temporary values during editing that don't affect main state
+  const [editingValues, setEditingValues] = useState<Record<string, {timestamp?: string, text?: string}>>({})
   const internalChangeRef = useRef({ pending: false, notify: false })
   const isDevEnv = process.env.NODE_ENV !== 'production'
 
@@ -88,13 +95,26 @@ export function BulletEditor({
     setBullets(sortedBullets)
   }, [initialSummary])
 
+  // Notify parent of unsaved changes state
+  useEffect(() => {
+    onUnsavedChangesChange?.(hasUnsavedChanges)
+  }, [hasUnsavedChanges, onUnsavedChangesChange])
+
   // Check for minimum bullet count
   const hasMinimumBullets = bullets.length >= 3
   const missingBulletCount = Math.max(0, 3 - bullets.length)
 
   const validateTimestamp = (timestamp: string): boolean => {
     const timestampRegex = /^\d{2}:\d{2}$/
-    return timestampRegex.test(timestamp)
+    if (!timestampRegex.test(timestamp)) return false
+
+    // Check against video duration if available
+    if (videoDuration > 0) {
+      const timestampSeconds = parseTimestamp(timestamp)
+      if (timestampSeconds >= videoDuration) return false
+    }
+
+    return true
   }
 
   const validateOverlap = (bulletId: string, timestamp: string, duration: number): boolean => {
@@ -139,7 +159,7 @@ export function BulletEditor({
     }
   }, [bullets])
 
-  const updateBullet = (id: string, updates: Partial<BulletPoint>) => {
+  const updateBullet = (id: string, updates: Partial<BulletPoint>, markAsUnsaved: boolean = true) => {
     const shouldNotifyParent = Boolean(
       updates.timestamp !== undefined || updates.duration !== undefined
     )
@@ -156,19 +176,66 @@ export function BulletEditor({
 
       return finalUpdated
     }, shouldNotifyParent)
-    setHasUnsavedChanges(true)
+
+    if (markAsUnsaved) {
+      setHasUnsavedChanges(true)
+    }
+  }
+
+  // Finalize bullet update and mark as unsaved
+  const finalizeBulletUpdate = (id: string, updates: Partial<BulletPoint>) => {
+    updateBullet(id, updates, true)
   }
 
   const startEditing = (id: string) => {
-    setBullets(prev => prev.map(bullet => 
+    // Initialize local editing state with current values
+    const bullet = bullets.find(b => b.id === id)
+    if (bullet) {
+      setEditingValues(prev => ({
+        ...prev,
+        [id]: {
+          timestamp: bullet.timestamp,
+          text: bullet.text
+        }
+      }))
+    }
+
+    setBullets(prev => prev.map(bullet =>
       bullet.id === id ? { ...bullet, isEditing: true } : { ...bullet, isEditing: false }
     ))
   }
 
   const stopEditing = (id: string) => {
-    setBullets(prev => prev.map(bullet => 
+    // Finalize any temporary changes before stopping edit mode
+    const editingValue = editingValues[id]
+    if (editingValue) {
+      // Validate the final timestamp before saving
+      const timestampToValidate = editingValue.timestamp || bullets.find(b => b.id === id)?.timestamp || ""
+      if (validateTimestamp(timestampToValidate)) {
+        finalizeBulletUpdate(id, {
+          timestamp: editingValue.timestamp || bullets.find(b => b.id === id)?.timestamp,
+          text: editingValue.text || bullets.find(b => b.id === id)?.text
+        })
+      } else {
+        toast.error("Please fix timestamp format before saving")
+        return // Don't exit edit mode if timestamp is invalid
+      }
+    }
+
+    // Clear editing values for this bullet
+    clearEditingValues(id)
+
+    setBullets(prev => prev.map(bullet =>
       bullet.id === id ? { ...bullet, isEditing: false } : bullet
     ))
+  }
+
+  const clearEditingValues = (id: string) => {
+    setEditingValues(prev => {
+      const newValues = { ...prev }
+      delete newValues[id]
+      return newValues
+    })
   }
 
   const addBullet = () => {
@@ -373,13 +440,37 @@ export function BulletEditor({
                         <Clock className="w-4 h-4 text-gray-500" />
                         {bullet.isEditing ? (
                           <Input
-                            value={bullet.timestamp}
-                            onChange={(e) => updateBullet(bullet.id, { timestamp: e.target.value })}
+                            value={editingValues[bullet.id]?.timestamp ?? bullet.timestamp}
+                            onChange={(e) => {
+                              // Update only local editing state, don't touch main bullet state
+                              setEditingValues(prev => ({
+                                ...prev,
+                                [bullet.id]: {
+                                  ...prev[bullet.id],
+                                  timestamp: e.target.value
+                                }
+                              }))
+                            }}
                             placeholder="MM:SS"
                             className="w-20 h-7 text-sm"
                             onBlur={() => {
-                              if (!validateTimestamp(bullet.timestamp)) {
-                                toast.error("Invalid timestamp format (use MM:SS)")
+                              // Only validate format on blur, don't finalize changes
+                              const currentTimestamp = editingValues[bullet.id]?.timestamp ?? bullet.timestamp
+                              if (!validateTimestamp(currentTimestamp)) {
+                                const timestampSeconds = parseTimestamp(currentTimestamp)
+                                const videoDurationFormatted = formatTimestamp(Math.floor(videoDuration))
+
+                                if (!/^\d{2}:\d{2}$/.test(currentTimestamp)) {
+                                  toast.error("Invalid timestamp format (use MM:SS)")
+                                } else if (videoDuration > 0 && timestampSeconds >= videoDuration) {
+                                  toast.error(`Timestamp cannot exceed video duration (${videoDurationFormatted})`)
+                                }
+                              }
+                              // Don't call finalizeBulletUpdate here - only when save button is clicked
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                (e.target as HTMLInputElement).blur() // Just lose focus, don't finalize
                               }
                             }}
                           />
@@ -455,15 +546,24 @@ export function BulletEditor({
                     {bullet.isEditing ? (
                       <div className="space-y-2">
                         <Textarea
-                          value={bullet.text}
-                          onChange={(e) => updateBullet(bullet.id, { text: e.target.value })}
+                          value={editingValues[bullet.id]?.text ?? bullet.text}
+                          onChange={(e) => {
+                            // Update only local editing state, don't touch main bullet state
+                            setEditingValues(prev => ({
+                              ...prev,
+                              [bullet.id]: {
+                                ...prev[bullet.id],
+                                text: e.target.value
+                              }
+                            }))
+                          }}
                           placeholder="Enter bullet point text..."
                           className="resize-none"
                           rows={2}
                           maxLength={80}
                         />
                         <div className="text-xs text-gray-500 text-right">
-                          {bullet.text.length}/80 characters
+                          {(editingValues[bullet.id]?.text ?? bullet.text).length}/80 characters
                         </div>
                       </div>
                     ) : (

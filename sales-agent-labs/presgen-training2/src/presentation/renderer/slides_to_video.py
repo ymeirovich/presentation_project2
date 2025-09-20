@@ -266,9 +266,15 @@ class SlidesToVideoRenderer:
                           audio_path: str,
                           output_path: str,
                           duration: float) -> Optional[float]:
-        """Create individual slide video from image and audio"""
+        """Create individual slide video from image and audio using audio duration as primary timing"""
 
         try:
+            # Get actual audio duration to ensure precise timing
+            actual_audio_duration = self._get_actual_audio_duration(audio_path)
+            if actual_audio_duration:
+                duration = actual_audio_duration
+                self.logger.debug(f"Using actual audio duration: {duration:.2f}s for {audio_path}")
+
             cmd = [
                 "ffmpeg",
                 "-loop", "1",
@@ -280,7 +286,7 @@ class SlidesToVideoRenderer:
                 "-crf", str(self.video_config["crf"]),
                 "-r", str(self.video_config["fps"]),
                 "-s", self.video_config["resolution"],
-                "-shortest",  # End when shortest input ends
+                "-t", str(duration),  # Use explicit duration instead of -shortest
                 "-avoid_negative_ts", "make_zero",
                 "-y", output_path
             ]
@@ -366,9 +372,13 @@ class SlidesToVideoRenderer:
 
         cmd = ["ffmpeg"]
 
-        # Add all input files
+        # Add all input files with actual audio durations
         for i, (slide, audio_file) in enumerate(zip(slides, audio_files)):
-            cmd.extend(["-loop", "1", "-t", str(slide.estimated_duration), "-i", slide.local_image_path])
+            # Use actual audio duration for precise timing
+            actual_duration = self._get_actual_audio_duration(audio_file)
+            duration = actual_duration if actual_duration else slide.estimated_duration
+
+            cmd.extend(["-loop", "1", "-t", str(duration), "-i", slide.local_image_path])
             cmd.extend(["-i", audio_file])
 
         # For simplicity, create basic concatenation with fade
@@ -434,4 +444,29 @@ class SlidesToVideoRenderer:
 
         except Exception as e:
             self.logger.error(f"Error getting video info: {e}")
+            return None
+
+    def _get_actual_audio_duration(self, audio_path: str) -> Optional[float]:
+        """Get precise audio duration using ffprobe"""
+        try:
+            cmd = [
+                "ffprobe",
+                "-v", "quiet",
+                "-show_entries", "format=duration",
+                "-of", "csv=p=0",
+                audio_path
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+
+            if result.returncode == 0:
+                duration_str = result.stdout.strip()
+                if duration_str:
+                    return float(duration_str)
+
+            self.logger.warning(f"Could not get audio duration for {audio_path}")
+            return None
+
+        except Exception as e:
+            self.logger.error(f"Error getting audio duration: {e}")
             return None

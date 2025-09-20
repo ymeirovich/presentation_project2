@@ -3,9 +3,22 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import time
 import uuid
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+
+# Environment variable for cache control with development mode support
+def _get_cache_setting():
+    # Option C: Auto-disable cache in development mode
+    dev_mode = os.getenv("NODE_ENV") == "development" or os.getenv("PRESGEN_DEV_MODE", "false").lower() == "true"
+    if dev_mode:
+        return False
+
+    # Otherwise use explicit setting or default to true for production
+    return os.getenv("PRESGEN_USE_CACHE", "true").lower() == "true"
+
+PRESGEN_USE_CACHE = _get_cache_setting()
 
 from .rpc_client import MCPClient, ToolError
 from src.common.cache import get as cache_get, set as cache_set, llm_key, imagen_key
@@ -383,6 +396,7 @@ def orchestrate(
             "script": sec.get("script") or "",
             "share_image_public": True,
             "aspect": "16:9",
+            "use_cache": use_cache,  # Pass through cache setting
         }
         if image_url:
             slide_params["image_url"] = image_url
@@ -587,7 +601,7 @@ def orchestrate_mixed(
     data_questions: list[str] | None = None,
     sheet: str | None = None,
     client_request_id: str | None = None,
-    use_cache: bool = True,
+    use_cache: bool = PRESGEN_USE_CACHE,
 ) -> dict:
     pres_id: Optional[str] = None
     deck_url: Optional[str] = None

@@ -529,18 +529,15 @@ class Phase3Orchestrator:
         
         current_y = bullet_start_y
         
-        # Get maxBullets from job config, default to 5
-        config = (self._provided_job_data or {}).get('config', {})
-        max_bullets = config.get('maxBullets', 5)
-        
-        # Apply user's max bullets limit first
-        limited_timeline = slide_timeline[:max_bullets]
-        
+        # Use all bullets from the saved job data (no artificial limits)
+        # This ensures user-added bullets are included in final video
+        full_timeline = slide_timeline  # Process all bullets, not just original config limit
+
         # Calculate bullets per group based on available space
-        bullets_per_group = self._calculate_bullets_per_group(rect_height, bullet_font_size, limited_timeline)
-        
+        bullets_per_group = self._calculate_bullets_per_group(rect_height, bullet_font_size, full_timeline)
+
         # Create bullet groups with rotation logic
-        bullet_groups = self._create_bullet_groups(limited_timeline, bullets_per_group)
+        bullet_groups = self._create_bullet_groups(full_timeline, bullets_per_group)
         group_timings = self._calculate_group_timings(bullet_groups)
         
         # Generate display filters for each group with individual bullet timing but group boundaries
@@ -555,7 +552,7 @@ class Phase3Orchestrator:
             # Add bullets in this group - each appears at its individual time
             for bullet_idx, entry in enumerate(group_bullets):
                 # Calculate original bullet number for numbering
-                original_bullet_num = limited_timeline.index(entry) + 1
+                original_bullet_num = full_timeline.index(entry) + 1
                 bullet_start_time = entry['start_time']
                 
                 # Build individual bullet enable condition:
@@ -1055,7 +1052,7 @@ def _create_overlay_video(
         
         # Calculate bullets per group and create groups with rotation
         bullets_per_group = self._calculate_bullets_per_group(effective_rect_height, 24, timeline)
-        bullet_groups = self._create_bullet_groups(timeline[:max_bullets], bullets_per_group)
+        bullet_groups = self._create_bullet_groups(timeline, bullets_per_group)
         group_timings = self._calculate_group_timings(bullet_groups)
         
         # Process each bullet group with individual bullet timing but group boundaries

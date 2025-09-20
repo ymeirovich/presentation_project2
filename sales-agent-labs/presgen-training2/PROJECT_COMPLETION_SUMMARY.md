@@ -1,6 +1,6 @@
 # PresGen-Training2: Project Completion Summary
 
-**Completion Date:** September 15, 2025
+**Completion Date:** September 15, 2025 (Updated September 18, 2025 post-launch fixes)
 **Project Status:** ✅ **SUCCESSFULLY COMPLETED - PRODUCTION READY**
 **Total Duration:** 14 hours (360% faster than planned)
 
@@ -9,6 +9,11 @@
 PresGen-Training2 is a comprehensive AI avatar video generation system that replaces MuseTalk with LivePortrait technology, featuring three operational modes, voice cloning capabilities, and Google Slides integration. The system is optimized for M1 Mac hardware and delivers production-ready performance.
 
 ## ✅ All Phases Completed Successfully
+
+### Post-Launch Enhancements (September 18, 2025)
+- ✅ **Video Preview Reliability**: Automatic transcode to H.264/AAC MP4 with faststart for QuickTime/MOV uploads ensures browser playback.
+- ✅ **Preview Diagnostics**: Frontend surfaces codec/container metadata and mitigates "audio-only" confusion with alert messaging.
+- ✅ **Editing UX Polish**: Bullet editor keeps focus while typing and only commits when Save is clicked or context changes.
 
 ### Phase 1: Foundation and Environment Setup ✅
 **Duration:** 4 hours | **Status:** Complete

@@ -461,13 +461,13 @@ async def slack_command(request: Request):
                     dataset_id=ds,
                     data_questions=args["data_questions"],
                     sheet=args["sheet"],
-                    use_cache=True,
+                    use_cache=PRESGEN_USE_CACHE,
                 )
             else:
                 res = orchestrate(
                     text,
                     client_request_id=None,
-                    use_cache=True,
+                    use_cache=PRESGEN_USE_CACHE,
                     slide_count=args["slides"],
                 )
             url = res.get("url") or "(no URL)"
@@ -692,7 +692,7 @@ class TrainingVideoRequest(BaseModel):
     google_slides_url: Optional[str] = None
     reference_video_path: Optional[str] = None
     quality_level: str = "standard"
-    use_cache: bool = True
+    use_cache: bool = PRESGEN_USE_CACHE
 
 class TrainingVideoResponse(BaseModel):
     job_id: str
@@ -1236,7 +1236,7 @@ async def training_video_only(
     content_text: str = Form(None),
     content_file_path: str = Form(None),
     reference_video: UploadFile = File(None),
-    use_cache: bool = Form(True)
+    use_cache: bool = Form(PRESGEN_USE_CACHE)
 ):
     """Generate video-only content with avatar narration"""
     start_time = time.time()

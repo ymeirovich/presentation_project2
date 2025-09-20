@@ -1,0 +1,44 @@
+1
+00:00:04,000 --> 00:00:36,000
+Frustration with slow innovation in education.
+
+2
+00:00:36,000 --> 00:01:09,000
+AI offers the opportunity to disrupt the education system.
+
+3
+00:01:09,000 --> 00:01:32,000
+Rebuilding education from the ground up using AI.
+
+4
+00:01:32,000 --> 00:01:40,000
+Expensive, generic courses require months of commitment.
+
+5
+00:01:40,000 --> 00:01:55,000
+The traditional education model is fundamentally broken.
+
+6
+00:01:55,000 --> 00:02:02,000
+PresGen Core: Generates tailored presentations.
+
+7
+00:02:02,000 --> 00:02:10,000
+PresGen Data: Analyzes data and inserts intelligent charts.
+
+8
+00:02:10,000 --> 00:02:57,000
+PresGen Video: Transforms content into engaging videos.
+
+9
+00:02:57,000 --> 00:03:20,000
+Early access to OpenAI models for accuracy.
+
+10
+00:03:20,000 --> 00:03:40,000
+Job seekers overlooked due to missing skills.
+
+11
+00:03:40,000 --> 00:04:32,839
+New bullet point
+

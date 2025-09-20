@@ -1,10 +1,15 @@
 # PresGen-Training2: Project Status
 
-**Last Updated:** September 16, 2025
+**Last Updated:** September 18, 2025
 **Current Phase:** Phase 5 - Voice Cloning Implementation ✅ COMPLETED
 **Overall Progress:** 100% Complete (Production ready with real voice cloning)
 
 ## Current Status: ✅ PHASE 5 COMPLETED - REAL VOICE CLONING INTEGRATION SUCCESSFUL
+
+**Post-Launch Updates (September 18, 2025)**
+- ✅ Video preview player now auto-transcodes QuickTime/MOV inputs to streaming-friendly MP4 (H.264/AAC, `-movflags faststart`).
+- ✅ Preview UI highlights codec/container diagnostics and prevents crop overlay from hiding playback on first load.
+- ✅ Bullet editor editing UX improved: text edits stay in edit mode until Save is clicked, eliminating accidental auto-saves on keystrokes.
 
 ### Development Velocity
 - **Planned Duration:** 28 days (4 weeks total)

@@ -1,0 +1,20 @@
+1
+00:00:36,000 --> 00:01:32,000
+Traditional education is slow to innovate and change.
+
+2
+00:01:32,000 --> 00:01:55,000
+Existing platforms offer generic, time-consuming courses.
+
+3
+00:01:55,000 --> 00:02:02,000
+Generates tailored presentations for any learning objective.
+
+4
+00:02:02,000 --> 00:03:11,000
+test Analyzes data and inserts intelligent charts and visualizations.
+
+5
+00:03:11,000 --> 00:04:32,839
+Many individuals are overlooked due to specific skill gaps.
+

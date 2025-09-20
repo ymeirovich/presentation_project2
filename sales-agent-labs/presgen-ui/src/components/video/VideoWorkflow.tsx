@@ -32,6 +32,8 @@ export function VideoWorkflow({ className }: VideoWorkflowProps) {
   const [isLoadingPreview, setIsLoadingPreview] = useState(false)
   const [isGeneratingFinal, setIsGeneratingFinal] = useState(false)
   const [finalVideoData, setFinalVideoData] = useState<any>(null)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [videoDuration, setVideoDuration] = useState<number>(0)
 
   // Poll for generation status when in generating step
   useEffect(() => {
@@ -155,7 +157,24 @@ export function VideoWorkflow({ className }: VideoWorkflowProps) {
   // Handle final video generation
   const handleGenerateFinalVideo = async () => {
     if (!jobId) return
-    
+
+    // Check for unsaved changes
+    if (hasUnsavedChanges) {
+      const shouldContinue = window.confirm(
+        "You have unsaved changes to your bullet points. These changes won't be included in the final video.\n\n" +
+        "Choose:\n" +
+        "• OK - Save changes first (recommended)\n" +
+        "• Cancel - Continue with current saved version"
+      )
+
+      if (shouldContinue) {
+        toast.error("Please save your changes first, then try generating the video again.")
+        return
+      }
+      // If user chooses Cancel, continue with current version
+      toast.info("Generating video with previously saved bullet points...")
+    }
+
     setIsGeneratingFinal(true)
     try {
       await generateFinalVideo(jobId)
@@ -272,6 +291,8 @@ export function VideoWorkflow({ className }: VideoWorkflowProps) {
               initialSummary={previewData.summary}
               onSummaryChange={handleSummaryChange}
               onBulletPointsChange={handleBulletPointsChange}
+              onUnsavedChangesChange={setHasUnsavedChanges}
+              videoDuration={videoDuration}
             />
             <SlidePreview
               jobId={jobId}
@@ -288,6 +309,7 @@ export function VideoWorkflow({ className }: VideoWorkflowProps) {
             initialCropRegion={previewData.crop_region}
             faceDetectionConfidence={0.82}
             onBulletPointsChange={handleBulletPointsChange}
+            onDurationChange={setVideoDuration}
           />
 
           {/* Generate Final Video Button */}
