@@ -25,6 +25,13 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+temp/training_*/
+temp/test-*/
+
+# Output and cache directories
+out/state/cache/
+out/images/
+out/data/
 
 # User specified - MuseTalk (original system)
 Musetalk/
