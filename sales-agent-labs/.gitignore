@@ -94,6 +94,8 @@ config/*token*.json
 config/*credentials*.json
 config/google_slides_token.json
 config/google_slides_credentials.json
+token_slides.json
+token.json
 *.key
 *.pem
 
