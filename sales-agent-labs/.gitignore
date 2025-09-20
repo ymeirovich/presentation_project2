@@ -10,6 +10,7 @@ __pycache__/
 .pytest_cache/
 
 # Environment
+.env
 .env.local
 .env.*.local
 
@@ -81,6 +82,9 @@ sadtalker-api/
 *service-account.json
 token*.json
 oauth_*.json
+*credentials*.json
+config/*token*.json
+config/*credentials*.json
 *.key
 *.pem
 

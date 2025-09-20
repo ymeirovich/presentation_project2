@@ -467,6 +467,13 @@ python -m pytest tests/test_cache_unit.py
 
 ## Recent Changes
 
+### PresGen-Data Cache & Idempotency Resolution (2025-09-20)
+- **✅ Chart Insertion Fix**: Resolved charts not appearing in presentations due to cache conflicts
+- **✅ Development Mode**: Implemented auto-cache disable for development (`PRESGEN_DEV_MODE=true`)
+- **✅ Environment Variable Enforcement**: Removed all hardcoded cache overrides across codebase
+- **✅ Idempotency Management**: Clear strategies and commands for cache troubleshooting
+- [📖 View Complete Resolution](PRESGEN_CACHE_IDEMPOTENCY_FIX.md)
+
 ### Video Preview & Edit Interface Fixes (2025-09-18)
 - **✅ Video Streaming Resolution**: Fixed NotSupportedError by implementing proper `/video/raw/{job_id}` endpoint
 - **✅ Bidirectional Bullet Sync**: Complete synchronization between bullet list and interactive timeline
