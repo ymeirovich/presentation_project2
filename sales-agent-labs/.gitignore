@@ -92,6 +92,8 @@ oauth_*.json
 *credentials*.json
 config/*token*.json
 config/*credentials*.json
+config/google_slides_token.json
+config/google_slides_credentials.json
 *.key
 *.pem
 
