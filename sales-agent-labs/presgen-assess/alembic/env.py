@@ -8,8 +8,10 @@ import os
 import sys
 from pathlib import Path
 
-# Add src to path so we can import models
-sys.path.append(str(Path(__file__).parent.parent / "src"))
+# Add project root and src to path so we can import models
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / "src"))
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -21,18 +23,16 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Add your model's MetaData object here for 'autogenerate' support
-from src.models.certification import Base as CertificationBase
-from src.models.workflow import Base as WorkflowBase
-from src.models.assessment import Base as AssessmentBase
-from src.models.gaps import Base as GapsBase
+from src.models.base import Base
 
-# Combine all model bases
-target_metadata = [
-    CertificationBase.metadata,
-    WorkflowBase.metadata,
-    AssessmentBase.metadata,
-    GapsBase.metadata
-]
+# Import all models to ensure they're registered with Base
+from src.models.certification import CertificationProfile, KnowledgeBaseDocument, VectorIngestionAudit
+from src.models.workflow import WorkflowExecution, PresentationGeneration
+from src.models.assessment import AssessmentResult, LearningContent
+from src.models.gaps import IdentifiedGap
+
+# Use the unified Base metadata
+target_metadata = Base.metadata
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
