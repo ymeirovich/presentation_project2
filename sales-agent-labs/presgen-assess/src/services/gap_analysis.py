@@ -71,6 +71,15 @@ class GapAnalysisEngine:
                 confidence_analysis=confidence_analysis
             )
 
+            # NEW: Enhanced 5-Metric Gap Analysis Engine
+            skill_gap_analysis = await self._analyze_skill_gaps_five_metrics(
+                questions=questions,
+                answers=answers,
+                domain_scores=domain_scores,
+                confidence_ratings=confidence_ratings or {},
+                certification_profile=certification_profile
+            )
+
             gap_analysis = {
                 "analysis_id": str(uuid4()),
                 "assessment_id": assessment_results.get("assessment_id"),
@@ -80,6 +89,7 @@ class GapAnalysisEngine:
                 "confidence_analysis": confidence_analysis,
                 "identified_gaps": domain_gaps,
                 "skill_assessments": skill_assessments,
+                "enhanced_skill_gap_analysis": skill_gap_analysis,  # NEW: 5-metric analysis
                 "remediation_plan": remediation_plan,
                 "priority_learning_areas": self._extract_priority_areas(domain_gaps),
                 "estimated_preparation_time_hours": self._estimate_preparation_time(
@@ -88,6 +98,9 @@ class GapAnalysisEngine:
                 "recommended_study_approach": self._recommend_study_approach(
                     readiness_score, domain_gaps
                 ),
+                "google_sheets_export_data": self._prepare_google_sheets_export(
+                    skill_gap_analysis, domain_gaps, remediation_plan
+                ),  # NEW: Google Sheets export preparation
                 "generated_at": datetime.now().isoformat(),
                 "success": True
             }
@@ -677,3 +690,646 @@ class GapAnalysisEngine:
                 "current": "Baseline measured"
             }
         ]
+
+    async def _analyze_skill_gaps_five_metrics(
+        self,
+        questions: List[Dict],
+        answers: Dict,
+        domain_scores: Dict,
+        confidence_ratings: Dict,
+        certification_profile: Dict
+    ) -> Dict:
+        """Enhanced 5-metric skill gap analysis engine."""
+        try:
+            # 1. Bloom's Taxonomy Depth Analysis
+            bloom_analysis = self._analyze_blooms_taxonomy_performance(questions, answers)
+
+            # 2. Learning Style & Retention Indicators
+            learning_style_analysis = self._analyze_learning_style_patterns(questions, answers)
+
+            # 4. Metacognitive Awareness Gaps
+            metacognitive_analysis = self._analyze_metacognitive_awareness(
+                questions, answers, confidence_ratings
+            )
+
+            # 5. Transfer Learning Assessment
+            transfer_learning_analysis = self._analyze_transfer_learning_ability(
+                questions, answers, domain_scores
+            )
+
+            # 8. Certification-Specific Insights
+            certification_insights = self._analyze_certification_specific_readiness(
+                questions, answers, certification_profile, domain_scores
+            )
+
+            return {
+                "bloom_taxonomy_analysis": bloom_analysis,
+                "learning_style_indicators": learning_style_analysis,
+                "metacognitive_awareness": metacognitive_analysis,
+                "transfer_learning_assessment": transfer_learning_analysis,
+                "certification_specific_insights": certification_insights,
+                "overall_skill_profile": self._synthesize_skill_profile(
+                    bloom_analysis, learning_style_analysis, metacognitive_analysis,
+                    transfer_learning_analysis, certification_insights
+                ),
+                "analyzed_at": datetime.now().isoformat()
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Enhanced skill gap analysis failed: {e}")
+            return {
+                "error": str(e),
+                "success": False
+            }
+
+    def _analyze_blooms_taxonomy_performance(self, questions: List[Dict], answers: Dict) -> Dict:
+        """Analyze performance across Bloom's Taxonomy cognitive levels."""
+        bloom_levels = {
+            "remember": {"correct": 0, "total": 0, "questions": []},
+            "understand": {"correct": 0, "total": 0, "questions": []},
+            "apply": {"correct": 0, "total": 0, "questions": []},
+            "analyze": {"correct": 0, "total": 0, "questions": []},
+            "evaluate": {"correct": 0, "total": 0, "questions": []},
+            "create": {"correct": 0, "total": 0, "questions": []}
+        }
+
+        for question in questions:
+            question_id = question.get("id")
+            bloom_level = question.get("bloom_level", "understand").lower()
+            answer = answers.get(question_id, {})
+            is_correct = answer.get("is_correct", False)
+
+            if bloom_level in bloom_levels:
+                bloom_levels[bloom_level]["total"] += 1
+                bloom_levels[bloom_level]["questions"].append(question_id)
+                if is_correct:
+                    bloom_levels[bloom_level]["correct"] += 1
+
+        # Calculate scores and identify gaps
+        bloom_scores = {}
+        cognitive_gaps = []
+
+        for level, data in bloom_levels.items():
+            if data["total"] > 0:
+                score = data["correct"] / data["total"]
+                bloom_scores[level] = round(score, 3)
+
+                if score < 0.7:  # Gap threshold
+                    cognitive_gaps.append({
+                        "bloom_level": level,
+                        "score": score,
+                        "gap_severity": round(0.7 - score, 3),
+                        "question_count": data["total"],
+                        "evidence_questions": data["questions"]
+                    })
+
+        return {
+            "bloom_level_scores": bloom_scores,
+            "cognitive_gaps": cognitive_gaps,
+            "cognitive_depth_assessment": self._assess_cognitive_depth(bloom_scores),
+            "knowledge_vs_application_ratio": self._calculate_knowledge_application_ratio(bloom_scores),
+            "recommendations": self._generate_bloom_recommendations(cognitive_gaps)
+        }
+
+    def _analyze_learning_style_patterns(self, questions: List[Dict], answers: Dict) -> Dict:
+        """Analyze learning style and retention patterns."""
+        question_types = {
+            "multiple_choice": {"correct": 0, "total": 0, "avg_time": []},
+            "scenario_based": {"correct": 0, "total": 0, "avg_time": []},
+            "practical": {"correct": 0, "total": 0, "avg_time": []},
+            "theoretical": {"correct": 0, "total": 0, "avg_time": []}
+        }
+
+        context_switching_performance = []
+        current_domain = None
+
+        for question in questions:
+            question_id = question.get("id")
+            question_type = question.get("question_type", "multiple_choice")
+            domain = question.get("domain")
+            answer = answers.get(question_id, {})
+            is_correct = answer.get("is_correct", False)
+            response_time = answer.get("response_time_seconds", 0)
+
+            # Track question type performance
+            if question_type in question_types:
+                question_types[question_type]["total"] += 1
+                question_types[question_type]["avg_time"].append(response_time)
+                if is_correct:
+                    question_types[question_type]["correct"] += 1
+
+            # Track context switching (domain changes)
+            if current_domain and current_domain != domain:
+                context_switching_performance.append({
+                    "from_domain": current_domain,
+                    "to_domain": domain,
+                    "is_correct": is_correct,
+                    "response_time": response_time
+                })
+            current_domain = domain
+
+        # Calculate learning style indicators
+        style_preferences = {}
+        for style, data in question_types.items():
+            if data["total"] > 0:
+                accuracy = data["correct"] / data["total"]
+                avg_time = statistics.mean(data["avg_time"]) if data["avg_time"] else 0
+                style_preferences[style] = {
+                    "accuracy": round(accuracy, 3),
+                    "average_time_seconds": round(avg_time, 1),
+                    "question_count": data["total"],
+                    "efficiency_score": round(accuracy / max(avg_time / 60, 0.5), 3)  # accuracy per minute
+                }
+
+        return {
+            "question_type_preferences": style_preferences,
+            "context_switching_ability": self._analyze_context_switching(context_switching_performance),
+            "learning_style_recommendations": self._recommend_learning_approaches(style_preferences),
+            "retention_indicators": self._assess_retention_patterns(questions, answers)
+        }
+
+    def _analyze_metacognitive_awareness(self, questions: List[Dict], answers: Dict, confidence_ratings: Dict) -> Dict:
+        """Analyze metacognitive awareness and self-assessment accuracy."""
+        self_assessment_accuracy = []
+        uncertainty_recognition = []
+        strategy_adaptation = []
+
+        for question in questions:
+            question_id = question.get("id")
+            difficulty = question.get("difficulty_level", "medium")
+            answer = answers.get(question_id, {})
+            confidence = confidence_ratings.get(question_id, 3.0)
+            is_correct = answer.get("is_correct", False)
+            response_time = answer.get("response_time_seconds", 0)
+
+            # Self-assessment accuracy
+            predicted_performance = confidence / 5.0  # Convert to 0-1 scale
+            actual_performance = 1.0 if is_correct else 0.0
+            accuracy_gap = abs(predicted_performance - actual_performance)
+
+            self_assessment_accuracy.append({
+                "question_id": question_id,
+                "predicted": predicted_performance,
+                "actual": actual_performance,
+                "accuracy_gap": accuracy_gap,
+                "domain": question.get("domain")
+            })
+
+            # Uncertainty recognition (appropriate low confidence on difficult questions)
+            if difficulty in ["hard", "expert"] and confidence <= 2.0:
+                uncertainty_recognition.append({
+                    "question_id": question_id,
+                    "appropriately_uncertain": True,
+                    "is_correct": is_correct
+                })
+
+            # Strategy adaptation (time allocation based on difficulty)
+            expected_time = {"easy": 30, "medium": 60, "hard": 120, "expert": 180}.get(difficulty, 60)
+            time_ratio = response_time / expected_time
+            strategy_adaptation.append({
+                "question_id": question_id,
+                "difficulty": difficulty,
+                "time_ratio": time_ratio,
+                "appropriate_time_allocation": 0.5 <= time_ratio <= 2.0
+            })
+
+        avg_self_assessment_gap = statistics.mean([item["accuracy_gap"] for item in self_assessment_accuracy])
+        uncertainty_recognition_rate = len([item for item in uncertainty_recognition if item["appropriately_uncertain"]]) / max(len(uncertainty_recognition), 1)
+        appropriate_time_allocation_rate = len([item for item in strategy_adaptation if item["appropriate_time_allocation"]]) / len(strategy_adaptation)
+
+        return {
+            "self_assessment_accuracy": {
+                "average_gap": round(avg_self_assessment_gap, 3),
+                "details": self_assessment_accuracy,
+                "calibration_quality": "good" if avg_self_assessment_gap < 0.3 else "needs_improvement"
+            },
+            "uncertainty_recognition": {
+                "recognition_rate": round(uncertainty_recognition_rate, 3),
+                "quality": "good" if uncertainty_recognition_rate > 0.7 else "needs_improvement"
+            },
+            "strategy_adaptation": {
+                "appropriate_time_allocation_rate": round(appropriate_time_allocation_rate, 3),
+                "adaptation_quality": "good" if appropriate_time_allocation_rate > 0.7 else "needs_improvement"
+            },
+            "metacognitive_maturity_score": round((
+                (1 - avg_self_assessment_gap) + uncertainty_recognition_rate + appropriate_time_allocation_rate
+            ) / 3, 3)
+        }
+
+    def _analyze_transfer_learning_ability(self, questions: List[Dict], answers: Dict, domain_scores: Dict) -> Dict:
+        """Analyze ability to transfer learning across domains and contexts."""
+        cross_domain_connections = []
+        pattern_recognition_ability = []
+        conceptual_vs_procedural = {"conceptual": 0, "procedural": 0, "total": 0}
+
+        # Group questions by concept patterns
+        concept_patterns = {}
+        for question in questions:
+            concepts = question.get("concepts", [])
+            question_id = question.get("id")
+            answer = answers.get(question_id, {})
+            is_correct = answer.get("is_correct", False)
+
+            for concept in concepts:
+                if concept not in concept_patterns:
+                    concept_patterns[concept] = {"questions": [], "correct": 0, "total": 0}
+                concept_patterns[concept]["questions"].append(question_id)
+                concept_patterns[concept]["total"] += 1
+                if is_correct:
+                    concept_patterns[concept]["correct"] += 1
+
+        # Analyze cross-domain performance correlation
+        domains = list(domain_scores.keys())
+        for i in range(len(domains)):
+            for j in range(i + 1, len(domains)):
+                domain1, domain2 = domains[i], domains[j]
+                score1, score2 = domain_scores[domain1], domain_scores[domain2]
+                correlation_strength = 1 - abs(score1 - score2) / 100  # Simple correlation measure
+
+                cross_domain_connections.append({
+                    "domain_pair": f"{domain1} <-> {domain2}",
+                    "correlation_strength": round(correlation_strength, 3),
+                    "transfer_potential": "high" if correlation_strength > 0.8 else "medium" if correlation_strength > 0.6 else "low"
+                })
+
+        # Analyze pattern recognition across similar concepts
+        for concept, data in concept_patterns.items():
+            if data["total"] > 1:  # Multiple questions on same concept
+                consistency = data["correct"] / data["total"]
+                pattern_recognition_ability.append({
+                    "concept": concept,
+                    "consistency_score": round(consistency, 3),
+                    "question_count": data["total"],
+                    "pattern_recognition": "strong" if consistency > 0.8 else "moderate" if consistency > 0.6 else "weak"
+                })
+
+        # Assess conceptual vs procedural knowledge
+        for question in questions:
+            question_type = question.get("question_type", "multiple_choice")
+            knowledge_type = "conceptual" if question_type in ["scenario_based", "case_study"] else "procedural"
+            conceptual_vs_procedural[knowledge_type] += 1
+            conceptual_vs_procedural["total"] += 1
+
+        return {
+            "cross_domain_connections": cross_domain_connections,
+            "pattern_recognition_ability": pattern_recognition_ability,
+            "conceptual_vs_procedural_balance": {
+                "conceptual_percentage": round(conceptual_vs_procedural["conceptual"] / max(conceptual_vs_procedural["total"], 1), 3),
+                "procedural_percentage": round(conceptual_vs_procedural["procedural"] / max(conceptual_vs_procedural["total"], 1), 3),
+                "balance_quality": self._assess_knowledge_balance(conceptual_vs_procedural)
+            },
+            "transfer_learning_score": self._calculate_transfer_learning_score(
+                cross_domain_connections, pattern_recognition_ability
+            )
+        }
+
+    def _analyze_certification_specific_readiness(
+        self, questions: List[Dict], answers: Dict, certification_profile: Dict, domain_scores: Dict
+    ) -> Dict:
+        """Analyze certification-specific readiness and exam strategy."""
+        exam_strategy_readiness = []
+        industry_context_understanding = []
+        domain_interdependency_awareness = []
+
+        passing_score = certification_profile.get("passing_score", 70)
+        exam_domains = certification_profile.get("exam_domains", [])
+
+        # Analyze exam strategy (time management, question approach)
+        total_questions = len(questions)
+        total_time = sum(answers.get(q.get("id"), {}).get("response_time_seconds", 0) for q in questions)
+        avg_time_per_question = total_time / max(total_questions, 1)
+
+        # Industry context understanding (real-world scenario performance)
+        scenario_questions = [q for q in questions if q.get("question_type") == "scenario_based"]
+        scenario_performance = 0
+        if scenario_questions:
+            scenario_correct = sum(1 for q in scenario_questions if answers.get(q.get("id"), {}).get("is_correct", False))
+            scenario_performance = scenario_correct / len(scenario_questions)
+
+        # Domain interdependency analysis
+        for domain_info in exam_domains:
+            domain_name = domain_info["name"]
+            domain_weight = domain_info["weight_percentage"]
+            domain_score = domain_scores.get(domain_name, 0)
+
+            readiness_for_domain = {
+                "domain": domain_name,
+                "weight": domain_weight,
+                "current_score": domain_score,
+                "readiness_status": "ready" if domain_score >= passing_score else "needs_improvement",
+                "contribution_to_overall": (domain_score * domain_weight) / 100
+            }
+            domain_interdependency_awareness.append(readiness_for_domain)
+
+        overall_weighted_score = sum(item["contribution_to_overall"] for item in domain_interdependency_awareness)
+
+        return {
+            "exam_strategy_assessment": {
+                "time_management": {
+                    "average_time_per_question": round(avg_time_per_question, 1),
+                    "time_efficiency": "good" if 30 <= avg_time_per_question <= 120 else "needs_improvement"
+                },
+                "question_approach_effectiveness": self._assess_question_approach(questions, answers)
+            },
+            "industry_context_readiness": {
+                "scenario_performance": round(scenario_performance, 3),
+                "real_world_application_readiness": "strong" if scenario_performance > 0.8 else "moderate" if scenario_performance > 0.6 else "weak"
+            },
+            "domain_interdependency_awareness": domain_interdependency_awareness,
+            "certification_readiness_score": round(overall_weighted_score, 1),
+            "exam_readiness_indicators": {
+                "meets_passing_threshold": overall_weighted_score >= passing_score,
+                "domain_balance": self._assess_domain_balance(domain_scores),
+                "confidence_in_certification": "high" if overall_weighted_score >= passing_score + 10 else "moderate"
+            }
+        }
+
+    def _prepare_google_sheets_export(self, skill_gap_analysis: Dict, domain_gaps: List[Dict], remediation_plan: Dict) -> Dict:
+        """Prepare data for Google Sheets export with structured format."""
+        return {
+            "sheet_name": "Skill_Gap_Analysis",
+            "sections": {
+                "summary": {
+                    "title": "Gap Analysis Summary",
+                    "data": [
+                        ["Metric", "Score", "Status", "Recommendations"],
+                        ["Bloom's Taxonomy Depth", skill_gap_analysis.get("bloom_taxonomy_analysis", {}).get("cognitive_depth_assessment", "N/A"), "Analyze", "Focus on higher-order thinking"],
+                        ["Learning Style Match", skill_gap_analysis.get("learning_style_indicators", {}).get("learning_style_recommendations", "Mixed"), "Good", "Continue varied approaches"],
+                        ["Metacognitive Awareness", skill_gap_analysis.get("metacognitive_awareness", {}).get("metacognitive_maturity_score", 0), "Developing", "Practice self-assessment"],
+                        ["Transfer Learning", skill_gap_analysis.get("transfer_learning_assessment", {}).get("transfer_learning_score", 0), "Good", "Apply concepts across domains"],
+                        ["Certification Readiness", skill_gap_analysis.get("certification_specific_insights", {}).get("certification_readiness_score", 0), "In Progress", "Continue preparation"]
+                    ]
+                },
+                "detailed_gaps": {
+                    "title": "Detailed Gap Analysis",
+                    "data": [["Domain", "Current Score", "Target Score", "Gap Severity", "Priority"]] +
+                            [[gap["domain"], gap["current_score"], gap["target_score"], gap["gap_severity"], gap["remediation_priority"]] for gap in domain_gaps]
+                },
+                "remediation_actions": {
+                    "title": "Remediation Plan",
+                    "data": [["Action", "Domain", "Priority", "Estimated Hours", "Success Criteria"]] +
+                            [[action["description"], action["domain"], action["priority"], action["estimated_duration_hours"], "; ".join(action["success_criteria"])]
+                             for action in remediation_plan.get("remediation_actions", [])]
+                }
+            },
+            "charts": [
+                {
+                    "type": "radar_chart",
+                    "title": "Bloom's Taxonomy Performance",
+                    "data": skill_gap_analysis.get("bloom_taxonomy_analysis", {}).get("bloom_level_scores", {})
+                },
+                {
+                    "type": "bar_chart",
+                    "title": "Domain Performance vs Target",
+                    "data": {gap["domain"]: {"current": gap["current_score"], "target": gap["target_score"]} for gap in domain_gaps}
+                }
+            ]
+        }
+
+    # Helper methods for the new functionality
+    def _assess_cognitive_depth(self, bloom_scores: Dict) -> str:
+        """Assess cognitive depth based on Bloom's taxonomy performance."""
+        higher_order = ["analyze", "evaluate", "create"]
+        lower_order = ["remember", "understand", "apply"]
+
+        higher_avg = statistics.mean([bloom_scores.get(level, 0) for level in higher_order if level in bloom_scores])
+        lower_avg = statistics.mean([bloom_scores.get(level, 0) for level in lower_order if level in bloom_scores])
+
+        if higher_avg > 0.8:
+            return "deep_understanding"
+        elif higher_avg > 0.6:
+            return "developing_depth"
+        elif lower_avg > higher_avg:
+            return "surface_knowledge"
+        else:
+            return "mixed_depth"
+
+    def _calculate_knowledge_application_ratio(self, bloom_scores: Dict) -> float:
+        """Calculate ratio of knowledge vs application skills."""
+        knowledge_levels = ["remember", "understand"]
+        application_levels = ["apply", "analyze", "evaluate", "create"]
+
+        knowledge_avg = statistics.mean([bloom_scores.get(level, 0) for level in knowledge_levels if level in bloom_scores])
+        application_avg = statistics.mean([bloom_scores.get(level, 0) for level in application_levels if level in bloom_scores])
+
+        return round(application_avg / max(knowledge_avg, 0.1), 3)
+
+    def _generate_bloom_recommendations(self, cognitive_gaps: List[Dict]) -> List[str]:
+        """Generate recommendations based on Bloom's taxonomy gaps."""
+        recommendations = []
+        for gap in cognitive_gaps:
+            level = gap["bloom_level"]
+            if level in ["remember", "understand"]:
+                recommendations.append(f"Review fundamental concepts and definitions for {level} level")
+            elif level in ["apply", "analyze"]:
+                recommendations.append(f"Practice hands-on exercises and case studies for {level} level")
+            else:
+                recommendations.append(f"Engage in creative problem-solving and evaluation tasks for {level} level")
+        return recommendations
+
+    def _analyze_context_switching(self, context_switching_data: List[Dict]) -> Dict:
+        """Analyze context switching performance."""
+        if not context_switching_data:
+            return {"switches": 0, "average_performance": 0, "adaptation_quality": "insufficient_data"}
+
+        correct_switches = sum(1 for switch in context_switching_data if switch["is_correct"])
+        adaptation_rate = correct_switches / len(context_switching_data)
+
+        return {
+            "total_switches": len(context_switching_data),
+            "successful_adaptations": correct_switches,
+            "adaptation_rate": round(adaptation_rate, 3),
+            "adaptation_quality": "excellent" if adaptation_rate > 0.8 else "good" if adaptation_rate > 0.6 else "needs_improvement"
+        }
+
+    def _recommend_learning_approaches(self, style_preferences: Dict) -> List[str]:
+        """Recommend learning approaches based on style preferences."""
+        recommendations = []
+        best_style = max(style_preferences.items(), key=lambda x: x[1]["efficiency_score"]) if style_preferences else None
+
+        if best_style:
+            style_name = best_style[0]
+            if style_name == "scenario_based":
+                recommendations.append("Focus on case studies and real-world scenarios")
+            elif style_name == "practical":
+                recommendations.append("Emphasize hands-on practice and labs")
+            elif style_name == "theoretical":
+                recommendations.append("Study conceptual frameworks and theory")
+            else:
+                recommendations.append("Continue with mixed question formats")
+
+        return recommendations
+
+    def _assess_retention_patterns(self, questions: List[Dict], answers: Dict) -> Dict:
+        """Assess information retention patterns."""
+        # Simple retention assessment based on consistency within domains
+        domain_consistency = {}
+        for question in questions:
+            domain = question.get("domain")
+            question_id = question.get("id")
+            is_correct = answers.get(question_id, {}).get("is_correct", False)
+
+            if domain not in domain_consistency:
+                domain_consistency[domain] = {"correct": 0, "total": 0}
+
+            domain_consistency[domain]["total"] += 1
+            if is_correct:
+                domain_consistency[domain]["correct"] += 1
+
+        avg_consistency = statistics.mean([
+            data["correct"] / data["total"] for data in domain_consistency.values() if data["total"] > 0
+        ]) if domain_consistency else 0
+
+        return {
+            "domain_consistency": {domain: round(data["correct"] / data["total"], 3) for domain, data in domain_consistency.items() if data["total"] > 0},
+            "overall_retention_score": round(avg_consistency, 3),
+            "retention_quality": "strong" if avg_consistency > 0.8 else "moderate" if avg_consistency > 0.6 else "weak"
+        }
+
+    def _assess_knowledge_balance(self, conceptual_vs_procedural: Dict) -> str:
+        """Assess balance between conceptual and procedural knowledge."""
+        total = conceptual_vs_procedural["total"]
+        if total == 0:
+            return "insufficient_data"
+
+        conceptual_ratio = conceptual_vs_procedural["conceptual"] / total
+        if 0.4 <= conceptual_ratio <= 0.6:
+            return "well_balanced"
+        elif conceptual_ratio > 0.6:
+            return "conceptual_heavy"
+        else:
+            return "procedural_heavy"
+
+    def _calculate_transfer_learning_score(self, cross_domain_connections: List[Dict], pattern_recognition: List[Dict]) -> float:
+        """Calculate overall transfer learning score."""
+        if not cross_domain_connections and not pattern_recognition:
+            return 0.0
+
+        domain_transfer_avg = statistics.mean([conn["correlation_strength"] for conn in cross_domain_connections]) if cross_domain_connections else 0
+        pattern_recog_avg = statistics.mean([pat["consistency_score"] for pat in pattern_recognition]) if pattern_recognition else 0
+
+        return round((domain_transfer_avg + pattern_recog_avg) / 2, 3)
+
+    def _assess_question_approach(self, questions: List[Dict], answers: Dict) -> str:
+        """Assess effectiveness of question approach strategy."""
+        difficult_questions = [q for q in questions if q.get("difficulty_level") in ["hard", "expert"]]
+        if not difficult_questions:
+            return "insufficient_difficult_questions"
+
+        difficult_correct = sum(1 for q in difficult_questions if answers.get(q.get("id"), {}).get("is_correct", False))
+        difficult_accuracy = difficult_correct / len(difficult_questions)
+
+        return "effective" if difficult_accuracy > 0.6 else "needs_improvement"
+
+    def _assess_domain_balance(self, domain_scores: Dict) -> str:
+        """Assess balance across certification domains."""
+        if not domain_scores:
+            return "no_data"
+
+        scores = list(domain_scores.values())
+        std_dev = statistics.stdev(scores) if len(scores) > 1 else 0
+
+        if std_dev < 10:
+            return "well_balanced"
+        elif std_dev < 20:
+            return "moderately_balanced"
+        else:
+            return "unbalanced"
+
+    def _synthesize_skill_profile(self, bloom_analysis: Dict, learning_style: Dict, metacognitive: Dict, transfer_learning: Dict, certification_insights: Dict) -> Dict:
+        """Synthesize overall skill profile from all analyses."""
+        return {
+            "overall_profile_type": self._determine_learner_profile(bloom_analysis, learning_style, metacognitive),
+            "strength_areas": self._identify_strength_areas(bloom_analysis, learning_style, transfer_learning),
+            "development_priorities": self._identify_development_priorities(bloom_analysis, metacognitive, certification_insights),
+            "learning_recommendations": self._generate_comprehensive_recommendations(bloom_analysis, learning_style, metacognitive, transfer_learning, certification_insights)
+        }
+
+    def _determine_learner_profile(self, bloom_analysis: Dict, learning_style: Dict, metacognitive: Dict) -> str:
+        """Determine overall learner profile type."""
+        cognitive_depth = bloom_analysis.get("cognitive_depth_assessment", "mixed_depth")
+        metacog_score = metacognitive.get("metacognitive_maturity_score", 0.5)
+
+        if cognitive_depth == "deep_understanding" and metacog_score > 0.8:
+            return "advanced_strategic_learner"
+        elif cognitive_depth in ["developing_depth", "deep_understanding"] and metacog_score > 0.6:
+            return "developing_strategic_learner"
+        elif cognitive_depth == "surface_knowledge":
+            return "knowledge_focused_learner"
+        else:
+            return "mixed_profile_learner"
+
+    def _identify_strength_areas(self, bloom_analysis: Dict, learning_style: Dict, transfer_learning: Dict) -> List[str]:
+        """Identify key strength areas."""
+        strengths = []
+
+        # Check Bloom's strengths
+        bloom_scores = bloom_analysis.get("bloom_level_scores", {})
+        for level, score in bloom_scores.items():
+            if score > 0.8:
+                strengths.append(f"Strong {level} skills")
+
+        # Check learning style strengths
+        style_prefs = learning_style.get("question_type_preferences", {})
+        best_style = max(style_prefs.items(), key=lambda x: x[1]["accuracy"]) if style_prefs else None
+        if best_style and best_style[1]["accuracy"] > 0.8:
+            strengths.append(f"Excellent {best_style[0]} performance")
+
+        # Check transfer learning
+        transfer_score = transfer_learning.get("transfer_learning_score", 0)
+        if transfer_score > 0.8:
+            strengths.append("Strong transfer learning ability")
+
+        return strengths if strengths else ["Foundational knowledge"]
+
+    def _identify_development_priorities(self, bloom_analysis: Dict, metacognitive: Dict, certification_insights: Dict) -> List[str]:
+        """Identify key development priorities."""
+        priorities = []
+
+        # Check cognitive gaps
+        cognitive_gaps = bloom_analysis.get("cognitive_gaps", [])
+        for gap in cognitive_gaps:
+            if gap["gap_severity"] > 0.3:
+                priorities.append(f"Develop {gap['bloom_level']} skills")
+
+        # Check metacognitive needs
+        metacog_score = metacognitive.get("metacognitive_maturity_score", 1.0)
+        if metacog_score < 0.6:
+            priorities.append("Improve self-assessment accuracy")
+
+        # Check certification readiness
+        cert_score = certification_insights.get("certification_readiness_score", 100)
+        if cert_score < 70:
+            priorities.append("Strengthen certification preparation")
+
+        return priorities if priorities else ["Continue current progress"]
+
+    def _generate_comprehensive_recommendations(self, bloom_analysis: Dict, learning_style: Dict, metacognitive: Dict, transfer_learning: Dict, certification_insights: Dict) -> List[str]:
+        """Generate comprehensive learning recommendations."""
+        recommendations = []
+
+        # Bloom's recommendations
+        recommendations.extend(bloom_analysis.get("recommendations", []))
+
+        # Learning style recommendations
+        recommendations.extend(learning_style.get("learning_style_recommendations", []))
+
+        # Metacognitive recommendations
+        metacog_score = metacognitive.get("metacognitive_maturity_score", 1.0)
+        if metacog_score < 0.7:
+            recommendations.append("Practice estimating your confidence before answering questions")
+            recommendations.append("Review incorrect answers to improve self-assessment")
+
+        # Transfer learning recommendations
+        transfer_score = transfer_learning.get("transfer_learning_score", 1.0)
+        if transfer_score < 0.7:
+            recommendations.append("Practice applying concepts across different domains")
+            recommendations.append("Look for patterns and connections between topics")
+
+        # Certification-specific recommendations
+        cert_readiness = certification_insights.get("exam_readiness_indicators", {})
+        if not cert_readiness.get("meets_passing_threshold", True):
+            recommendations.append("Focus on high-weight certification domains")
+            recommendations.append("Practice with exam-format questions")
+
+        return list(set(recommendations))  # Remove duplicates

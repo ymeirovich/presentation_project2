@@ -1,0 +1,394 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import { useForm, useFieldArray } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { Plus, Trash2, AlertCircle, CheckCircle, Save, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { toast } from 'sonner';
+import {
+  CertificationAPI,
+  CertificationProfile,
+  CertificationProfileCreate,
+  CertificationProfileCreateSchema,
+  createDefaultExamDomain,
+  validateDomainWeights,
+  calculateCompletionPercentage
+} from '@/lib/certification-api';
+
+interface CertificationProfileFormProps {
+  profile?: CertificationProfile;
+  onSave?: (profile: CertificationProfile) => void;
+  onCancel?: () => void;
+  mode?: 'create' | 'edit';
+}
+
+export default function CertificationProfileForm({
+  profile,
+  onSave,
+  onCancel,
+  mode = 'create'
+}: CertificationProfileFormProps) {
+  const [saving, setSaving] = useState(false);
+  const [completionPercentage, setCompletionPercentage] = useState(0);
+
+  const {
+    register,
+    control,
+    handleSubmit,
+    watch,
+    setValue,
+    formState: { errors, isValid }
+  } = useForm<CertificationProfileCreate>({
+    resolver: zodResolver(CertificationProfileCreateSchema),
+    defaultValues: profile ? {
+      name: profile.name,
+      version: profile.version,
+      exam_domains: profile.exam_domains,
+      assessment_template: profile.assessment_template || undefined
+    } : {
+      name: '',
+      version: '1.0',
+      exam_domains: [createDefaultExamDomain()],
+      assessment_template: undefined
+    },
+    mode: 'onChange'
+  });
+
+  const { fields, append, remove } = useFieldArray({
+    control,
+    name: 'exam_domains'
+  });
+
+  const watchedFields = watch();
+
+  // Update completion percentage when form changes
+  useEffect(() => {
+    const percentage = calculateCompletionPercentage(watchedFields);
+    setCompletionPercentage(percentage);
+  }, [watchedFields]);
+
+  // Handle form submission
+  const onSubmit = async (data: CertificationProfileCreate) => {
+    try {
+      setSaving(true);
+
+      // Validate domain weights
+      const validation = validateDomainWeights(data.exam_domains);
+      if (!validation.isValid) {
+        toast.error(validation.error);
+        return;
+      }
+
+      let savedProfile: CertificationProfile;
+
+      if (mode === 'edit' && profile) {
+        savedProfile = await CertificationAPI.update(profile.id, data);
+        toast.success('Profile updated successfully');
+      } else {
+        savedProfile = await CertificationAPI.create(data);
+        toast.success('Profile created successfully');
+      }
+
+      onSave?.(savedProfile);
+    } catch (error) {
+      console.error('Failed to save profile:', error);
+      toast.error(`Failed to ${mode === 'edit' ? 'update' : 'create'} profile`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Add new exam domain
+  const addExamDomain = () => {
+    append(createDefaultExamDomain());
+  };
+
+  // Remove exam domain
+  const removeExamDomain = (index: number) => {
+    if (fields.length > 1) {
+      remove(index);
+    } else {
+      toast.error('At least one exam domain is required');
+    }
+  };
+
+  // Auto-balance domain weights
+  const autoBalanceWeights = () => {
+    const domainCount = fields.length;
+    const equalWeight = Math.floor(100 / domainCount);
+    const remainder = 100 % domainCount;
+
+    fields.forEach((_, index) => {
+      const weight = index < remainder ? equalWeight + 1 : equalWeight;
+      setValue(`exam_domains.${index}.weight_percentage`, weight);
+    });
+
+    toast.success('Domain weights auto-balanced');
+  };
+
+  // Get current total weight
+  const getCurrentTotalWeight = () => {
+    return watchedFields.exam_domains?.reduce(
+      (sum, domain) => sum + (domain.weight_percentage || 0),
+      0
+    ) || 0;
+  };
+
+  const totalWeight = getCurrentTotalWeight();
+  const isWeightValid = totalWeight === 100;
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex justify-between items-center">
+        <div>
+          <h2 className="text-2xl font-bold">
+            {mode === 'edit' ? 'Edit' : 'Create'} Certification Profile
+          </h2>
+          <p className="text-gray-600">
+            Configure assessment domains and knowledge requirements
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant={completionPercentage === 100 ? 'default' : 'secondary'}>
+            {completionPercentage}% Complete
+          </Badge>
+          <Progress value={completionPercentage} className="w-20" />
+        </div>
+      </div>
+
+      <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+        {/* Basic Information */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Basic Information</CardTitle>
+            <CardDescription>
+              Define the certification name and version
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="name">Certification Name *</Label>
+                <Input
+                  id="name"
+                  {...register('name')}
+                  placeholder="e.g., AWS Solutions Architect"
+                  className={errors.name ? 'border-red-500' : ''}
+                />
+                {errors.name && (
+                  <p className="text-sm text-red-500 mt-1">{errors.name.message}</p>
+                )}
+              </div>
+              <div>
+                <Label htmlFor="version">Version *</Label>
+                <Input
+                  id="version"
+                  {...register('version')}
+                  placeholder="e.g., 2023"
+                  className={errors.version ? 'border-red-500' : ''}
+                />
+                {errors.version && (
+                  <p className="text-sm text-red-500 mt-1">{errors.version.message}</p>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Exam Domains */}
+        <Card>
+          <CardHeader>
+            <div className="flex justify-between items-center">
+              <div>
+                <CardTitle>Exam Domains</CardTitle>
+                <CardDescription>
+                  Define assessment domains and their weights (must total 100%)
+                </CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge
+                  variant={isWeightValid ? 'default' : 'destructive'}
+                  className="flex items-center gap-1"
+                >
+                  {isWeightValid ? (
+                    <CheckCircle className="h-3 w-3" />
+                  ) : (
+                    <AlertCircle className="h-3 w-3" />
+                  )}
+                  {totalWeight}%
+                </Badge>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={autoBalanceWeights}
+                >
+                  Auto-Balance
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {fields.map((field, index) => (
+              <div key={field.id} className="border rounded-lg p-4 space-y-3">
+                <div className="flex justify-between items-center">
+                  <h4 className="font-medium">Domain {index + 1}</h4>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => removeExamDomain(index)}
+                    disabled={fields.length === 1}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="col-span-2">
+                    <Label htmlFor={`domain-name-${index}`}>Domain Name *</Label>
+                    <Input
+                      id={`domain-name-${index}`}
+                      {...register(`exam_domains.${index}.name`)}
+                      placeholder="e.g., Design Resilient Architectures"
+                      className={errors.exam_domains?.[index]?.name ? 'border-red-500' : ''}
+                    />
+                    {errors.exam_domains?.[index]?.name && (
+                      <p className="text-sm text-red-500 mt-1">
+                        {errors.exam_domains[index]?.name?.message}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <Label htmlFor={`domain-weight-${index}`}>Weight % *</Label>
+                    <Input
+                      id={`domain-weight-${index}`}
+                      type="number"
+                      min="0"
+                      max="100"
+                      {...register(`exam_domains.${index}.weight_percentage`, {
+                        valueAsNumber: true
+                      })}
+                      placeholder="25"
+                      className={errors.exam_domains?.[index]?.weight_percentage ? 'border-red-500' : ''}
+                    />
+                    {errors.exam_domains?.[index]?.weight_percentage && (
+                      <p className="text-sm text-red-500 mt-1">
+                        {errors.exam_domains[index]?.weight_percentage?.message}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <Label htmlFor={`domain-subdomains-${index}`}>Subdomains (comma-separated)</Label>
+                  <Input
+                    id={`domain-subdomains-${index}`}
+                    placeholder="e.g., Scalability, Fault Tolerance, Disaster Recovery"
+                    onChange={(e) => {
+                      const subdomains = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+                      setValue(`exam_domains.${index}.subdomains`, subdomains);
+                    }}
+                    defaultValue={field.subdomains.join(', ')}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor={`domain-skills-${index}`}>Skills Measured (comma-separated)</Label>
+                  <Input
+                    id={`domain-skills-${index}`}
+                    placeholder="e.g., Design multi-tier architectures, Implement elasticity"
+                    onChange={(e) => {
+                      const skills = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+                      setValue(`exam_domains.${index}.skills_measured`, skills);
+                    }}
+                    defaultValue={field.skills_measured.join(', ')}
+                  />
+                </div>
+              </div>
+            ))}
+
+            <Button
+              type="button"
+              variant="outline"
+              onClick={addExamDomain}
+              className="w-full"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Add Exam Domain
+            </Button>
+
+            {errors.exam_domains && (
+              <div className="flex items-center gap-2 text-red-600 text-sm">
+                <AlertCircle className="h-4 w-4" />
+                <span>Please ensure all domain weights sum to 100%</span>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Assessment Template */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Assessment Template (Optional)</CardTitle>
+            <CardDescription>
+              Custom assessment configuration in JSON format
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Textarea
+              {...register('assessment_template', {
+                setValueAs: (value) => {
+                  if (!value || value.trim() === '') return undefined;
+                  try {
+                    return JSON.parse(value);
+                  } catch {
+                    return value; // Let validation handle the error
+                  }
+                }
+              })}
+              placeholder='{"question_count": 65, "time_limit_minutes": 130, "difficulty_distribution": {"easy": 0.2, "medium": 0.6, "hard": 0.2}}'
+              rows={4}
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Leave empty to use default assessment settings
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Actions */}
+        <div className="flex justify-end gap-3">
+          <Button type="button" variant="outline" onClick={onCancel}>
+            <X className="h-4 w-4 mr-2" />
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            disabled={saving || !isValid || !isWeightValid}
+          >
+            {saving ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="h-4 w-4 mr-2" />
+                {mode === 'edit' ? 'Update' : 'Create'} Profile
+              </>
+            )}
+          </Button>
+        </div>
+      </form>
+    </div>
+  );
+}

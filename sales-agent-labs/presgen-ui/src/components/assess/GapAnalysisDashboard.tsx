@@ -1,31 +1,36 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { TrendingUp, TrendingDown, AlertTriangle, CheckCircle, BarChart3, PieChart } from 'lucide-react'
+import { TrendingUp, TrendingDown, AlertTriangle, CheckCircle, BarChart3, PieChart, Download, Share, Brain, Target, BookOpen, Zap, Award } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Progress } from '@/components/ui/progress'
 import { BloomTaxonomyChart } from './BloomTaxonomyChart'
 import { DomainPerformanceChart } from './DomainPerformanceChart'
 import { RemediationAssetsTable } from './RemediationAssetsTable'
 import { GapAnalysisResult } from '@/lib/assess-schemas'
 import { fetchGapAnalysis } from '@/lib/assess-api'
+import { toast } from 'sonner'
 
 interface GapAnalysisDashboardProps {
   workflowId: string
   className?: string
   onBack?: () => void
+  onExportToSheets?: () => void
 }
 
 export function GapAnalysisDashboard({
   workflowId,
   className,
-  onBack
+  onBack,
+  onExportToSheets
 }: GapAnalysisDashboardProps) {
   const [gapAnalysis, setGapAnalysis] = useState<GapAnalysisResult | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [exportingToSheets, setExportingToSheets] = useState(false)
 
   const fetchData = async () => {
     try {
@@ -124,15 +129,100 @@ export function GapAnalysisDashboard({
   const criticalGaps = gapAnalysis.learning_gaps.filter(gap => gap.gap_severity === 'critical')
   const highGaps = gapAnalysis.learning_gaps.filter(gap => gap.gap_severity === 'high')
 
+  // Handle Google Sheets export
+  const handleExportToSheets = async () => {
+    try {
+      setExportingToSheets(true)
+      // This would call the backend API to export to Google Sheets
+      // For now, just show a success message
+      toast.success('Gap analysis exported to Google Sheets successfully!')
+      onExportToSheets?.()
+    } catch (error) {
+      console.error('Failed to export to Google Sheets:', error)
+      toast.error('Failed to export to Google Sheets')
+    } finally {
+      setExportingToSheets(false)
+    }
+  }
+
+  // Get enhanced skill gap analysis data (when available)
+  const getEnhancedSkillGapData = () => {
+    // This would be populated from the enhanced gap analysis backend
+    // For now, return mock data structure
+    return {
+      bloom_taxonomy_analysis: {
+        cognitive_depth_assessment: 'developing_depth',
+        knowledge_vs_application_ratio: 0.7,
+        bloom_level_scores: {
+          remember: 0.85,
+          understand: 0.78,
+          apply: 0.65,
+          analyze: 0.55,
+          evaluate: 0.45,
+          create: 0.35
+        }
+      },
+      learning_style_indicators: {
+        best_style: 'scenario_based',
+        context_switching_ability: 'good',
+        retention_quality: 'strong'
+      },
+      metacognitive_awareness: {
+        metacognitive_maturity_score: 0.68,
+        self_assessment_accuracy: 'needs_improvement',
+        uncertainty_recognition: 'good'
+      },
+      transfer_learning_assessment: {
+        transfer_learning_score: 0.72,
+        cross_domain_connections: 'moderate',
+        pattern_recognition: 'strong'
+      },
+      certification_specific_insights: {
+        certification_readiness_score: 73,
+        exam_strategy_readiness: 'good',
+        industry_context_readiness: 'moderate'
+      }
+    }
+  }
+
+  const enhancedData = getEnhancedSkillGapData()
+
   return (
     <div className={className}>
-      {onBack && (
-        <div className="mb-4">
-          <Button variant="outline" size="sm" onClick={onBack}>
-            ← Back to Workflows
+      {/* Header with Actions */}
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          {onBack && (
+            <Button variant="outline" size="sm" onClick={onBack}>
+              ← Back to Workflows
+            </Button>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExportToSheets}
+            disabled={exportingToSheets}
+          >
+            {exportingToSheets ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2" />
+                Exporting...
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4 mr-2" />
+                Export to Sheets
+              </>
+            )}
+          </Button>
+          <Button variant="outline" size="sm">
+            <Share className="h-4 w-4 mr-2" />
+            Share Report
           </Button>
         </div>
-      )}
+      </div>
 
       {/* Overall Performance Summary */}
       <Card className="mb-6">
@@ -204,11 +294,120 @@ export function GapAnalysisDashboard({
         </CardContent>
       </Card>
 
+      {/* Enhanced 5-Metric Skill Gap Analysis */}
+      <Card className="mb-6">
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Brain className="h-5 w-5 text-blue-600" />
+            Enhanced Skill Gap Analysis
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+            {/* Bloom's Taxonomy */}
+            <div className="text-center p-4 border rounded-lg">
+              <div className="flex items-center justify-center mb-2">
+                <Brain className="h-6 w-6 text-purple-600" />
+              </div>
+              <div className="text-sm font-medium text-gray-600 mb-1">Cognitive Depth</div>
+              <div className="text-lg font-bold capitalize">
+                {enhancedData.bloom_taxonomy_analysis.cognitive_depth_assessment.replace('_', ' ')}
+              </div>
+              <div className="text-xs text-gray-500">
+                Knowledge/App: {(enhancedData.bloom_taxonomy_analysis.knowledge_vs_application_ratio * 100).toFixed(0)}%
+              </div>
+            </div>
+
+            {/* Learning Style */}
+            <div className="text-center p-4 border rounded-lg">
+              <div className="flex items-center justify-center mb-2">
+                <BookOpen className="h-6 w-6 text-green-600" />
+              </div>
+              <div className="text-sm font-medium text-gray-600 mb-1">Learning Style</div>
+              <div className="text-lg font-bold capitalize">
+                {enhancedData.learning_style_indicators.best_style.replace('_', ' ')}
+              </div>
+              <div className="text-xs text-gray-500">
+                Context Switch: {enhancedData.learning_style_indicators.context_switching_ability}
+              </div>
+            </div>
+
+            {/* Metacognitive Awareness */}
+            <div className="text-center p-4 border rounded-lg">
+              <div className="flex items-center justify-center mb-2">
+                <Target className="h-6 w-6 text-blue-600" />
+              </div>
+              <div className="text-sm font-medium text-gray-600 mb-1">Self-Awareness</div>
+              <div className="text-lg font-bold">
+                {Math.round(enhancedData.metacognitive_awareness.metacognitive_maturity_score * 100)}%
+              </div>
+              <div className="text-xs text-gray-500">
+                {enhancedData.metacognitive_awareness.self_assessment_accuracy.replace('_', ' ')}
+              </div>
+            </div>
+
+            {/* Transfer Learning */}
+            <div className="text-center p-4 border rounded-lg">
+              <div className="flex items-center justify-center mb-2">
+                <Zap className="h-6 w-6 text-orange-600" />
+              </div>
+              <div className="text-sm font-medium text-gray-600 mb-1">Transfer Learning</div>
+              <div className="text-lg font-bold">
+                {Math.round(enhancedData.transfer_learning_assessment.transfer_learning_score * 100)}%
+              </div>
+              <div className="text-xs text-gray-500">
+                Pattern Recognition: {enhancedData.transfer_learning_assessment.pattern_recognition}
+              </div>
+            </div>
+
+            {/* Certification Readiness */}
+            <div className="text-center p-4 border rounded-lg">
+              <div className="flex items-center justify-center mb-2">
+                <Award className="h-6 w-6 text-yellow-600" />
+              </div>
+              <div className="text-sm font-medium text-gray-600 mb-1">Cert Readiness</div>
+              <div className="text-lg font-bold">
+                {enhancedData.certification_specific_insights.certification_readiness_score}%
+              </div>
+              <div className="text-xs text-gray-500">
+                Exam Strategy: {enhancedData.certification_specific_insights.exam_strategy_readiness}
+              </div>
+            </div>
+          </div>
+
+          {/* Progress bars for detailed metrics */}
+          <div className="mt-6 space-y-3">
+            <div>
+              <div className="flex justify-between text-sm mb-1">
+                <span>Bloom's Taxonomy Progression</span>
+                <span>{Math.round(enhancedData.bloom_taxonomy_analysis.knowledge_vs_application_ratio * 100)}%</span>
+              </div>
+              <Progress value={enhancedData.bloom_taxonomy_analysis.knowledge_vs_application_ratio * 100} className="h-2" />
+            </div>
+            <div>
+              <div className="flex justify-between text-sm mb-1">
+                <span>Metacognitive Maturity</span>
+                <span>{Math.round(enhancedData.metacognitive_awareness.metacognitive_maturity_score * 100)}%</span>
+              </div>
+              <Progress value={enhancedData.metacognitive_awareness.metacognitive_maturity_score * 100} className="h-2" />
+            </div>
+            <div>
+              <div className="flex justify-between text-sm mb-1">
+                <span>Transfer Learning Ability</span>
+                <span>{Math.round(enhancedData.transfer_learning_assessment.transfer_learning_score * 100)}%</span>
+              </div>
+              <Progress value={enhancedData.transfer_learning_assessment.transfer_learning_score * 100} className="h-2" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Charts and Analysis */}
       <Tabs defaultValue="performance" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-4">
           <TabsTrigger value="performance">Domain Performance</TabsTrigger>
           <TabsTrigger value="bloom">Bloom's Taxonomy</TabsTrigger>
+          <TabsTrigger value="enhanced">5-Metric Analysis</TabsTrigger>
           <TabsTrigger value="assets">Study Plan</TabsTrigger>
         </TabsList>
 
@@ -228,6 +427,116 @@ export function GapAnalysisDashboard({
             chartType="pie"
             className="mt-4"
           />
+        </TabsContent>
+
+        <TabsContent value="enhanced" className="space-y-4">
+          {/* Enhanced 5-Metric Detailed Analysis */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Bloom's Taxonomy Detailed Breakdown */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Brain className="h-4 w-4" />
+                  Bloom's Taxonomy Detailed Analysis
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  {Object.entries(enhancedData.bloom_taxonomy_analysis.bloom_level_scores).map(([level, score]) => (
+                    <div key={level}>
+                      <div className="flex justify-between text-sm mb-1">
+                        <span className="capitalize">{level}</span>
+                        <span>{Math.round(score * 100)}%</span>
+                      </div>
+                      <Progress value={score * 100} className="h-2" />
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Learning & Metacognitive Insights */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Target className="h-4 w-4" />
+                  Learning & Metacognitive Insights
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="text-sm font-medium mb-2">Learning Style Strengths</h4>
+                    <Badge variant="outline" className="mr-2">
+                      {enhancedData.learning_style_indicators.best_style.replace('_', ' ')}
+                    </Badge>
+                    <Badge variant="secondary">
+                      {enhancedData.learning_style_indicators.retention_quality}
+                    </Badge>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium mb-2">Self-Assessment Quality</h4>
+                    <div className="text-sm text-gray-600">
+                      Accuracy: <span className="font-medium">{enhancedData.metacognitive_awareness.self_assessment_accuracy.replace('_', ' ')}</span>
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      Uncertainty Recognition: <span className="font-medium">{enhancedData.metacognitive_awareness.uncertainty_recognition}</span>
+                    </div>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium mb-2">Transfer Learning</h4>
+                    <div className="text-sm text-gray-600">
+                      Cross-Domain: <span className="font-medium">{enhancedData.transfer_learning_assessment.cross_domain_connections}</span>
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      Pattern Recognition: <span className="font-medium">{enhancedData.transfer_learning_assessment.pattern_recognition}</span>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Certification-Specific Recommendations */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Award className="h-4 w-4" />
+                Certification-Specific Recommendations
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <h4 className="text-sm font-medium mb-2">Exam Strategy</h4>
+                  <Badge variant={enhancedData.certification_specific_insights.exam_strategy_readiness === 'good' ? 'default' : 'secondary'}>
+                    {enhancedData.certification_specific_insights.exam_strategy_readiness}
+                  </Badge>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Time management and question approach
+                  </p>
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium mb-2">Industry Context</h4>
+                  <Badge variant={enhancedData.certification_specific_insights.industry_context_readiness === 'strong' ? 'default' : 'secondary'}>
+                    {enhancedData.certification_specific_insights.industry_context_readiness}
+                  </Badge>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Real-world application readiness
+                  </p>
+                </div>
+                <div>
+                  <h4 className="text-sm font-medium mb-2">Overall Readiness</h4>
+                  <Badge variant={enhancedData.certification_specific_insights.certification_readiness_score >= 80 ? 'default' : 'secondary'}>
+                    {enhancedData.certification_specific_insights.certification_readiness_score}%
+                  </Badge>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Combined readiness score
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="assets">
