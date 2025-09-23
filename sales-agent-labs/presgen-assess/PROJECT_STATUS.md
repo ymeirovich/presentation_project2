@@ -214,39 +214,31 @@ PresGen-Assess is an AI-powered certification assessment and presentation genera
 - Performance metrics collection
 - Error tracking and reporting
 
-## Next Steps: Phase 4 - Frontend Development & Integration
+## Next Steps: Phase 4 - UI Integration in PresGen-UI
 
-### Proposed Objectives
-1. **User Interface Development**
-   - React/Vue.js frontend application
-   - Responsive design for desktop and mobile
-   - Interactive assessment taking interface
-   - Real-time progress tracking
+### Immediate Priorities (Sept 2025)
+1. **Adopt Shared Frontend**
+   - Extend the existing Next.js codebase in `sales-agent-labs/presgen-ui`
+   - Add "PresGen-Assess" navigation entry leveraging `SegmentedTabs`
+   - Follow the new [`UI_IMPLEMENTATION.md`](UI_IMPLEMENTATION.md) roadmap and wireframe sketches
+   - ✅ Sept 22, 2025: Week 1 navigation + assessment form shipped to `presgen-ui`
 
-2. **Integration Testing**
-   - End-to-end user workflows
-   - Frontend-backend integration
-   - Cross-browser compatibility
-   - Mobile responsiveness
+2. **Assessment Workflow Experience**
+   - Build assessment request form with markdown preview and document selector
+   - Surface 11-step workflow timeline, status polling, and retry actions
+   - Present gap analysis visualizations and remediation asset downloads
 
-3. **User Experience**
-   - Intuitive assessment interface
-   - Progress visualization
-   - Results dashboard
-   - Presentation viewer
+3. **Observability & Governance**
+   - Expose latency/retry metrics and alert banners in the UI
+   - Ensure accessibility, bias, and constitution gates are satisfied pre-launch
+   - Coordinate with backend for mock data + staging endpoints
 
-4. **Advanced Features**
-   - Real-time collaboration
-   - Assessment analytics
-   - Progress tracking
-   - Integration with LMS systems
-
-### Technical Considerations
-- Frontend framework selection (React, Vue.js, or Angular)
-- State management (Redux, Vuex, or context)
-- UI component library integration
-- Real-time communication (WebSocket for live updates)
-- Progressive Web App (PWA) capabilities
+### Technical Alignment
+- Framework: Next.js 14 + TypeScript (existing in presgen-ui)
+- State: `react-hook-form`, component-level state, shared API utilities
+- Visualizations: Evaluate Recharts/Nivo for domain/Bloom metrics
+- Config: `NEXT_PUBLIC_ASSESS_API_URL`, token handling per deployment guide
+- Testing: RTL component tests + Playwright integration coverage
 
 ## Repository Status
 

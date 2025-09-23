@@ -19,9 +19,12 @@ interface SegmentedTabsProps {
 
 export function SegmentedTabs({ tabs, value, onValueChange, className }: SegmentedTabsProps) {
   // Dynamically set grid columns based on number of tabs
-  const gridCols = tabs.length === 4 ? "grid-cols-4" :
-                   tabs.length === 3 ? "grid-cols-3" :
-                   tabs.length === 2 ? "grid-cols-2" : "grid-cols-1"
+  const gridCols =
+    tabs.length === 5 ? 'grid-cols-5'
+    : tabs.length === 4 ? 'grid-cols-4'
+    : tabs.length === 3 ? 'grid-cols-3'
+    : tabs.length === 2 ? 'grid-cols-2'
+    : 'grid-cols-1'
 
   return (
     <Tabs value={value} onValueChange={onValueChange} className={className}>

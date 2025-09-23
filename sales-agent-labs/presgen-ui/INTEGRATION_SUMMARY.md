@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document summarizes the comprehensive integration of the PresGen UI frontend (Next.js) with the backend API at `https://tuna-loyal-elk.ngrok-free.app`. All required features have been implemented and the application is ready for end-to-end testing.
+This document summarizes the integration of the PresGen UI frontend (Next.js) with the backend API at `https://tuna-loyal-elk.ngrok-free.app`. Core PresGen workflows (Core/Data) are live. PresGen-Assess UI integration is now in planning, building on these foundations.
 
 ## What Was Completed
 
@@ -33,6 +33,7 @@ This document summarizes the comprehensive integration of the PresGen UI fronten
 ```bash
 # Updated .env.local
 NEXT_PUBLIC_API_BASE_URL=https://tuna-loyal-elk.ngrok-free.app
+NEXT_PUBLIC_ASSESS_API_URL=https://tuna-loyal-elk.ngrok-free.app
 ```
 
 ### ✅ 5. CORS & Headers Support
@@ -185,3 +186,12 @@ All integration requirements have been successfully implemented:
 8. **Production Ready**: ✅ Environment configuration and deployment strategy
 
 The PresGen UI is now fully integrated with the backend API and ready for comprehensive testing and deployment.
+
+## Upcoming Work: PresGen-Assess Integration 🚧
+
+- ✅ Week 1 delivered: navigation tab + assessment request form with API wiring.
+- Follow `presgen-assess/UI_IMPLEMENTATION.md` for remaining milestones (workflow dashboard, gap analytics, assets panel).
+- Reference ASCII wireframes in that plan to align layout expectations before high-fidelity design.
+- Add `NEXT_PUBLIC_ASSESS_API_URL` to deployment environments (see updated `DEPLOYMENT_GUIDE.md`).
+- Implement new client module (`src/lib/assess-api.ts`) with mirrored Zod schemas.
+- Extend documentation and test plans once assessment workflows land in the UI.

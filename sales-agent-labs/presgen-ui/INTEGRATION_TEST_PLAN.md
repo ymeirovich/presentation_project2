@@ -9,7 +9,7 @@
 - [ ] GCP credentials and authentication are configured
 
 ### Frontend Setup
-- [ ] Environment variables updated in `.env.local`
+- [ ] Environment variables updated in `.env.local` (`NEXT_PUBLIC_API_BASE_URL`, `NEXT_PUBLIC_ASSESS_API_URL`)
 - [ ] Dependencies installed: `npm install`
 - [ ] Development server starts: `npm run dev`
 - [ ] No TypeScript compilation errors
@@ -200,6 +200,30 @@ Challenges included supply chain delays and increased competition in the enterpr
 1. Ensure `ngrok-skip-browser-warning` header is sent
 2. Check browser console for CORS errors
 3. Verify backend CORS configuration
+
+## Planned Test Suite: PresGen-Assess (Phase 4)
+
+These scenarios will be implemented as the assessment dashboard lands in presgen-ui. Track progress in `presgen-assess/UI_IMPLEMENTATION.md`.
+
+### Assessment Request Form
+- [ ] Validate form renders with markdown preview + document selector
+- [ ] Submit request (text only, file only, both) and verify API payload
+- [ ] Confirm validation errors surface for missing required inputs
+
+### Workflow Timeline
+- [ ] Render 11-step timeline with mock data across statuses
+- [ ] Poll status endpoint and update UI without hydration warnings
+- [ ] Trigger retry/notify actions and confirm API calls
+
+### Gap Analysis Dashboard
+- [ ] Display domain/Bloom charts with accessible descriptions
+- [ ] Verify remediation tables link to generated assets
+- [ ] Export CSV/Markdown and ensure file contents match backend response
+
+### Observability & Alerts
+- [ ] Surface latency/retry metrics pulled from monitoring endpoint
+- [ ] Trigger simulated SLA breach and confirm alert banner/toast
+- [ ] Ensure telemetry events log assessment UI interactions
 
 ### Authentication Issues
 1. Check GCP credentials in backend

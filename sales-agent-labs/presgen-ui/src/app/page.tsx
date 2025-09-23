@@ -6,12 +6,10 @@ import { Header } from "@/components/Header"
 import { SegmentedTabs } from "@/components/SegmentedTabs"
 import { CoreForm } from "@/components/CoreForm"
 import { DataForm } from "@/components/DataForm"
+import { AssessmentWorkflow } from "@/components/assess/AssessmentWorkflow"
 import { VideoWorkflow } from "@/components/video/VideoWorkflow"
 import { TrainingWorkflow } from "@/components/training/TrainingWorkflow"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
-import { Button } from "@/components/ui/button"
-import { Video, Clock } from "lucide-react"
 import { TabConfig } from "@/lib/types"
 
 const TABS: TabConfig[] = [
@@ -22,6 +20,10 @@ const TABS: TabConfig[] = [
   {
     value: "data",
     label: "PresGen-Data",
+  },
+  {
+    value: "assess",
+    label: "PresGen-Assess",
   },
   {
     value: "video",
@@ -44,6 +46,8 @@ export default function Home() {
         return <CoreForm />
       case "data":
         return <DataForm />
+      case "assess":
+        return <AssessmentWorkflow />
       case "video":
         return <VideoWorkflow />
       case "training":

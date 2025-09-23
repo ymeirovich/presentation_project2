@@ -13,52 +13,26 @@
 
 ## Immediate Next Steps
 
-### 1. Phase 4 Implementation Decision
+### 1. Phase 4 Implementation Focus
 
-**Option A: Start Frontend Development Immediately**
-- Begin React frontend development using Phase 4 plan
-- Timeline: 4-6 weeks for complete user interface
-- Skills needed: React, TypeScript, UI/UX design
+- Integrate PresGen-Assess interfaces into the shared Next.js application at `sales-agent-labs/presgen-ui`.
+- Follow [`UI_IMPLEMENTATION.md`](UI_IMPLEMENTATION.md) milestones covering navigation, assessment forms, workflow dashboards, and gap analysis views.
+- Align delivery timeline with PresGen UI maintainers, design, and QA checkpoints.
 
-**Option B: Enhanced Backend Features**
-- Add advanced analytics and reporting
-- Implement real-time collaboration features
-- Enhance AI capabilities with fine-tuning
+### 2. Technology Alignment
 
-**Option C: Integration and Deployment**
-- Set up production infrastructure (AWS/GCP)
-- Implement CI/CD pipelines
-- Add monitoring and observability
-
-### 2. Technology Stack Recommendations
-
-For immediate frontend development:
-```bash
-# Setup React + TypeScript frontend
-npx create-vite@latest presgen-assess-frontend --template react-ts
-cd presgen-assess-frontend
-npm install @mui/material @emotion/react @emotion/styled
-npm install @tanstack/react-query axios react-router-dom
-npm install @types/node -D
-```
+- Leverage existing stack: Next.js 14, TypeScript, Tailwind, shadcn/ui, react-hook-form, zod.
+- Evaluate Recharts or Nivo for domain/Bloom visualizations once design approves.
+- Configure `NEXT_PUBLIC_ASSESS_API_URL` and credentials per `presgen-ui/DEPLOYMENT_GUIDE.md`.
+- Infrastructure reminder: hosting, API server (uvicorn), PostgreSQL, and ChromaDB all run locally today; no cloud deployment is in place until launch preparations begin.
 
 ### 3. Quick Wins (Can Start Today)
 
-**Frontend Prototype** (2-3 hours):
-1. Create basic React app with authentication
-2. Implement login form using demo token endpoint
-3. Add protected dashboard route
-4. Test API integration with user info endpoint
+- Draft wireframes for assessment form, workflow timeline, and gap dashboards.
+- Add skeleton `assess-api` client module plus unit tests in `presgen-ui` to mirror backend contracts.
+- Prepare backend mock fixtures enabling frontend parallel development.
 
-**API Enhancement** (1-2 hours):
-1. Add API usage analytics endpoint
-2. Implement health check monitoring
-3. Add request/response logging
-
-**Documentation** (1 hour):
-1. Create API integration guide for frontend developers
-2. Add Postman collection for API testing
-3. Update deployment instructions
+**Wireframe references:** See `UI_IMPLEMENTATION.md` for ASCII drafts covering assessment intake, workflow timeline, and gap dashboard layouts.
 
 ## Development Environment Setup
 
@@ -75,46 +49,38 @@ uvicorn src.service.app:app --host 0.0.0.0 --port 8080 --reload
 
 ### Frontend (Next Phase)
 ```bash
-# Create new React application
-mkdir presgen-assess-frontend
-cd presgen-assess-frontend
-npx create-vite@latest . --template react-ts
-
-# Install dependencies
-npm install
-npm install @mui/material @emotion/react @emotion/styled
-npm install @tanstack/react-query axios react-router-dom
-npm install @types/node -D
+# Inside sales-agent-labs/presgen-ui
+npm install            # ensure dependencies are current
 
 # Start development server
 npm run dev
+
+# Optional additions (after design sign-off)
+npm install recharts             # or @nivo packages for gap visualizations
+npm install @tanstack/react-query
 ```
 
 ## Priority Features for Phase 4
 
-### Week 1: Core Infrastructure
-- [x] Project setup and architecture
-- [x] Authentication system integration
-- [x] Basic routing and layout
-- [x] API service layer
+### Week 1: Navigation & Assessment Form
+- [x] Add PresGen-Assess tab/route within presgen-ui
+- [x] Implement assessment request form with validation + markdown preview
+- [x] Connect form submission to staging API (mock fallback if offline)
 
-### Week 2: Assessment Interface
-- [x] Assessment taking interface
-- [x] Question display and interaction
-- [x] Progress tracking
-- [x] Results submission
+### Week 2: Workflow Dashboard
+- [ ] Build 11-step workflow timeline with status polling + retry actions
+- [ ] Create workflow list filters/search + detail panels
+- [ ] Add component/unit tests covering success/error states
 
-### Week 3: Dashboard and Analytics
-- [x] User dashboard with statistics
-- [x] Gap analysis visualization
-- [x] Assessment history and management
-- [x] Presentation management
+### Week 3: Gap Analysis & Assets
+- [ ] Render domain/Bloom charts and remediation asset tables
+- [ ] Provide export/download actions (CSV/Markdown/Google links)
+- [ ] Write integration tests covering submission → analysis display
 
-### Week 4: Polish and Testing
-- [x] Responsive design
-- [x] Error handling and validation
-- [x] Performance optimization
-- [x] Comprehensive testing
+### Week 4: Hardening & Launch Prep
+- [ ] Complete accessibility, bias, and performance reviews per constitution
+- [ ] Validate observability dashboards + alert thresholds
+- [ ] Update docs/runbooks and run pilot walkthrough
 
 ## Success Criteria
 

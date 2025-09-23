@@ -1,13 +1,13 @@
 # PresGen UI - Frontend Documentation
 
-**Last Updated**: August 27, 2025  
-**Status**: Full-Stack Integration Complete ✅  
+**Last Updated**: September 22, 2025  
+**Status**: PresGen-Assess UI integration in progress 🚧  
 **Version**: Next.js 14+ with TypeScript and Tailwind CSS  
 **Backend Integration**: Connected to https://tuna-loyal-elk.ngrok-free.app  
 
 ## Project Overview
 
-The PresGen UI is a complete Next.js frontend application that provides a professional web interface for the PresGen AI-powered presentation generation system. It supports two main workflows: **Text → Slides** (PresGen Core) and **Spreadsheet → Slides** (PresGen-Data), with a placeholder for future **Video → Slides** functionality.
+The PresGen UI is a complete Next.js frontend application that provides a professional web interface for the PresGen AI-powered presentation generation system. It currently supports **Text → Slides** (PresGen Core) and **Spreadsheet → Slides** (PresGen-Data) workflows, with PresGen-Assess dashboard integration actively underway alongside the existing **Video/Training** modules.
 
 ## Architecture & Tech Stack
 
@@ -39,7 +39,8 @@ presgen-ui/
 │   ├── components/
 │   │   ├── TopBanner.tsx                   # Persistent info banner with modals
 │   │   ├── Header.tsx                      # Logo and navigation
-│   │   ├── SegmentedTabs.tsx               # Core | Data | Video navigation
+│   │   ├── SegmentedTabs.tsx               # Core | Data | Video navigation (Assess tab planned)
+│   │   ├── assess/                         # (Planned) PresGen-Assess modules
 │   │   ├── CoreForm.tsx                    # Text → Slides form
 │   │   ├── DataForm.tsx                    # Spreadsheet → Slides form
 │   │   ├── ServerResponseCard.tsx          # API response display
@@ -59,7 +60,8 @@ presgen-ui/
 │   │       ├── tooltip.tsx
 │   │       └── sonner.tsx                  # Toast notifications
 │   └── lib/
-│       ├── api.ts                          # API client functions
+│       ├── api.ts                          # API client functions (Core/Data)
+│       ├── assess-api.ts                   # (Planned) Assessment workflow client
 │       ├── schemas.ts                      # Zod validation schemas
 │       └── types.ts                        # TypeScript type definitions
 ├── .env.local                              # Environment configuration
@@ -109,7 +111,24 @@ presgen-ui/
 - **Generate**: `POST /data/ask` (JSON with dataset reference and questions)
 - **Status**: ✅ **Fully Integrated** - End-to-end data workflow working
 
-### 3. PresGen-Video (Placeholder)
+### 3. PresGen-Assess (In Progress)
+
+**Components (planned)**:
+- `AssessmentForm` – assessment request submission with Markdown preview + document selector
+- `WorkflowTimeline` – 11-step progression view with status polling and retry controls
+- `GapDashboard` – charts/tables surfacing domain/Bloom gaps, remediation actions, export links
+- `AssetsPanel` – generated presentations, avatar videos, and Google resource links
+
+**API Integration (planned)**:
+- `POST /assess/request-assessment`
+- `POST /assess/process-completion`
+- `GET /assess/workflow/{id}/status`
+- `POST /assess/workflow/{id}/notify-completion`
+- Document metadata endpoints for knowledge base sourcing
+
+**Status**: ✅ Week 1 navigation + assessment form delivered; workflow timeline & analytics dashboard slated for upcoming sprints. Refer to `presgen-assess/UI_IMPLEMENTATION.md` for milestone tracking.
+
+### 4. PresGen-Video (Placeholder)
 
 **Component**: Disabled tab with tooltip
 **Status**: "Coming soon" - prepared for future implementation
@@ -137,6 +156,38 @@ presgen-ui/
 - **Progress indicators** for multi-step workflows
 - **Auto-focus management** for better keyboard navigation
 
+### Wireframe References (Assess Module)
+```
+Assessment Intake
+┌───────────────────────────────────────────────┐
+│ Tabs (Core | Data | Assess | …)               │
+├───────────────────────────────────────────────┤
+│ Assessment Form (selectors, markdown, submit) │
+├───────────────────────────────────────────────┤
+│ Recent workflows list                         │
+└───────────────────────────────────────────────┘
+
+Workflow Timeline
+┌───────────────────────────────────────────────┐
+│ Filters + KPI chips                           │
+├───────────────────────────────────────────────┤
+│ 11-step timeline with status + actions        │
+├───────────────────────────────────────────────┤
+│ Metrics strip / alerts                        │
+└───────────────────────────────────────────────┘
+
+Gap Dashboard
+┌───────────────────────────────────────────────┐
+│ KPI summary                                   │
+├───────────────────────────────────────────────┤
+│ Charts row (domain severity | Bloom levels)   │
+├───────────────────────────────────────────────┤
+│ Remediation table + export buttons            │
+├───────────────────────────────────────────────┤
+│ Generated assets grid                         │
+└───────────────────────────────────────────────┘
+```
+
 ## Technical Implementation Details
 
 ### Form Handling
@@ -154,8 +205,17 @@ presgen-ui/
 - uploadDataset(file) -> POST /data/upload (dataset upload)
 - generateDataDeck(data) -> POST /data/ask (data analysis and slide generation)
 
+// lib/assess-api.ts (planned)
+- requestAssessment(payload) -> POST /assess/request-assessment
+- processCompletion(payload) -> POST /assess/process-completion
+- getWorkflowStatus(id) -> GET /assess/workflow/{id}/status
+- notifyCompletion(id) -> POST /assess/workflow/{id}/notify-completion
+- listDocuments() / getDocumentMetadata(name)
+
 // All requests include ngrok-skip-browser-warning headers
-// Base URL: https://tuna-loyal-elk.ngrok-free.app
+// Base URLs:
+//   NEXT_PUBLIC_API_BASE_URL for Core/Data/Video services
+//   NEXT_PUBLIC_ASSESS_API_URL for PresGen-Assess services
 ```
 
 ### State Management

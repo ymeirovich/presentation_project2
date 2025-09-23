@@ -6,12 +6,14 @@
 ```bash
 # .env.local for development
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8080
+NEXT_PUBLIC_ASSESS_API_URL=http://localhost:8080
 ```
 
 ### Production Setup
 ```bash
 # .env.local for production
 NEXT_PUBLIC_API_BASE_URL=https://tuna-loyal-elk.ngrok-free.app
+NEXT_PUBLIC_ASSESS_API_URL=https://tuna-loyal-elk.ngrok-free.app
 ```
 
 ## Backend Requirements
@@ -118,6 +120,7 @@ vercel
 
 # Set environment variables in Vercel dashboard:
 # NEXT_PUBLIC_API_BASE_URL=https://your-backend-url.com
+# NEXT_PUBLIC_ASSESS_API_URL=https://your-assess-backend-url.com
 ```
 
 ### 5. Other Platform Deployments
@@ -135,6 +138,7 @@ The app is a standard Next.js application and can be deployed to:
 ```bash
 # .env.local (not committed to git)
 NEXT_PUBLIC_API_BASE_URL=https://tuna-loyal-elk.ngrok-free.app
+NEXT_PUBLIC_ASSESS_API_URL=https://tuna-loyal-elk.ngrok-free.app
 ```
 
 ### 2. Production Deployment
@@ -143,11 +147,15 @@ Set environment variables through your deployment platform:
 **Vercel:**
 ```bash
 vercel env add NEXT_PUBLIC_API_BASE_URL
+vercel env add NEXT_PUBLIC_ASSESS_API_URL
 ```
 
 **Docker:**
 ```bash
-docker run -e NEXT_PUBLIC_API_BASE_URL=https://your-backend.com presgen-ui
+docker run \
+  -e NEXT_PUBLIC_API_BASE_URL=https://your-backend.com \
+  -e NEXT_PUBLIC_ASSESS_API_URL=https://your-assess-backend.com \
+  presgen-ui
 ```
 
 **Kubernetes:**
@@ -162,6 +170,8 @@ spec:
         env:
         - name: NEXT_PUBLIC_API_BASE_URL
           value: "https://your-backend.com"
+        - name: NEXT_PUBLIC_ASSESS_API_URL
+          value: "https://your-assess-backend.com"
 ```
 
 ## Backend Service Management
