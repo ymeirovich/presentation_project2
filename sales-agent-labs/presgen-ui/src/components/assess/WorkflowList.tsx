@@ -80,13 +80,13 @@ export function WorkflowList({ className, onWorkflowSelect }: WorkflowListProps)
 
   useEffect(() => {
     fetchData()
-  }, [statusFilter])
+  }, [statusFilter]) // fetchData is stable function
 
   useEffect(() => {
     // Poll for updates every 30 seconds
     const interval = setInterval(fetchData, 30000)
     return () => clearInterval(interval)
-  }, [statusFilter])
+  }, [statusFilter]) // fetchData is stable function
 
   const filteredWorkflows = workflows.filter(workflow => {
     if (!searchTerm) return true

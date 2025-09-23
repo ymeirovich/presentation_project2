@@ -100,7 +100,7 @@ export function WorkflowTimeline({ workflowId, className, onRetry }: WorkflowTim
     }, 2000) // Poll every 2 seconds
 
     return () => clearInterval(interval)
-  }, [workflowId, workflow?.execution_status])
+  }, [workflowId, workflow?.execution_status]) // fetchData is stable function
 
   if (loading) {
     return (

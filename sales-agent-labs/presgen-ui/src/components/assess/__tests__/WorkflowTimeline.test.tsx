@@ -1,9 +1,9 @@
 import React from 'react'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { WorkflowTimeline } from '../WorkflowTimeline'
 import * as assessApi from '@/lib/assess-api'
-import { WorkflowDetail, WorkflowStep } from '@/lib/assess-schemas'
+import { WorkflowDetail } from '@/lib/assess-schemas'
 
 // Mock the assess-api module
 jest.mock('@/lib/assess-api')
@@ -153,7 +153,7 @@ describe('WorkflowTimeline', () => {
   })
 
   it('shows workflow not found state', async () => {
-    mockFetchWorkflowDetail.mockResolvedValue(null as any)
+    mockFetchWorkflowDetail.mockResolvedValue(null as unknown as WorkflowDetail)
 
     render(<WorkflowTimeline workflowId="test-workflow-id" />)
 
