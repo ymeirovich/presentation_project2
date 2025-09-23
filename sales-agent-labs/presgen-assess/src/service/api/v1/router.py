@@ -6,10 +6,22 @@ from src.service.api.v1.endpoints import (
     assessments,
     certifications,
     knowledge,
-    workflows
+    workflows,
+    llm,
+    engine,
+    gap_analysis,
+    presentations,
+    auth
 )
 
 api_router = APIRouter()
+
+# Authentication endpoints (no auth required)
+api_router.include_router(
+    auth.router,
+    prefix="/auth",
+    tags=["authentication"]
+)
 
 # Include endpoint routers
 api_router.include_router(
@@ -34,4 +46,29 @@ api_router.include_router(
     workflows.router,
     prefix="/workflows",
     tags=["workflows"]
+)
+
+# Phase 2 Service Integration - AI-Powered Assessment and Analysis
+api_router.include_router(
+    llm.router,
+    prefix="/llm",
+    tags=["llm", "ai-services"]
+)
+
+api_router.include_router(
+    engine.router,
+    prefix="/engine",
+    tags=["assessment-engine", "ai-services"]
+)
+
+api_router.include_router(
+    gap_analysis.router,
+    prefix="/gap-analysis",
+    tags=["gap-analysis", "ai-services"]
+)
+
+api_router.include_router(
+    presentations.router,
+    prefix="/presentations",
+    tags=["presentations", "ai-services"]
 )

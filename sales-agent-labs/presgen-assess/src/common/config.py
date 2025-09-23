@@ -54,6 +54,11 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     enable_cors: bool = Field(default=True, alias="ENABLE_CORS")
 
+    # Rate Limiting Settings
+    enable_rate_limiting: bool = Field(default=True, alias="ENABLE_RATE_LIMITING")
+    rate_limit_calls: int = Field(default=100, alias="RATE_LIMIT_CALLS")
+    rate_limit_window_minutes: int = Field(default=15, alias="RATE_LIMIT_WINDOW_MINUTES")
+
     # Redis Configuration
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
 

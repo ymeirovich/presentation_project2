@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.models.workflow import WorkflowState
+from src.models.workflow import WorkflowExecution
 from src.schemas.workflow import (
     WorkflowCreate,
     WorkflowResponse,
@@ -29,7 +29,7 @@ async def create_workflow(
 ) -> WorkflowResponse:
     """Create a new async workflow."""
     try:
-        workflow = WorkflowState(**workflow_data.model_dump())
+        workflow = WorkflowExecution(**workflow_data.model_dump())
         db.add(workflow)
         await db.commit()
         await db.refresh(workflow)
@@ -55,10 +55,10 @@ async def list_workflows(
 ) -> List[WorkflowResponse]:
     """List workflows with optional status filtering."""
     try:
-        stmt = select(WorkflowState).offset(skip).limit(limit).order_by(WorkflowState.created_at.desc())
+        stmt = select(WorkflowExecution).offset(skip).limit(limit).order_by(WorkflowExecution.created_at.desc())
 
         if status_filter:
-            stmt = stmt.where(WorkflowState.status == status_filter)
+            stmt = stmt.where(WorkflowExecution.status == status_filter)
 
         result = await db.execute(stmt)
         workflows = result.scalars().all()
@@ -80,7 +80,7 @@ async def get_workflow(
 ) -> WorkflowResponse:
     """Get a specific workflow by ID."""
     try:
-        stmt = select(WorkflowState).where(WorkflowState.id == workflow_id)
+        stmt = select(WorkflowExecution).where(WorkflowExecution.id == workflow_id)
         result = await db.execute(stmt)
         workflow = result.scalar_one_or_none()
 
@@ -109,7 +109,7 @@ async def get_workflow_by_token(
 ) -> WorkflowResponse:
     """Get workflow by resume token."""
     try:
-        stmt = select(WorkflowState).where(WorkflowState.resume_token == resume_token)
+        stmt = select(WorkflowExecution).where(WorkflowExecution.resume_token == resume_token)
         result = await db.execute(stmt)
         workflow = result.scalar_one_or_none()
 
@@ -119,8 +119,9 @@ async def get_workflow_by_token(
                 detail="Invalid or expired resume token"
             )
 
-        # Check if token is expired
-        if workflow.is_token_expired():
+        # Check if token is expired (tokens expire after 24 hours)
+        from datetime import datetime, timedelta
+        if workflow.created_at < datetime.utcnow() - timedelta(hours=24):
             raise HTTPException(
                 status_code=status.HTTP_410_GONE,
                 detail="Resume token has expired"
@@ -146,7 +147,7 @@ async def resume_workflow(
 ) -> WorkflowResponse:
     """Resume a workflow with provided data."""
     try:
-        stmt = select(WorkflowState).where(WorkflowState.id == workflow_id)
+        stmt = select(WorkflowExecution).where(WorkflowExecution.id == workflow_id)
         result = await db.execute(stmt)
         workflow = result.scalar_one_or_none()
 
@@ -165,7 +166,10 @@ async def resume_workflow(
 
         # Update workflow with resume data
         for field, value in resume_data.model_dump(exclude_unset=True).items():
-            setattr(workflow, field, value)
+            if field == "google_sheet_url":
+                setattr(workflow, "sheet_url_input", value)
+            else:
+                setattr(workflow, field, value)
 
         # Update status based on what was provided
         if resume_data.google_sheet_url:
@@ -196,7 +200,7 @@ async def update_workflow_status(
 ) -> WorkflowResponse:
     """Update workflow status."""
     try:
-        stmt = select(WorkflowState).where(WorkflowState.id == workflow_id)
+        stmt = select(WorkflowExecution).where(WorkflowExecution.id == workflow_id)
         result = await db.execute(stmt)
         workflow = result.scalar_one_or_none()
 
@@ -237,7 +241,7 @@ async def delete_workflow(
 ):
     """Delete a workflow."""
     try:
-        stmt = select(WorkflowState).where(WorkflowState.id == workflow_id)
+        stmt = select(WorkflowExecution).where(WorkflowExecution.id == workflow_id)
         result = await db.execute(stmt)
         workflow = result.scalar_one_or_none()
 
