@@ -14,14 +14,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { CertificationAPI, CertificationProfile, formatExamDomains } from '@/lib/certification-api';
@@ -293,26 +291,28 @@ export default function CertificationProfileList({
       )}
 
       {/* Delete Confirmation Dialog */}
-      <AlertDialog open={deleteDialog.open} onOpenChange={(open) => setDeleteDialog({ open })}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete Certification Profile</AlertDialogTitle>
-            <AlertDialogDescription>
+      <Dialog open={deleteDialog.open} onOpenChange={(open) => setDeleteDialog({ open })}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Certification Profile</DialogTitle>
+            <DialogDescription>
               Are you sure you want to delete "{deleteDialog.profile?.name}"? This action cannot be undone
               and will remove all associated assessments and data.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialog({ open: false })}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
               onClick={() => deleteDialog.profile && handleDelete(deleteDialog.profile)}
-              className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
             >
               Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
