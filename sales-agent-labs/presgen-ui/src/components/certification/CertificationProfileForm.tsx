@@ -38,6 +38,18 @@ export default function CertificationProfileForm({
   const [saving, setSaving] = useState(false);
   const [completionPercentage, setCompletionPercentage] = useState(0);
 
+  const defaultValues = profile ? {
+    name: profile.name,
+    version: profile.version,
+    exam_domains: profile.exam_domains,
+    assessment_template: profile.assessment_template || undefined
+  } : {
+    name: '',
+    version: '1.0',
+    exam_domains: [createDefaultExamDomain()],
+    assessment_template: undefined
+  };
+
   const {
     register,
     control,
@@ -47,24 +59,36 @@ export default function CertificationProfileForm({
     formState: { errors, isValid }
   } = useForm<CertificationProfileCreate>({
     resolver: zodResolver(CertificationProfileCreateSchema),
-    defaultValues: profile ? {
-      name: profile.name,
-      version: profile.version,
-      exam_domains: profile.exam_domains,
-      assessment_template: profile.assessment_template || undefined
-    } : {
-      name: '',
-      version: '1.0',
-      exam_domains: [createDefaultExamDomain()],
-      assessment_template: undefined
-    },
+    defaultValues,
     mode: 'onChange'
   });
+
+  // Early return if form is not initialized properly
+  if (!register || !control) {
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-center items-center py-8">
+          <div className="text-gray-500">Loading form...</div>
+        </div>
+      </div>
+    );
+  }
 
   const { fields, append, remove } = useFieldArray({
     control,
     name: 'exam_domains'
   });
+
+  // Ensure fields is properly initialized
+  if (!fields) {
+    return (
+      <div className="space-y-6">
+        <div className="flex justify-center items-center py-8">
+          <div className="text-gray-500">Loading field array...</div>
+        </div>
+      </div>
+    );
+  }
 
   const watchedFields = watch();
 
