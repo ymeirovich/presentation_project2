@@ -1,6 +1,7 @@
 'use client'
 
 import { AssessmentForm } from './AssessmentForm'
+import { WorkflowList } from './WorkflowList'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { cn } from '@/lib/utils'
 
@@ -16,18 +17,7 @@ export function AssessmentWorkflow({ className }: AssessmentWorkflowProps) {
       </div>
 
       <aside className="space-y-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Recent Workflows</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <p>
-              Workflow history, status timelines, and retry controls will surface here in
-              Phase&nbsp;3 of the UI rollout. For now, submitted assessments can be tracked via
-              the backend API or observability dashboards.
-            </p>
-          </CardContent>
-        </Card>
+        <WorkflowList />
 
         <Card>
           <CardHeader>

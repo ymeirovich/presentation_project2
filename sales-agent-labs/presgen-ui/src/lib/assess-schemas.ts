@@ -83,11 +83,51 @@ export const AssessmentWorkflowResponseSchema = z.object({
 
 export type AssessmentWorkflowResponse = z.infer<typeof AssessmentWorkflowResponseSchema>
 
+// Extended workflow schemas for timeline and management
+export const WorkflowStepSchema = z.object({
+  step: z.string(),
+  status: z.enum(['pending', 'in_progress', 'completed', 'failed']),
+  started_at: z.string().nullable().optional(),
+  completed_at: z.string().nullable().optional(),
+  error_message: z.string().nullable().optional(),
+  duration_seconds: z.number().nullable().optional(),
+})
+
+export const WorkflowDetailSchema = z.object({
+  id: z.string().uuid(),
+  user_id: z.string(),
+  certification_profile_id: z.string().uuid(),
+  current_step: z.string(),
+  execution_status: z.enum(['pending', 'in_progress', 'completed', 'failed', 'awaiting_completion']),
+  workflow_type: z.string(),
+  parameters: z.record(z.unknown()).optional(),
+  progress: z.number().int().min(0).max(100),
+  created_at: z.string(),
+  updated_at: z.string(),
+  estimated_completion_at: z.string().nullable().optional(),
+  completed_at: z.string().nullable().optional(),
+  resume_token: z.string().nullable().optional(),
+  error_message: z.string().nullable().optional(),
+  step_execution_log: z.array(WorkflowStepSchema).optional(),
+})
+
+export const WorkflowListResponseSchema = z.array(WorkflowDetailSchema)
+
+export type WorkflowStep = z.infer<typeof WorkflowStepSchema>
+export type WorkflowDetail = z.infer<typeof WorkflowDetailSchema>
+export type WorkflowListResponse = z.infer<typeof WorkflowListResponseSchema>
+
 export interface AssessmentRequestPayload {
   user_id: string
   certification_profile_id: string
   workflow_type: 'assessment_generation'
   parameters: Record<string, unknown>
+}
+
+export interface WorkflowStatusUpdate {
+  status: string
+  progress?: number
+  error_message?: string
 }
 
 export const DEFAULT_DOMAIN_ENTRY: DomainDistributionEntry = {

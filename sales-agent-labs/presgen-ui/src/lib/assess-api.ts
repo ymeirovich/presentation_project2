@@ -7,6 +7,11 @@ import {
   AssessmentWorkflowResponseSchema,
   CertificationProfile,
   CertificationProfileSchema,
+  WorkflowDetail,
+  WorkflowDetailSchema,
+  WorkflowListResponse,
+  WorkflowListResponseSchema,
+  WorkflowStatusUpdate,
 } from '@/lib/assess-schemas'
 
 const ASSESS_API_BASE_URL = process.env.NEXT_PUBLIC_ASSESS_API_URL
@@ -99,4 +104,51 @@ export async function requestAssessmentWorkflow(
   })
 
   return parseResponse<AssessmentWorkflowResponse>(response, AssessmentWorkflowResponseSchema)
+}
+
+// Workflow Management API Functions
+
+export async function fetchWorkflows(options?: {
+  status_filter?: string
+  skip?: number
+  limit?: number
+}): Promise<WorkflowListResponse> {
+  const searchParams = new URLSearchParams()
+  if (options?.status_filter) searchParams.set('status_filter', options.status_filter)
+  if (options?.skip) searchParams.set('skip', options.skip.toString())
+  if (options?.limit) searchParams.set('limit', options.limit.toString())
+
+  const url = buildUrl(`/workflows${searchParams.toString() ? `?${searchParams}` : ''}`)
+  const response = await fetch(url, {
+    headers: getHeaders(),
+    cache: 'no-store',
+  })
+
+  return parseResponse<WorkflowListResponse>(response, WorkflowListResponseSchema)
+}
+
+export async function fetchWorkflowDetail(workflowId: string): Promise<WorkflowDetail> {
+  const response = await fetch(buildUrl(`/workflows/${workflowId}`), {
+    headers: getHeaders(),
+    cache: 'no-store',
+  })
+
+  return parseResponse<WorkflowDetail>(response, WorkflowDetailSchema)
+}
+
+export async function updateWorkflowStatus(
+  workflowId: string,
+  update: WorkflowStatusUpdate
+): Promise<WorkflowDetail> {
+  const response = await fetch(buildUrl(`/workflows/${workflowId}/status`), {
+    method: 'PUT',
+    headers: getHeaders('application/json'),
+    body: JSON.stringify(update),
+  })
+
+  return parseResponse<WorkflowDetail>(response, WorkflowDetailSchema)
+}
+
+export async function retryWorkflow(workflowId: string): Promise<WorkflowDetail> {
+  return updateWorkflowStatus(workflowId, { status: 'pending', progress: 0 })
 }
