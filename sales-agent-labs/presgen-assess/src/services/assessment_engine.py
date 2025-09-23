@@ -358,7 +358,14 @@ class AssessmentEngine:
 
             # Check domain coverage
             domains = set(q.get("domain") for q in questions)
-            expected_domains = set(d["name"] for d in assessment_data.get("metadata", {}).get("exam_domains", []))
+            metadata = assessment_data.get("metadata", {})
+            exam_domains = metadata.get("exam_domains", [])
+
+            # Handle both string and dict formats for exam_domains
+            if exam_domains and isinstance(exam_domains[0], dict):
+                expected_domains = set(d["name"] for d in exam_domains)
+            else:
+                expected_domains = set(exam_domains)
 
             if len(domains) < len(expected_domains) * 0.8:
                 warnings.append("Assessment may not cover all required domains adequately")

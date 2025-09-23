@@ -226,7 +226,13 @@ class TestPresentationGenerationService:
         http_error = httpx.HTTPStatusError("Server error", request=MagicMock(), response=mock_response)
         presentation_service.http_client.post.side_effect = http_error
 
-        presentation_request = {"title": "Test", "slide_count": 10}
+        presentation_request = {
+            "title": "Test",
+            "slide_count": 10,
+            "content_outline": "Test outline",
+            "learning_objectives": ["Test objective"],
+            "difficulty_level": "intermediate"
+        }
 
         # Execute & Verify
         with pytest.raises(Exception) as exc_info:
@@ -244,7 +250,13 @@ class TestPresentationGenerationService:
         connection_error = httpx.RequestError("Connection failed")
         presentation_service.http_client.post.side_effect = connection_error
 
-        presentation_request = {"title": "Test", "slide_count": 10}
+        presentation_request = {
+            "title": "Test",
+            "slide_count": 10,
+            "content_outline": "Test outline",
+            "learning_objectives": ["Test objective"],
+            "difficulty_level": "intermediate"
+        }
 
         # Execute & Verify
         with pytest.raises(Exception) as exc_info:
