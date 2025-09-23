@@ -74,8 +74,7 @@ export default function CertificationProfileForm({
     setValue,
     formState: { errors, isValid }
   } = useForm<CertificationProfileCreate>({
-    // Temporarily remove Zod resolver to isolate the issue
-    // resolver: zodResolver(CertificationProfileCreateSchema),
+    resolver: zodResolver(CertificationProfileCreateSchema),
     defaultValues,
     mode: 'onChange'
   });
@@ -258,6 +257,18 @@ export default function CertificationProfileForm({
                 )}
               </div>
             </div>
+            <div>
+              <Label htmlFor="provider">Provider *</Label>
+              <Input
+                id="provider"
+                {...register('provider')}
+                placeholder="e.g., AWS, Microsoft, Google"
+                className={errors.provider ? 'border-red-500' : ''}
+              />
+              {errors.provider && (
+                <p className="text-sm text-red-500 mt-1">{errors.provider.message}</p>
+              )}
+            </div>
           </CardContent>
         </Card>
 
@@ -347,28 +358,15 @@ export default function CertificationProfileForm({
                 </div>
 
                 <div>
-                  <Label htmlFor={`domain-subdomains-${index}`}>Subdomains (comma-separated)</Label>
+                  <Label htmlFor={`domain-topics-${index}`}>Topics (comma-separated)</Label>
                   <Input
-                    id={`domain-subdomains-${index}`}
+                    id={`domain-topics-${index}`}
                     placeholder="e.g., Scalability, Fault Tolerance, Disaster Recovery"
                     onChange={(e) => {
-                      const subdomains = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                      setValue(`exam_domains.${index}.subdomains`, subdomains);
+                      const topics = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+                      setValue(`exam_domains.${index}.topics`, topics);
                     }}
-                    defaultValue={field.subdomains.join(', ')}
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor={`domain-skills-${index}`}>Skills Measured (comma-separated)</Label>
-                  <Input
-                    id={`domain-skills-${index}`}
-                    placeholder="e.g., Design multi-tier architectures, Implement elasticity"
-                    onChange={(e) => {
-                      const skills = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                      setValue(`exam_domains.${index}.skills_measured`, skills);
-                    }}
-                    defaultValue={field.skills_measured.join(', ')}
+                    defaultValue={field.topics.join(', ')}
                   />
                 </div>
               </div>
@@ -393,35 +391,6 @@ export default function CertificationProfileForm({
           </CardContent>
         </Card>
 
-        {/* Assessment Template */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Assessment Template (Optional)</CardTitle>
-            <CardDescription>
-              Custom assessment configuration in JSON format
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Textarea
-              {...register('assessment_template', {
-                setValueAs: (value) => {
-                  if (!value || value.trim() === '') return undefined;
-                  try {
-                    return JSON.parse(value);
-                  } catch {
-                    return value; // Let validation handle the error
-                  }
-                }
-              })}
-              placeholder='{"question_count": 65, "time_limit_minutes": 130, "difficulty_distribution": {"easy": 0.2, "medium": 0.6, "hard": 0.2}}'
-              rows={4}
-              className="font-mono text-sm"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Leave empty to use default assessment settings
-            </p>
-          </CardContent>
-        </Card>
 
         {/* Actions */}
         <div className="flex justify-end gap-3">
