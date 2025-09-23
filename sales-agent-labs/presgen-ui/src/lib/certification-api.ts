@@ -7,11 +7,12 @@ import { z } from 'zod';
 // Use Next.js API routes as proxy to PresGen-Assess backend
 const API_BASE = '/api/presgen-assess';
 
-// Zod schemas for validation (matching backend schema)
+// Zod schemas for validation (matching actual database model)
 export const ExamDomainSchema = z.object({
   name: z.string().min(1),
-  weight_percentage: z.number().int().min(1).max(100),
-  topics: z.array(z.string()).default([])
+  weight_percentage: z.number().int().min(0).max(100),
+  subdomains: z.array(z.string()).default([]),
+  skills_measured: z.array(z.string()).default([])
 });
 
 export const CertificationProfileSchema = z.object({
@@ -28,12 +29,6 @@ export const CertificationProfileSchema = z.object({
 export const CertificationProfileCreateSchema = z.object({
   name: z.string().min(1).max(255),
   version: z.string().min(1).max(100),
-  provider: z.string().min(1).max(255),
-  description: z.string().optional(),
-  exam_code: z.string().max(50).optional(),
-  passing_score: z.number().int().min(0).max(100).optional(),
-  exam_duration_minutes: z.number().int().min(1).optional(),
-  question_count: z.number().int().min(1).optional(),
   exam_domains: z.array(ExamDomainSchema).refine(
     (domains) => {
       const totalWeight = domains.reduce((sum, domain) => sum + domain.weight_percentage, 0);
@@ -41,9 +36,7 @@ export const CertificationProfileCreateSchema = z.object({
     },
     { message: "Domain weights must sum to 100%" }
   ),
-  prerequisites: z.array(z.string()).default([]),
-  recommended_experience: z.string().optional(),
-  is_active: z.boolean().default(true)
+  assessment_template: z.record(z.any()).optional()
 });
 
 export const CertificationProfileUpdateSchema = CertificationProfileCreateSchema.partial();
@@ -278,7 +271,8 @@ export const validateDomainWeights = (domains: ExamDomain[]): { isValid: boolean
 export const createDefaultExamDomain = (): ExamDomain => ({
   name: '',
   weight_percentage: 0,
-  topics: []
+  subdomains: [],
+  skills_measured: []
 });
 
 // Helper function to calculate completion percentage

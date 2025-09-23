@@ -41,29 +41,13 @@ export default function CertificationProfileForm({
   const defaultValues = profile ? {
     name: profile.name,
     version: profile.version,
-    provider: profile.provider || '',
-    description: profile.description || '',
-    exam_code: profile.exam_code || '',
-    passing_score: profile.passing_score || undefined,
-    exam_duration_minutes: profile.exam_duration_minutes || undefined,
-    question_count: profile.question_count || undefined,
     exam_domains: profile.exam_domains,
-    prerequisites: profile.prerequisites || [],
-    recommended_experience: profile.recommended_experience || '',
-    is_active: profile.is_active !== undefined ? profile.is_active : true
+    assessment_template: profile.assessment_template || undefined
   } : {
     name: '',
     version: '1.0',
-    provider: '',
-    description: '',
-    exam_code: '',
-    passing_score: undefined,
-    exam_duration_minutes: undefined,
-    question_count: undefined,
     exam_domains: [createDefaultExamDomain()],
-    prerequisites: [],
-    recommended_experience: '',
-    is_active: true
+    assessment_template: undefined
   };
 
   const {
@@ -257,18 +241,6 @@ export default function CertificationProfileForm({
                 )}
               </div>
             </div>
-            <div>
-              <Label htmlFor="provider">Provider *</Label>
-              <Input
-                id="provider"
-                {...register('provider')}
-                placeholder="e.g., AWS, Microsoft, Google"
-                className={errors.provider ? 'border-red-500' : ''}
-              />
-              {errors.provider && (
-                <p className="text-sm text-red-500 mt-1">{errors.provider.message}</p>
-              )}
-            </div>
           </CardContent>
         </Card>
 
@@ -358,15 +330,28 @@ export default function CertificationProfileForm({
                 </div>
 
                 <div>
-                  <Label htmlFor={`domain-topics-${index}`}>Topics (comma-separated)</Label>
+                  <Label htmlFor={`domain-subdomains-${index}`}>Subdomains (comma-separated)</Label>
                   <Input
-                    id={`domain-topics-${index}`}
+                    id={`domain-subdomains-${index}`}
                     placeholder="e.g., Scalability, Fault Tolerance, Disaster Recovery"
                     onChange={(e) => {
-                      const topics = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                      setValue(`exam_domains.${index}.topics`, topics);
+                      const subdomains = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+                      setValue(`exam_domains.${index}.subdomains`, subdomains);
                     }}
-                    defaultValue={field.topics.join(', ')}
+                    defaultValue={field.subdomains.join(', ')}
+                  />
+                </div>
+
+                <div>
+                  <Label htmlFor={`domain-skills-${index}`}>Skills Measured (comma-separated)</Label>
+                  <Input
+                    id={`domain-skills-${index}`}
+                    placeholder="e.g., Design multi-tier architectures, Implement elasticity"
+                    onChange={(e) => {
+                      const skills = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+                      setValue(`exam_domains.${index}.skills_measured`, skills);
+                    }}
+                    defaultValue={field.skills_measured.join(', ')}
                   />
                 </div>
               </div>
@@ -391,6 +376,35 @@ export default function CertificationProfileForm({
           </CardContent>
         </Card>
 
+        {/* Assessment Template */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Assessment Template (Optional)</CardTitle>
+            <CardDescription>
+              Custom assessment configuration in JSON format
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Textarea
+              {...register('assessment_template', {
+                setValueAs: (value) => {
+                  if (!value || value.trim() === '') return undefined;
+                  try {
+                    return JSON.parse(value);
+                  } catch {
+                    return value; // Let validation handle the error
+                  }
+                }
+              })}
+              placeholder='{"question_count": 65, "time_limit_minutes": 130, "difficulty_distribution": {"easy": 0.2, "medium": 0.6, "hard": 0.2}}'
+              rows={4}
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Leave empty to use default assessment settings
+            </p>
+          </CardContent>
+        </Card>
 
         {/* Actions */}
         <div className="flex justify-end gap-3">
