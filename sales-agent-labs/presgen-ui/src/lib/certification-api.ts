@@ -7,12 +7,11 @@ import { z } from 'zod';
 // Use Next.js API routes as proxy to PresGen-Assess backend
 const API_BASE = '/api/presgen-assess';
 
-// Zod schemas for validation
+// Zod schemas for validation (matching backend schema)
 export const ExamDomainSchema = z.object({
   name: z.string().min(1),
-  weight_percentage: z.number().min(0).max(100),
-  subdomains: z.array(z.string()).default([]),
-  skills_measured: z.array(z.string()).default([])
+  weight_percentage: z.number().int().min(1).max(100),
+  topics: z.array(z.string()).default([])
 });
 
 export const CertificationProfileSchema = z.object({
@@ -29,6 +28,12 @@ export const CertificationProfileSchema = z.object({
 export const CertificationProfileCreateSchema = z.object({
   name: z.string().min(1).max(255),
   version: z.string().min(1).max(100),
+  provider: z.string().min(1).max(255),
+  description: z.string().optional(),
+  exam_code: z.string().max(50).optional(),
+  passing_score: z.number().int().min(0).max(100).optional(),
+  exam_duration_minutes: z.number().int().min(1).optional(),
+  question_count: z.number().int().min(1).optional(),
   exam_domains: z.array(ExamDomainSchema).refine(
     (domains) => {
       const totalWeight = domains.reduce((sum, domain) => sum + domain.weight_percentage, 0);
@@ -36,7 +41,9 @@ export const CertificationProfileCreateSchema = z.object({
     },
     { message: "Domain weights must sum to 100%" }
   ),
-  assessment_template: z.record(z.any()).optional()
+  prerequisites: z.array(z.string()).default([]),
+  recommended_experience: z.string().optional(),
+  is_active: z.boolean().default(true)
 });
 
 export const CertificationProfileUpdateSchema = CertificationProfileCreateSchema.partial();
@@ -108,13 +115,25 @@ export class CertificationAPI {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-      console.error('API Error:', {
-        status: response.status,
-        statusText: response.statusText,
-        url: response.url,
-        error
-      });
-      throw new Error(error.detail || error.message || `HTTP ${response.status}: ${response.statusText}`);
+      console.error('API Error Details:');
+      console.error('Status:', response.status);
+      console.error('Status Text:', response.statusText);
+      console.error('URL:', response.url);
+      console.error('Error Response:', JSON.stringify(error, null, 2));
+
+      // Get the actual error message
+      let errorMessage = 'Unknown error';
+      if (error.detail) {
+        errorMessage = error.detail;
+      } else if (error.message) {
+        errorMessage = error.message;
+      } else if (typeof error === 'string') {
+        errorMessage = error;
+      } else {
+        errorMessage = `HTTP ${response.status}: ${response.statusText}`;
+      }
+
+      throw new Error(errorMessage);
     }
 
     return response.json();
@@ -259,8 +278,7 @@ export const validateDomainWeights = (domains: ExamDomain[]): { isValid: boolean
 export const createDefaultExamDomain = (): ExamDomain => ({
   name: '',
   weight_percentage: 0,
-  subdomains: [],
-  skills_measured: []
+  topics: []
 });
 
 // Helper function to calculate completion percentage

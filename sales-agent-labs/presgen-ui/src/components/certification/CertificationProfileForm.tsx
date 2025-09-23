@@ -41,13 +41,29 @@ export default function CertificationProfileForm({
   const defaultValues = profile ? {
     name: profile.name,
     version: profile.version,
+    provider: profile.provider || '',
+    description: profile.description || '',
+    exam_code: profile.exam_code || '',
+    passing_score: profile.passing_score || undefined,
+    exam_duration_minutes: profile.exam_duration_minutes || undefined,
+    question_count: profile.question_count || undefined,
     exam_domains: profile.exam_domains,
-    assessment_template: profile.assessment_template || undefined
+    prerequisites: profile.prerequisites || [],
+    recommended_experience: profile.recommended_experience || '',
+    is_active: profile.is_active !== undefined ? profile.is_active : true
   } : {
     name: '',
     version: '1.0',
+    provider: '',
+    description: '',
+    exam_code: '',
+    passing_score: undefined,
+    exam_duration_minutes: undefined,
+    question_count: undefined,
     exam_domains: [createDefaultExamDomain()],
-    assessment_template: undefined
+    prerequisites: [],
+    recommended_experience: '',
+    is_active: true
   };
 
   const {
@@ -133,7 +149,15 @@ export default function CertificationProfileForm({
       onSave?.(savedProfile);
     } catch (error) {
       console.error('Failed to save profile:', error);
-      toast.error(`Failed to ${mode === 'edit' ? 'update' : 'create'} profile`);
+
+      // Extract meaningful error message
+      let errorMessage = `Failed to ${mode === 'edit' ? 'update' : 'create'} profile`;
+      if (error instanceof Error) {
+        errorMessage = error.message;
+      }
+
+      console.error('Error details:', errorMessage);
+      toast.error(errorMessage);
     } finally {
       setSaving(false);
     }
