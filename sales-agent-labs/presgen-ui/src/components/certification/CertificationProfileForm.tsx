@@ -58,7 +58,8 @@ export default function CertificationProfileForm({
     setValue,
     formState: { errors, isValid }
   } = useForm<CertificationProfileCreate>({
-    resolver: zodResolver(CertificationProfileCreateSchema),
+    // Temporarily remove Zod resolver to isolate the issue
+    // resolver: zodResolver(CertificationProfileCreateSchema),
     defaultValues,
     mode: 'onChange'
   });
@@ -102,6 +103,15 @@ export default function CertificationProfileForm({
   const onSubmit = async (data: CertificationProfileCreate) => {
     try {
       setSaving(true);
+
+      // Manual Zod validation
+      try {
+        const validatedData = CertificationProfileCreateSchema.parse(data);
+        data = validatedData;
+      } catch (zodError: any) {
+        toast.error(zodError.errors?.[0]?.message || 'Validation failed');
+        return;
+      }
 
       // Validate domain weights
       const validation = validateDomainWeights(data.exam_domains);
