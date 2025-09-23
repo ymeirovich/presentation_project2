@@ -4,7 +4,8 @@
 
 import { z } from 'zod';
 
-const API_BASE = process.env.NEXT_PUBLIC_ASSESS_API_URL || 'http://localhost:8080/api/v1';
+// Use Next.js API routes as proxy to PresGen-Assess backend
+const API_BASE = '/api/presgen-assess';
 
 // Zod schemas for validation
 export const ExamDomainSchema = z.object({

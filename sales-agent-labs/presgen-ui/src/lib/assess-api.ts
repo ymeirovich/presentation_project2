@@ -18,14 +18,11 @@ import {
   LearningGapSchema,
 } from '@/lib/assess-schemas'
 
-const ASSESS_API_BASE_URL = process.env.NEXT_PUBLIC_ASSESS_API_URL
-  || process.env.NEXT_PUBLIC_API_BASE_URL
-  || 'http://localhost:8080'
-
-const API_PREFIX = '/api/v1'
+// Use Next.js API routes as proxy to PresGen-Assess backend
+const API_PREFIX = '/api/presgen-assess'
 
 function buildUrl(path: string): string {
-  return `${ASSESS_API_BASE_URL}${API_PREFIX}${path}`
+  return `${API_PREFIX}${path}`
 }
 
 function getHeaders(contentType?: string): Record<string, string> {
