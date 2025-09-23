@@ -45,6 +45,7 @@ export async function POST(request: NextRequest) {
     const backendUrl = `${ASSESS_API_URL}/api/v1/certifications`
 
     console.log('Proxying POST request to:', backendUrl)
+    console.log('Request body:', JSON.stringify(body, null, 2))
 
     const response = await fetch(backendUrl, {
       method: 'POST',
@@ -57,9 +58,15 @@ export async function POST(request: NextRequest) {
     const data = await response.json()
 
     if (!response.ok) {
-      console.error('PresGen-Assess API error:', response.status, data)
+      console.error('PresGen-Assess API error:', {
+        status: response.status,
+        statusText: response.statusText,
+        url: backendUrl,
+        requestBody: body,
+        responseData: data
+      })
       return NextResponse.json(
-        { error: data.detail || `API error: ${response.status}` },
+        { detail: data.detail || data.message || `API error: ${response.status}` },
         { status: response.status }
       )
     }
@@ -69,7 +76,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Error proxying to PresGen-Assess:', error)
     return NextResponse.json(
-      { error: 'Failed to connect to PresGen-Assess service' },
+      { detail: 'Failed to connect to PresGen-Assess service' },
       { status: 502 }
     )
   }

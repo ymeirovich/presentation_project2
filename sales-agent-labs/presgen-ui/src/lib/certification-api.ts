@@ -108,7 +108,13 @@ export class CertificationAPI {
 
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Unknown error' }));
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      console.error('API Error:', {
+        status: response.status,
+        statusText: response.statusText,
+        url: response.url,
+        error
+      });
+      throw new Error(error.detail || error.message || `HTTP ${response.status}: ${response.statusText}`);
     }
 
     return response.json();
