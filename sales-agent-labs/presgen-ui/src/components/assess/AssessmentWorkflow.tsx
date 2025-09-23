@@ -4,7 +4,9 @@ import { useState } from 'react'
 import { AssessmentForm } from './AssessmentForm'
 import { WorkflowList } from './WorkflowList'
 import { GapAnalysisDashboard } from './GapAnalysisDashboard'
+import { CertificationProfileManager } from '../certification/CertificationProfileManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
 import { WorkflowDetail } from '@/lib/assess-schemas'
 
@@ -41,37 +43,52 @@ export function AssessmentWorkflow({ className }: AssessmentWorkflowProps) {
   }
 
   return (
-    <div className={cn('grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]', className)}>
-      <div className="space-y-6">
-        <AssessmentForm />
-      </div>
+    <div className={cn('space-y-6', className)}>
+      <Tabs defaultValue="assessments" className="w-full">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="assessments">Assessment Workflows</TabsTrigger>
+          <TabsTrigger value="certifications">Certification Profiles</TabsTrigger>
+        </TabsList>
 
-      <aside className="space-y-6">
-        <WorkflowList onWorkflowSelect={handleWorkflowSelect} />
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Gap Analysis & Assets</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2 text-sm text-muted-foreground">
-            <p>
-              Complete an assessment workflow to access detailed gap analysis, domain performance
-              charts, Bloom's taxonomy breakdown, and personalized remediation assets.
-            </p>
-            <div className="flex flex-wrap gap-1 mt-2">
-              <span className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">
-                📊 Performance Charts
-              </span>
-              <span className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded">
-                📚 Study Plans
-              </span>
-              <span className="text-xs bg-orange-50 text-orange-700 px-2 py-1 rounded">
-                📈 Gap Analysis
-              </span>
+        <TabsContent value="assessments" className="mt-6">
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
+            <div className="space-y-6">
+              <AssessmentForm />
             </div>
-          </CardContent>
-        </Card>
-      </aside>
+
+            <aside className="space-y-6">
+              <WorkflowList onWorkflowSelect={handleWorkflowSelect} />
+
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Gap Analysis & Assets</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm text-muted-foreground">
+                  <p>
+                    Complete an assessment workflow to access detailed gap analysis, domain performance
+                    charts, Bloom's taxonomy breakdown, and personalized remediation assets.
+                  </p>
+                  <div className="flex flex-wrap gap-1 mt-2">
+                    <span className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded">
+                      📊 Performance Charts
+                    </span>
+                    <span className="text-xs bg-green-50 text-green-700 px-2 py-1 rounded">
+                      📚 Study Plans
+                    </span>
+                    <span className="text-xs bg-orange-50 text-orange-700 px-2 py-1 rounded">
+                      📈 Gap Analysis
+                    </span>
+                  </div>
+                </CardContent>
+              </Card>
+            </aside>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="certifications" className="mt-6">
+          <CertificationProfileManager />
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }
