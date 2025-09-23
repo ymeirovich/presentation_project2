@@ -12,6 +12,10 @@ import {
   WorkflowListResponse,
   WorkflowListResponseSchema,
   WorkflowStatusUpdate,
+  GapAnalysisResult,
+  GapAnalysisResultSchema,
+  LearningGap,
+  LearningGapSchema,
 } from '@/lib/assess-schemas'
 
 const ASSESS_API_BASE_URL = process.env.NEXT_PUBLIC_ASSESS_API_URL
@@ -151,4 +155,42 @@ export async function updateWorkflowStatus(
 
 export async function retryWorkflow(workflowId: string): Promise<WorkflowDetail> {
   return updateWorkflowStatus(workflowId, { status: 'pending', progress: 0 })
+}
+
+// Gap Analysis API Functions
+
+export async function fetchGapAnalysis(workflowId: string): Promise<GapAnalysisResult> {
+  const response = await fetch(buildUrl(`/workflows/${workflowId}/gap-analysis`), {
+    headers: getHeaders(),
+    cache: 'no-store',
+  })
+
+  return parseResponse<GapAnalysisResult>(response, GapAnalysisResultSchema)
+}
+
+export async function exportGapAnalysisReport(
+  workflowId: string,
+  format: 'pdf' | 'csv' | 'json' = 'pdf'
+): Promise<Blob> {
+  const response = await fetch(buildUrl(`/workflows/${workflowId}/gap-analysis/export?format=${format}`), {
+    headers: getHeaders(),
+    cache: 'no-store',
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    throw new ApiError(response.status, `Export failed: ${text}`)
+  }
+
+  return response.blob()
+}
+
+export async function fetchRemediationAssets(workflowId: string): Promise<LearningGap[]> {
+  const response = await fetch(buildUrl(`/workflows/${workflowId}/remediation-assets`), {
+    headers: getHeaders(),
+    cache: 'no-store',
+  })
+
+  const schema = z.array(LearningGapSchema)
+  return parseResponse<LearningGap[]>(response, schema)
 }

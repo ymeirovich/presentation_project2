@@ -140,3 +140,74 @@ export const AssessmentDifficultyOptions = [
   { value: 'intermediate', label: 'Intermediate' },
   { value: 'advanced', label: 'Advanced' },
 ] as const
+
+// Gap Analysis Schemas
+export const BloomTaxonomyLevelSchema = z.object({
+  level: z.enum(['remember', 'understand', 'apply', 'analyze', 'evaluate', 'create']),
+  label: z.string(),
+  score: z.number().min(0).max(100),
+  question_count: z.number().int().min(0),
+  correct_count: z.number().int().min(0),
+})
+
+export const DomainPerformanceSchema = z.object({
+  domain: z.string(),
+  score: z.number().min(0).max(100),
+  question_count: z.number().int().min(0),
+  correct_count: z.number().int().min(0),
+  confidence_score: z.number().min(0).max(100),
+  overconfidence_ratio: z.number().min(0),
+  bloom_levels: z.array(BloomTaxonomyLevelSchema),
+})
+
+export const LearningGapSchema = z.object({
+  domain: z.string(),
+  gap_severity: z.enum(['low', 'medium', 'high', 'critical']),
+  confidence_gap: z.number(),
+  skill_gap: z.number().min(0).max(100),
+  recommended_study_hours: z.number().min(0),
+  priority_topics: z.array(z.string()),
+  remediation_resources: z.array(z.object({
+    title: z.string(),
+    type: z.enum(['article', 'video', 'practice', 'documentation']),
+    url: z.string().url(),
+    estimated_time_minutes: z.number().int().min(0),
+  })),
+})
+
+export const GapAnalysisResultSchema = z.object({
+  workflow_id: z.string().uuid(),
+  overall_score: z.number().min(0).max(100),
+  overall_confidence: z.number().min(0).max(100),
+  overconfidence_indicator: z.boolean(),
+  domain_performance: z.array(DomainPerformanceSchema),
+  learning_gaps: z.array(LearningGapSchema),
+  bloom_taxonomy_breakdown: z.array(BloomTaxonomyLevelSchema),
+  recommended_study_plan: z.object({
+    total_estimated_hours: z.number().min(0),
+    priority_domains: z.array(z.string()),
+    study_sequence: z.array(z.string()),
+  }),
+  generated_at: z.string(),
+})
+
+export type BloomTaxonomyLevel = z.infer<typeof BloomTaxonomyLevelSchema>
+export type DomainPerformance = z.infer<typeof DomainPerformanceSchema>
+export type LearningGap = z.infer<typeof LearningGapSchema>
+export type GapAnalysisResult = z.infer<typeof GapAnalysisResultSchema>
+
+export const BLOOM_TAXONOMY_LEVELS = [
+  { value: 'remember', label: 'Remember', color: '#e3f2fd' },
+  { value: 'understand', label: 'Understand', color: '#bbdefb' },
+  { value: 'apply', label: 'Apply', color: '#90caf9' },
+  { value: 'analyze', label: 'Analyze', color: '#64b5f6' },
+  { value: 'evaluate', label: 'Evaluate', color: '#42a5f5' },
+  { value: 'create', label: 'Create', color: '#2196f3' },
+] as const
+
+export const GAP_SEVERITY_COLORS = {
+  low: '#4caf50',
+  medium: '#ff9800',
+  high: '#f44336',
+  critical: '#d32f2f',
+} as const
