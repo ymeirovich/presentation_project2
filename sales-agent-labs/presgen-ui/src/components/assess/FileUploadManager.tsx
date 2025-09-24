@@ -75,7 +75,7 @@ export default function FileUploadManager({ className }: FileUploadManagerProps)
     console.log('Resources changed, refreshing...');
   };
 
-  const handlePromptsChange = (prompts: any) => {
+  const handlePromptsChange = (prompts: Record<string, unknown>) => {
     console.log('Prompts updated:', prompts);
     // This could update the certification profile with new prompts
   };
