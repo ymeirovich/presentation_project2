@@ -100,7 +100,7 @@ export default function ResourceManager({
   const loadResources = async () => {
     try {
       setError(null);
-      const response = await fetch(`/api/presgen-assess/files/profile/${certProfileId}`);
+      const response = await fetch(`/api/presgen-assess/files/profile?profileId=${certProfileId}`);
 
       if (!response.ok) {
         throw new Error(`Failed to load resources: ${response.status}`);
