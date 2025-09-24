@@ -5,6 +5,7 @@ import { AssessmentForm } from './AssessmentForm'
 import { WorkflowList } from './WorkflowList'
 import { GapAnalysisDashboard } from './GapAnalysisDashboard'
 import CertificationProfileManager from '../certification/CertificationProfileManager'
+import FileUploadManager from './FileUploadManager'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { cn } from '@/lib/utils'
@@ -45,8 +46,9 @@ export function AssessmentWorkflow({ className }: AssessmentWorkflowProps) {
   return (
     <div className={cn('space-y-6', className)}>
       <Tabs defaultValue="assessments" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="assessments">Assessment Workflows</TabsTrigger>
+          <TabsTrigger value="knowledge">Knowledge Base</TabsTrigger>
           <TabsTrigger value="certifications">Certification Profiles</TabsTrigger>
         </TabsList>
 
@@ -83,6 +85,10 @@ export function AssessmentWorkflow({ className }: AssessmentWorkflowProps) {
               </Card>
             </aside>
           </div>
+        </TabsContent>
+
+        <TabsContent value="knowledge" className="mt-6">
+          <FileUploadManager />
         </TabsContent>
 
         <TabsContent value="certifications" className="mt-6">

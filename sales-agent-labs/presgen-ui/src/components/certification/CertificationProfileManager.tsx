@@ -5,7 +5,7 @@ import { Settings, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { CertificationProfile } from '@/lib/certification-api';
 import CertificationProfileList from './CertificationProfileList';
-import CertificationProfileForm from './CertificationProfileForm';
+import EnhancedCertificationProfileForm from './EnhancedCertificationProfileForm';
 import CertificationProfileStats from './CertificationProfileStats';
 
 type ViewMode = 'list' | 'create' | 'edit' | 'stats';
@@ -52,7 +52,7 @@ export default function CertificationProfileManager() {
     switch (viewState.mode) {
       case 'create':
         return (
-          <CertificationProfileForm
+          <EnhancedCertificationProfileForm
             mode="create"
             onSave={handleSaveProfile}
             onCancel={handleBackToList}
@@ -61,7 +61,7 @@ export default function CertificationProfileManager() {
 
       case 'edit':
         return (
-          <CertificationProfileForm
+          <EnhancedCertificationProfileForm
             profile={viewState.profile}
             mode="edit"
             onSave={handleSaveProfile}
