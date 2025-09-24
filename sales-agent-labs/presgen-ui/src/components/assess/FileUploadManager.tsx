@@ -33,7 +33,7 @@ export default function FileUploadManager({ className }: FileUploadManagerProps)
     const loadProfiles = async () => {
       try {
         setProfilesLoading(true);
-        const profiles = await CertificationAPI.getAll();
+        const profiles = await CertificationAPI.list();
         setCertificationProfiles(profiles);
 
         // Auto-select first profile if available
@@ -104,7 +104,13 @@ export default function FileUploadManager({ className }: FileUploadManagerProps)
           </p>
           <Button
             variant="outline"
-            onClick={() => window.location.href = '#certifications'}
+            onClick={() => {
+              // Switch to certifications tab in parent component
+              const tabTrigger = document.querySelector('[value="certifications"]') as HTMLElement;
+              if (tabTrigger) {
+                tabTrigger.click();
+              }
+            }}
             className="flex items-center space-x-2"
           >
             <Database className="w-4 h-4" />

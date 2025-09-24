@@ -153,7 +153,7 @@ export class CertificationAPI {
 
     try {
       return response.json();
-    } catch (e) {
+    } catch {
       // If response has no JSON content, return null
       return null;
     }
@@ -308,7 +308,7 @@ export class CertificationAPIError extends Error {
   constructor(
     message: string,
     public status?: number,
-    public details?: any
+    public details?: unknown
   ) {
     super(message);
     this.name = 'CertificationAPIError';
@@ -346,7 +346,7 @@ export const createDefaultExamDomain = (): ExamDomain => ({
 // Helper function to calculate completion percentage
 export const calculateCompletionPercentage = (profile: Partial<CertificationProfileCreate>): number => {
   let completed = 0;
-  let total = 4; // name, version, domains, assessment_template
+  const total = 4; // name, version, domains, assessment_template
 
   if (profile.name && profile.name.trim()) completed++;
   if (profile.version && profile.version.trim()) completed++;
