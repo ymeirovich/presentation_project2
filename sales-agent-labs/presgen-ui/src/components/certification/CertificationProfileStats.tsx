@@ -276,10 +276,10 @@ export default function CertificationProfileStats({
                   </div>
                   <div className="grid grid-cols-2 gap-4 text-sm text-gray-600">
                     <div>
-                      <span className="font-medium">Subdomains:</span> {domain.subdomains_count}
+                      <span className="font-medium">Topics:</span> {domain.subdomains_count || 0}
                     </div>
                     <div>
-                      <span className="font-medium">Skills:</span> {domain.skills_count}
+                      <span className="font-medium">Skills:</span> {domain.skills_count || 0}
                     </div>
                   </div>
                   <Progress

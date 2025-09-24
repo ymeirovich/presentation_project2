@@ -139,9 +139,9 @@ export default function CertificationProfileList({
   // Get status badge based on profile completeness
   const getStatusBadge = (profile: CertificationProfile) => {
     const hasTemplate = profile.assessment_template && Object.keys(profile.assessment_template).length > 0;
-    const hasSubdomains = profile.exam_domains.some(domain => domain.subdomains.length > 0);
+    const hasTopics = profile.exam_domains.some(domain => domain.topics && domain.topics.length > 0);
 
-    if (hasTemplate && hasSubdomains) {
+    if (hasTemplate && hasTopics) {
       return <Badge variant="default" className="bg-green-100 text-green-800">Complete</Badge>;
     } else if (profile.exam_domains.length > 0) {
       return <Badge variant="secondary">Basic</Badge>;

@@ -43,26 +43,100 @@ async def create_certification_profile(
                 detail=f"Certification profile '{profile_data.name} v{profile_data.version}' already exists"
             )
 
-        # Create new profile with proper knowledge base path
-        profile_dict = profile_data.model_dump()
-        profile_dict['knowledge_base_path'] = f"knowledge_base/{profile_data.name.lower().replace(' ', '_')}_v{profile_data.version}"
+        # Convert API schema to database schema
+        # Transform exam_domains from API format (with topics) to DB format (with subdomains/skills_measured)
+        db_exam_domains = []
+        for domain in profile_data.exam_domains:
+            db_domain = {
+                'name': domain.name,
+                'weight_percentage': domain.weight_percentage,
+                'subdomains': domain.topics[:len(domain.topics)//2] if domain.topics else [],  # Split topics into subdomains
+                'skills_measured': domain.topics[len(domain.topics)//2:] if domain.topics else []  # and skills_measured
+            }
+            db_exam_domains.append(db_domain)
 
-        profile = CertificationProfile(**profile_dict)
+        # Store additional form fields in assessment_template as metadata
+        assessment_template = getattr(profile_data, 'assessment_template', None) or {}
+
+        # Add form metadata to assessment_template
+        if not isinstance(assessment_template, dict):
+            assessment_template = {}
+
+        assessment_template['_metadata'] = {
+            'provider': profile_data.provider,
+            'description': getattr(profile_data, 'description', None),
+            'exam_code': getattr(profile_data, 'exam_code', None),
+            'passing_score': getattr(profile_data, 'passing_score', None),
+            'exam_duration_minutes': getattr(profile_data, 'exam_duration_minutes', None),
+            'question_count': getattr(profile_data, 'question_count', None),
+            'prerequisites': getattr(profile_data, 'prerequisites', []),
+            'recommended_experience': getattr(profile_data, 'recommended_experience', None),
+            'is_active': getattr(profile_data, 'is_active', True)
+        }
+
+        # Create profile data for database model (only include fields that exist in DB model)
+        db_profile_data = {
+            'name': profile_data.name,
+            'version': profile_data.version,
+            'exam_domains': db_exam_domains,
+            'knowledge_base_path': f"knowledge_base/{profile_data.name.lower().replace(' ', '_')}_v{profile_data.version}",
+            'assessment_template': assessment_template
+        }
+
+        profile = CertificationProfile(**db_profile_data)
         db.add(profile)
         await db.commit()
         await db.refresh(profile)
 
         logger.info(f"✅ Created certification profile: {profile.name} v{profile.version}")
-        return CertificationProfileResponse.model_validate(profile)
+
+        # Convert database model back to API schema for response
+        response_domains = []
+        for domain in profile.exam_domains:
+            api_domain = {
+                'name': domain['name'],
+                'weight_percentage': domain['weight_percentage'],
+                'topics': (domain.get('subdomains', []) + domain.get('skills_measured', []))  # Merge back into topics
+            }
+            response_domains.append(api_domain)
+
+        # Extract metadata from assessment_template
+        metadata = {}
+        if profile.assessment_template and isinstance(profile.assessment_template, dict):
+            metadata = profile.assessment_template.get('_metadata', {})
+
+        response_data = {
+            'id': profile.id,
+            'name': profile.name,
+            'version': profile.version,
+            'provider': metadata.get('provider', 'Unknown'),
+            'description': metadata.get('description'),
+            'exam_code': metadata.get('exam_code'),
+            'passing_score': metadata.get('passing_score'),
+            'exam_duration_minutes': metadata.get('exam_duration_minutes'),
+            'question_count': metadata.get('question_count'),
+            'exam_domains': response_domains,
+            'prerequisites': metadata.get('prerequisites', []),
+            'recommended_experience': metadata.get('recommended_experience'),
+            'is_active': metadata.get('is_active', True),
+            'created_at': profile.created_at,
+            'updated_at': profile.updated_at
+        }
+
+        return CertificationProfileResponse(**response_data)
 
     except HTTPException:
         raise
     except Exception as e:
         await db.rollback()
         logger.error(f"❌ Failed to create certification profile: {e}")
+        logger.error(f"Error type: {type(e)}")
+        logger.error(f"Error args: {e.args}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create certification profile"
+            detail=f"Failed to create certification profile: {str(e)}"
         )
 
 
@@ -78,7 +152,43 @@ async def list_certification_profiles(
         result = await db.execute(stmt)
         profiles = result.scalars().all()
 
-        return [CertificationProfileResponse.model_validate(profile) for profile in profiles]
+        # Convert database models to API schema
+        api_profiles = []
+        for profile in profiles:
+            response_domains = []
+            for domain in profile.exam_domains:
+                api_domain = {
+                    'name': domain['name'],
+                    'weight_percentage': domain['weight_percentage'],
+                    'topics': (domain.get('subdomains', []) + domain.get('skills_measured', []))
+                }
+                response_domains.append(api_domain)
+
+            # Extract metadata from assessment_template
+            metadata = {}
+            if profile.assessment_template and isinstance(profile.assessment_template, dict):
+                metadata = profile.assessment_template.get('_metadata', {})
+
+            response_data = {
+                'id': profile.id,
+                'name': profile.name,
+                'version': profile.version,
+                'provider': metadata.get('provider', 'Unknown'),
+                'description': metadata.get('description'),
+                'exam_code': metadata.get('exam_code'),
+                'passing_score': metadata.get('passing_score'),
+                'exam_duration_minutes': metadata.get('exam_duration_minutes'),
+                'question_count': metadata.get('question_count'),
+                'exam_domains': response_domains,
+                'prerequisites': metadata.get('prerequisites', []),
+                'recommended_experience': metadata.get('recommended_experience'),
+                'is_active': metadata.get('is_active', True),
+                'created_at': profile.created_at,
+                'updated_at': profile.updated_at
+            }
+            api_profiles.append(CertificationProfileResponse(**response_data))
+
+        return api_profiles
 
     except Exception as e:
         logger.error(f"❌ Failed to list certification profiles: {e}")
@@ -105,7 +215,40 @@ async def get_certification_profile(
                 detail=f"Certification profile with ID {profile_id} not found"
             )
 
-        return CertificationProfileResponse.model_validate(profile)
+        # Convert database model to API schema
+        response_domains = []
+        for domain in profile.exam_domains:
+            api_domain = {
+                'name': domain['name'],
+                'weight_percentage': domain['weight_percentage'],
+                'topics': (domain.get('subdomains', []) + domain.get('skills_measured', []))
+            }
+            response_domains.append(api_domain)
+
+        # Extract metadata from assessment_template
+        metadata = {}
+        if profile.assessment_template and isinstance(profile.assessment_template, dict):
+            metadata = profile.assessment_template.get('_metadata', {})
+
+        response_data = {
+            'id': profile.id,
+            'name': profile.name,
+            'version': profile.version,
+            'provider': metadata.get('provider', 'Unknown'),
+            'description': metadata.get('description'),
+            'exam_code': metadata.get('exam_code'),
+            'passing_score': metadata.get('passing_score'),
+            'exam_duration_minutes': metadata.get('exam_duration_minutes'),
+            'question_count': metadata.get('question_count'),
+            'exam_domains': response_domains,
+            'prerequisites': metadata.get('prerequisites', []),
+            'recommended_experience': metadata.get('recommended_experience'),
+            'is_active': metadata.get('is_active', True),
+            'created_at': profile.created_at,
+            'updated_at': profile.updated_at
+        }
+
+        return CertificationProfileResponse(**response_data)
 
     except HTTPException:
         raise

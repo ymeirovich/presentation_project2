@@ -41,13 +41,32 @@ export default function CertificationProfileForm({
   const defaultValues = profile ? {
     name: profile.name,
     version: profile.version,
-    exam_domains: profile.exam_domains,
-    assessment_template: profile.assessment_template || undefined
+    provider: profile.provider || '',
+    description: profile.description || '',
+    exam_code: profile.exam_code || '',
+    passing_score: profile.passing_score || undefined,
+    exam_duration_minutes: profile.exam_duration_minutes || undefined,
+    question_count: profile.question_count || undefined,
+    exam_domains: profile.exam_domains.map(domain => ({
+      ...domain,
+      topics: domain.topics || []
+    })),
+    prerequisites: profile.prerequisites || [],
+    recommended_experience: profile.recommended_experience || '',
+    is_active: profile.is_active !== undefined ? profile.is_active : true
   } : {
     name: '',
     version: '1.0',
+    provider: '',
+    description: '',
+    exam_code: '',
+    passing_score: undefined,
+    exam_duration_minutes: undefined,
+    question_count: undefined,
     exam_domains: [createDefaultExamDomain()],
-    assessment_template: undefined
+    prerequisites: [],
+    recommended_experience: '',
+    is_active: true
   };
 
   const {
@@ -103,11 +122,23 @@ export default function CertificationProfileForm({
     try {
       setSaving(true);
 
+      // Ensure all domains have topics array properly set
+      const processedData = {
+        ...data,
+        exam_domains: data.exam_domains.map(domain => ({
+          ...domain,
+          topics: domain.topics || []
+        }))
+      };
+
+      console.log('Submitting certification profile data:', JSON.stringify(processedData, null, 2));
+
       // Manual Zod validation
       try {
-        const validatedData = CertificationProfileCreateSchema.parse(data);
+        const validatedData = CertificationProfileCreateSchema.parse(processedData);
         data = validatedData;
       } catch (zodError: any) {
+        console.error('Zod validation error:', zodError);
         toast.error(zodError.errors?.[0]?.message || 'Validation failed');
         return;
       }
@@ -209,9 +240,9 @@ export default function CertificationProfileForm({
         {/* Basic Information */}
         <Card>
           <CardHeader>
-            <CardTitle>Basic Information</CardTitle>
+            <CardTitle>Certification Information</CardTitle>
             <CardDescription>
-              Define the certification name and version
+              Define the certification details and exam parameters
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -239,6 +270,70 @@ export default function CertificationProfileForm({
                 {errors.version && (
                   <p className="text-sm text-red-500 mt-1">{errors.version.message}</p>
                 )}
+              </div>
+            </div>
+            <div>
+              <Label htmlFor="provider">Provider *</Label>
+              <Input
+                id="provider"
+                {...register('provider')}
+                placeholder="e.g., AWS, Microsoft, Google"
+                className={errors.provider ? 'border-red-500' : ''}
+              />
+              {errors.provider && (
+                <p className="text-sm text-red-500 mt-1">{errors.provider.message}</p>
+              )}
+            </div>
+            <div>
+              <Label htmlFor="description">Description</Label>
+              <Textarea
+                id="description"
+                {...register('description')}
+                placeholder="Describe the certification and its objectives"
+                rows={3}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="exam_code">Exam Code</Label>
+                <Input
+                  id="exam_code"
+                  {...register('exam_code')}
+                  placeholder="e.g., SAA-C03"
+                />
+              </div>
+              <div>
+                <Label htmlFor="passing_score">Passing Score (%)</Label>
+                <Input
+                  id="passing_score"
+                  type="number"
+                  min="0"
+                  max="100"
+                  {...register('passing_score', { valueAsNumber: true })}
+                  placeholder="e.g., 72"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="exam_duration_minutes">Exam Duration (minutes)</Label>
+                <Input
+                  id="exam_duration_minutes"
+                  type="number"
+                  min="1"
+                  {...register('exam_duration_minutes', { valueAsNumber: true })}
+                  placeholder="e.g., 130"
+                />
+              </div>
+              <div>
+                <Label htmlFor="question_count">Question Count</Label>
+                <Input
+                  id="question_count"
+                  type="number"
+                  min="1"
+                  {...register('question_count', { valueAsNumber: true })}
+                  placeholder="e.g., 65"
+                />
               </div>
             </div>
           </CardContent>
@@ -330,28 +425,16 @@ export default function CertificationProfileForm({
                 </div>
 
                 <div>
-                  <Label htmlFor={`domain-subdomains-${index}`}>Subdomains (comma-separated)</Label>
+                  <Label htmlFor={`domain-topics-${index}`}>Topics (comma-separated)</Label>
                   <Input
-                    id={`domain-subdomains-${index}`}
+                    id={`domain-topics-${index}`}
+                    {...register(`exam_domains.${index}.topics_input`)}
                     placeholder="e.g., Scalability, Fault Tolerance, Disaster Recovery"
                     onChange={(e) => {
-                      const subdomains = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                      setValue(`exam_domains.${index}.subdomains`, subdomains);
+                      const topics = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
+                      setValue(`exam_domains.${index}.topics`, topics);
                     }}
-                    defaultValue={field.subdomains.join(', ')}
-                  />
-                </div>
-
-                <div>
-                  <Label htmlFor={`domain-skills-${index}`}>Skills Measured (comma-separated)</Label>
-                  <Input
-                    id={`domain-skills-${index}`}
-                    placeholder="e.g., Design multi-tier architectures, Implement elasticity"
-                    onChange={(e) => {
-                      const skills = e.target.value.split(',').map(s => s.trim()).filter(Boolean);
-                      setValue(`exam_domains.${index}.skills_measured`, skills);
-                    }}
-                    defaultValue={field.skills_measured.join(', ')}
+                    defaultValue={field.topics?.join(', ') || ''}
                   />
                 </div>
               </div>

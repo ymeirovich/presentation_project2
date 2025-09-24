@@ -7,7 +7,7 @@ export async function GET(request: NextRequest) {
   try {
     const url = new URL(request.url)
     const searchParams = url.searchParams.toString()
-    const backendUrl = `${ASSESS_API_URL}/api/v1/certifications${searchParams ? `?${searchParams}` : ''}`
+    const backendUrl = `${ASSESS_API_URL}/api/v1/certifications/${searchParams ? `?${searchParams}` : ''}`
 
     console.log('Proxying GET request to:', backendUrl)
 
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const backendUrl = `${ASSESS_API_URL}/api/v1/certifications`
+    const backendUrl = `${ASSESS_API_URL}/api/v1/certifications/`
 
     console.log('Proxying POST request to:', backendUrl)
     console.log('Request body:', JSON.stringify(body, null, 2))
@@ -81,3 +81,4 @@ export async function POST(request: NextRequest) {
     )
   }
 }
+

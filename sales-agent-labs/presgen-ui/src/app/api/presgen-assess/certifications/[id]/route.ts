@@ -83,10 +83,13 @@ export async function PUT(
 
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: Promise<{ id: string }> }
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await params
+    console.log('DELETE request received in dynamic route')
+    const { id } = await context.params
+    console.log('Profile ID to delete:', id)
+
     const backendUrl = `${ASSESS_API_URL}/api/v1/certifications/${id}`
 
     console.log('Proxying DELETE request to:', backendUrl)
@@ -99,7 +102,12 @@ export async function DELETE(
     })
 
     if (!response.ok) {
-      const data = await response.json()
+      let data;
+      try {
+        data = await response.json()
+      } catch (e) {
+        data = { detail: 'Unknown error' }
+      }
       console.error('PresGen-Assess API error:', response.status, data)
       return NextResponse.json(
         { error: data.detail || `API error: ${response.status}` },
@@ -107,7 +115,19 @@ export async function DELETE(
       )
     }
 
-    return NextResponse.json({ success: true })
+    // Handle 204 No Content responses (successful deletes)
+    if (response.status === 204) {
+      return NextResponse.json({ success: true }, { status: 200 })
+    }
+
+    // Try to parse JSON response for other success cases
+    try {
+      const data = await response.json()
+      return NextResponse.json(data)
+    } catch (e) {
+      // If no JSON body, return success indicator
+      return NextResponse.json({ success: true })
+    }
 
   } catch (error) {
     console.error('Error proxying to PresGen-Assess:', error)

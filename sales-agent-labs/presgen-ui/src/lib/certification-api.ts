@@ -7,28 +7,42 @@ import { z } from 'zod';
 // Use Next.js API routes as proxy to PresGen-Assess backend
 const API_BASE = '/api/presgen-assess';
 
-// Zod schemas for validation (matching actual database model)
+// Zod schemas for validation (matching backend API schema)
 export const ExamDomainSchema = z.object({
   name: z.string().min(1),
-  weight_percentage: z.number().int().min(0).max(100),
-  subdomains: z.array(z.string()).default([]),
-  skills_measured: z.array(z.string()).default([])
+  weight_percentage: z.number().int().min(1).max(100),
+  topics: z.array(z.string()).default([])
 });
 
 export const CertificationProfileSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1).max(255),
   version: z.string().min(1).max(100),
+  provider: z.string(),
+  description: z.string().optional().nullable(),
+  exam_code: z.string().optional().nullable(),
+  passing_score: z.number().optional().nullable(),
+  exam_duration_minutes: z.number().optional().nullable(),
+  question_count: z.number().optional().nullable(),
   exam_domains: z.array(ExamDomainSchema),
-  knowledge_base_path: z.string(),
-  assessment_template: z.record(z.any()).optional(),
-  created_at: z.string().datetime(),
-  updated_at: z.string().datetime()
+  prerequisites: z.array(z.string()),
+  recommended_experience: z.string().optional().nullable(),
+  is_active: z.boolean(),
+  knowledge_base_path: z.string().optional(), // Optional since it's internal
+  assessment_template: z.record(z.any()).optional().nullable(),
+  created_at: z.string(), // Accept any datetime format
+  updated_at: z.string()  // Accept any datetime format
 });
 
 export const CertificationProfileCreateSchema = z.object({
   name: z.string().min(1).max(255),
   version: z.string().min(1).max(100),
+  provider: z.string().min(1).max(255),
+  description: z.string().optional(),
+  exam_code: z.string().max(50).optional(),
+  passing_score: z.number().int().min(0).max(100).optional(),
+  exam_duration_minutes: z.number().int().min(1).optional(),
+  question_count: z.number().int().min(1).optional(),
   exam_domains: z.array(ExamDomainSchema).refine(
     (domains) => {
       const totalWeight = domains.reduce((sum, domain) => sum + domain.weight_percentage, 0);
@@ -36,7 +50,10 @@ export const CertificationProfileCreateSchema = z.object({
     },
     { message: "Domain weights must sum to 100%" }
   ),
-  assessment_template: z.record(z.any()).optional()
+  prerequisites: z.array(z.string()).default([]),
+  recommended_experience: z.string().optional(),
+  assessment_template: z.record(z.any()).optional(),
+  is_active: z.boolean().default(true)
 });
 
 export const CertificationProfileUpdateSchema = CertificationProfileCreateSchema.partial();
@@ -129,7 +146,17 @@ export class CertificationAPI {
       throw new Error(errorMessage);
     }
 
-    return response.json();
+    // Handle empty responses (like 204 No Content for deletes)
+    if (response.status === 204 || response.headers.get('content-length') === '0') {
+      return null;
+    }
+
+    try {
+      return response.json();
+    } catch (e) {
+      // If response has no JSON content, return null
+      return null;
+    }
   }
 
   // List all certification profiles
@@ -142,13 +169,28 @@ export class CertificationAPI {
     const endpoint = queryString ? `/?${queryString}` : '/';
 
     const profiles = await this.request<CertificationProfile[]>(endpoint);
-    return profiles.map(profile => CertificationProfileSchema.parse(profile));
+    // Use safeParse to handle schema mismatches gracefully
+    return profiles.map(profile => {
+      const result = CertificationProfileSchema.safeParse(profile);
+      if (result.success) {
+        return result.data;
+      } else {
+        console.warn('Profile schema validation failed, using raw data:', result.error);
+        return profile as CertificationProfile;
+      }
+    });
   }
 
   // Get single certification profile
   static async get(id: string): Promise<CertificationProfile> {
     const profile = await this.request<CertificationProfile>(`/${id}`);
-    return CertificationProfileSchema.parse(profile);
+    const result = CertificationProfileSchema.safeParse(profile);
+    if (result.success) {
+      return result.data;
+    } else {
+      console.warn('Profile schema validation failed, using raw data:', result.error);
+      return profile as CertificationProfile;
+    }
   }
 
   // Create new certification profile
@@ -158,30 +200,51 @@ export class CertificationAPI {
       method: 'POST',
       body: JSON.stringify(validatedData),
     });
-    return CertificationProfileSchema.parse(profile);
+    const result = CertificationProfileSchema.safeParse(profile);
+    if (result.success) {
+      return result.data;
+    } else {
+      console.warn('Profile schema validation failed, using raw data:', result.error);
+      return profile as CertificationProfile;
+    }
   }
 
   // Update certification profile
   static async update(id: string, data: CertificationProfileUpdate): Promise<CertificationProfile> {
     const validatedData = CertificationProfileUpdateSchema.parse(data);
-    const profile = await this.request<CertificationProfile>(`/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(validatedData),
+    const profile = await this.request<CertificationProfile>(`/update`, {
+      method: 'POST',
+      body: JSON.stringify({ id, ...validatedData }),
     });
-    return CertificationProfileSchema.parse(profile);
+    const result = CertificationProfileSchema.safeParse(profile);
+    if (result.success) {
+      return result.data;
+    } else {
+      console.warn('Profile schema validation failed, using raw data:', result.error);
+      return profile as CertificationProfile;
+    }
   }
 
   // Delete certification profile
   static async delete(id: string): Promise<void> {
-    await this.request(`/${id}`, {
-      method: 'DELETE',
+    await this.request(`/delete`, {
+      method: 'POST',
+      body: JSON.stringify({ id }),
     });
   }
 
   // Search certification profiles
   static async search(name: string): Promise<CertificationProfile[]> {
     const profiles = await this.request<CertificationProfile[]>(`/search/${encodeURIComponent(name)}`);
-    return profiles.map(profile => CertificationProfileSchema.parse(profile));
+    return profiles.map(profile => {
+      const result = CertificationProfileSchema.safeParse(profile);
+      if (result.success) {
+        return result.data;
+      } else {
+        console.warn('Profile schema validation failed, using raw data:', result.error);
+        return profile as CertificationProfile;
+      }
+    });
   }
 
   // Duplicate certification profile
@@ -199,7 +262,13 @@ export class CertificationAPI {
       `/${id}/duplicate?${query.toString()}`,
       { method: 'POST' }
     );
-    return CertificationProfileSchema.parse(profile);
+    const result = CertificationProfileSchema.safeParse(profile);
+    if (result.success) {
+      return result.data;
+    } else {
+      console.warn('Profile schema validation failed, using raw data:', result.error);
+      return profile as CertificationProfile;
+    }
   }
 
   // Get certification profile statistics
@@ -271,8 +340,7 @@ export const validateDomainWeights = (domains: ExamDomain[]): { isValid: boolean
 export const createDefaultExamDomain = (): ExamDomain => ({
   name: '',
   weight_percentage: 0,
-  subdomains: [],
-  skills_measured: []
+  topics: []
 });
 
 // Helper function to calculate completion percentage

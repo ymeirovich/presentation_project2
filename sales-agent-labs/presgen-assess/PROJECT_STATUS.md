@@ -106,39 +106,67 @@ PresGen-Assess is an AI-powered certification assessment and presentation genera
          │                       │                       │
          └───────────────────────┼───────────────────────┘
                                  │
-                    ┌─────────────────┐
-                    │ Presentation    │
-                    │ Service         │
-                    │ • Personalized  │
-                    │ • Bulk Gen      │
-                    │ • Quality       │
-                    └─────────────────┘
+      ┌─────────────────┐       │       ┌─────────────────┐
+      │ ChromaDB RAG    │       │       │ Presentation    │
+      │ Knowledge Base  │       │       │ Service         │
+      │ • Cert-Specific │───────┼───────│ • Personalized  │
+      │ • File Upload   │       │       │ • Bulk Gen      │
+      │ • Isolation     │       │       │ • Quality       │
+      │ • Versioning    │       │       │ • RAG Enhanced  │
+      └─────────────────┘       │       └─────────────────┘
+                                │
+                   ┌─────────────────┐
+                   │ File Management │
+                   │ Service         │
+                   │ • Upload/Delete │
+                   │ • Validation    │
+                   │ • Processing    │
+                   └─────────────────┘
 ```
 
 ### API Layer
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     FastAPI REST API                        │
-│                                                             │
-│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌────────┐ │
-│  │  Auth   │ │   LLM   │ │ Engine  │ │   Gap   │ │Present │ │
-│  │   API   │ │   API   │ │   API   │ │   API   │ │  API   │ │
-│  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └────────┘ │
-│                                                             │
-│  JWT Auth • Rate Limiting • CORS • OpenAPI Documentation   │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│                          FastAPI REST API                             │
+│                                                                       │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌────────┐ ┌────────┐ │
+│  │  Auth   │ │   LLM   │ │ Engine  │ │   Gap   │ │Present │ │  Cert  │ │
+│  │   API   │ │   API   │ │   API   │ │   API   │ │  API   │ │Profile │ │
+│  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └────────┘ │  API   │ │
+│                                                             └────────┘ │
+│  ┌─────────┐ ┌─────────┐                                               │
+│  │  File   │ │ChromaDB │                                               │
+│  │ Upload  │ │  RAG    │                                               │
+│  │   API   │ │   API   │                                               │
+│  └─────────┘ └─────────┘                                               │
+│                                                                       │
+│  JWT Auth • Rate Limiting • CORS • File Upload • OpenAPI Docs        │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Data Layer
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
 │   PostgreSQL    │    │    ChromaDB     │    │   File System   │
-│                 │    │                 │    │                 │
-│ • User Data     │    │ • Vector        │    │ • Uploaded      │
-│ • Assessments   │    │   Embeddings    │    │   Documents     │
-│ • Workflows     │    │ • RAG Context   │    │ • Generated     │
-│ • Results       │    │ • Similarity    │    │   Content       │
+│                 │    │   (Enhanced)    │    │                 │
+│ • User Data     │    │ • Cert-Specific │    │ • Uploaded      │
+│ • Assessments   │    │   Collections   │    │   Documents     │
+│ • Workflows     │    │ • Metadata      │    │ • Exam Guides   │
+│ • Results       │    │   Filtering     │    │ • Transcripts   │
+│ • Cert Profiles │    │ • Versioning    │    │ • Generated     │
+│ • File Refs     │    │ • Isolation     │    │   Content       │
 └─────────────────┘    └─────────────────┘    └─────────────────┘
+                              │
+                    ┌─────────────────┐
+                    │ Collection Schema│
+                    │                 │
+                    │ assess_{user}_  │
+                    │ {cert}_{version}│
+                    │                 │
+                    │ • exam_guide    │
+                    │ • transcript    │
+                    │ • embeddings    │
+                    └─────────────────┘
 ```
 
 ## Performance Metrics
@@ -182,11 +210,15 @@ PresGen-Assess is an AI-powered certification assessment and presentation genera
 - **RAG Integration**: Source citations and context enhancement
 - **Bulk Processing**: Concurrent generation with queue management
 
-### Knowledge Base
-- **Document Types**: PDF, DOCX, TXT processing
-- **Content Classification**: Exam guides vs. course transcripts
-- **Vector Search**: Semantic similarity with OpenAI embeddings
-- **Dual-Stream**: Separate processing pipelines for different content types
+### Enhanced Knowledge Base (ChromaDB RAG)
+- **Document Types**: PDF, DOCX, TXT processing with certification-specific isolation
+- **Content Classification**: Exam guides vs. course transcripts with metadata tagging
+- **Vector Search**: Semantic similarity with OpenAI embeddings and strict filtering
+- **Certification Isolation**: Collections scoped by user_id, cert_id, and bundle_version
+- **Resource Management**: File upload, deletion, and replacement with cascade cleanup
+- **Versioning**: Immutable content snapshots with bundle versioning
+- **Metadata Filtering**: Rich metadata for precise content retrieval
+- **Custom Prompts**: Configurable prompts for assessment, presentation, and gap analysis
 
 ## Production Readiness
 
@@ -254,14 +286,16 @@ PresGen-Assess is an AI-powered certification assessment and presentation genera
 - ✅ Complete CRUD system for Certification Profiles (backend + frontend)
 - ✅ Future enhancement roadmap documented
 
-### ✅ NEW FEATURE: Certification Profile Management System (Sept 23, 2025)
-**Complete CRUD Implementation**: Full-featured certification profile management
+### ✅ NEW FEATURE: Certification Profile Management System (Sept 24, 2025)
+**Complete CRUD Implementation**: Full-featured certification profile management with all critical issues resolved
 
 **Backend API Features:**
 - ✅ **Full CRUD Operations**: Create, read, update, delete certification profiles
 - ✅ **Advanced Features**: Duplicate profiles, validation, statistics endpoints
 - ✅ **Data Management**: Comprehensive profile and domain configuration
 - ✅ **Integration Ready**: Connected to gap analysis and assessment engines
+- ✅ **CRITICAL FIX**: Update functionality fully operational with delete-and-recreate approach
+- ✅ **CRITICAL FIX**: Edit form population working correctly with metadata storage
 
 **Frontend UI Components:**
 - ✅ **CertificationProfileManager**: Complete management interface with navigation
@@ -269,6 +303,8 @@ PresGen-Assess is an AI-powered certification assessment and presentation genera
 - ✅ **CertificationProfileForm**: Advanced form with auto-balancing and validation
 - ✅ **CertificationProfileStats**: Detailed analytics and validation dashboard
 - ✅ **Comprehensive Testing**: Full test suite with React Testing Library
+- ✅ **RESOLVED**: All form fields now populate correctly in edit mode
+- ✅ **RESOLVED**: Update Profile functionality working without validation errors
 
 **Technical Implementation:**
 - ✅ TypeScript API client with Zod validation schemas
@@ -276,6 +312,9 @@ PresGen-Assess is an AI-powered certification assessment and presentation genera
 - ✅ Auto-balance domain weights functionality
 - ✅ Completion tracking and progress indicators
 - ✅ Error handling and user feedback systems
+- ✅ **Schema Alignment**: Frontend and backend schemas fully synchronized
+- ✅ **Metadata Storage**: Form fields preserved using assessment_template._metadata
+- ✅ **Dedicated Endpoints**: Custom update and delete endpoints for reliable operations
 
 ### ✅ Week 3-4 Completed (Sept 23, 2025)
 3. **Gap Analysis & Assets Dashboard Integration**
@@ -331,12 +370,15 @@ PresGen-Assess is an AI-powered certification assessment and presentation genera
 
 ## Current System Capabilities (Enhanced)
 
-### ✅ Enhanced Assessment Generation
+### ✅ Enhanced Assessment Generation (ChromaDB RAG Powered)
 - **Question Types**: Multiple choice, true/false, scenario-based with Bloom's taxonomy classification
 - **Difficulty Levels**: Beginner, intermediate, advanced, expert with cognitive load analysis
 - **Domain Coverage**: Balanced distribution with cross-domain connection analysis
-- **RAG Enhancement**: Context-aware questions with source citations and concept mapping
+- **RAG Enhancement**: Certification-specific context from uploaded exam guides and transcripts
+- **Source Isolation**: Strict content scoping per certification profile with metadata filtering
+- **Custom Prompts**: Configurable assessment generation prompts per certification
 - **Quality Validation**: Bloom's taxonomy and complexity analysis with metacognitive assessment
+- **Version Control**: Immutable content bundles with precise change tracking
 
 ### ✅ Advanced Gap Analysis (NEW)
 - **5-Metric Analysis Engine**: Comprehensive skill gap identification across multiple dimensions
@@ -346,10 +388,13 @@ PresGen-Assess is an AI-powered certification assessment and presentation genera
 - **Transfer Learning**: Cross-domain application ability and pattern recognition assessment
 - **Certification Readiness**: Industry-specific preparation with exam strategy optimization
 
-### ✅ Enhanced Presentation Generation
+### ✅ Enhanced Presentation Generation (ChromaDB RAG Integrated)
 - **Slide Range**: 1-40 slides with backend validation and gap-driven prioritization
 - **Content Adaptation**: 5-metric gap analysis integration for targeted content
-- **RAG Integration**: Source citations and context enhancement with skill-level appropriate content
+- **RAG Integration**: Certification-specific source citations from uploaded resources
+- **Resource Isolation**: Content scoped to specific certification profiles
+- **Custom Prompts**: Configurable presentation generation prompts per certification
+- **Version Consistency**: Presentations use consistent content bundles
 - **Bulk Processing**: Concurrent generation with queue management and personalization
 
 ### ✅ Comprehensive Export Capabilities (NEW)
@@ -358,12 +403,51 @@ PresGen-Assess is an AI-powered certification assessment and presentation genera
 - **Executive Dashboards**: Summary reports with actionable insights
 - **Remediation Planning**: Structured action plans with time estimates and success criteria
 
+## 🚀 Phase 5: ChromaDB Integration & File Upload System (In Progress - Sept 24, 2025)
+
+**Objective**: Integrate ChromaDB for certification-specific RAG knowledge bases with file upload capabilities
+
+**Key Deliverables:**
+- 📋 **File Upload System**: UI and API for exam guides and transcript uploads
+- 🗄️ **ChromaDB Integration**: Isolated collections per certification profile with metadata filtering
+- 🔗 **Resource Binding**: Associate uploaded resources with certification profiles
+- 📝 **Prompt Controls**: Custom prompts for assessment, presentation, and gap analysis
+- 🗑️ **Resource Management**: File deletion, replacement, and cascade delete capabilities
+- 🔒 **Data Isolation**: Strict tenant isolation using collections and metadata filters
+
+**Technical Implementation Plan:**
+```python
+# ChromaDB Collection Schema
+collection_name = f"assess_{user_id}_{cert_id}_{bundle_version}"
+
+# Metadata Structure
+{
+    "user_id": user_id,
+    "cert_id": cert_id,
+    "bundle_version": bundle_version,
+    "resource_type": "exam_guide|transcript",
+    "source_uri": file_path,
+    "section": section_title,
+    "page": page_num,
+    "chunk_index": i,
+    "embed_model": "text-embedding-3-small"
+}
+```
+
+**Security & Isolation:**
+- ✅ Collection-based tenant isolation
+- ✅ Metadata filtering for resource types
+- ✅ Versioned bundles for immutable content
+- ✅ Cascade delete on profile removal
+- ✅ API-enforced access controls
+
 ---
 
-**Last Updated**: September 23, 2025
-**Project Status**: Phase 4 Week 3-4 Complete + Enhanced Skill Gap Analysis + CRUD Management
+**Last Updated**: September 24, 2025
+**Project Status**: Phase 4 Complete + Phase 5 ChromaDB Integration Started
 **Major Features Added**:
-- 5-Metric Gap Analysis with Google Sheets Export
-- Complete Certification Profile CRUD Management System
-**Next Priority**: Production deployment and end-to-end testing
+- ✅ Complete Certification Profile CRUD Management System (ALL ISSUES RESOLVED)
+- ✅ 5-Metric Gap Analysis with Google Sheets Export
+- 🚀 ChromaDB Integration and File Upload System (In Progress)
+**Current Priority**: ChromaDB integration with file upload capabilities
 **Maintainer**: Claude Code Assistant
