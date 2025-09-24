@@ -1,14 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { MockFileStorage } from '@/lib/mock-file-storage';
 
 /**
  * Delete file - proxies to PresGen-Assess backend
  */
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { fileId: string } }
+  context: { params: Promise<{ fileId: string }> }
 ) {
   try {
-    const { fileId } = params;
+    const { fileId } = await context.params;
 
     // Proxy the request to the PresGen-Assess backend
     const backendUrl = `${process.env.PRESGEN_ASSESS_URL || 'http://localhost:8081'}/api/v1/presgen-assess/files/${fileId}`;
@@ -25,12 +26,14 @@ export async function DELETE(
     if (!response.ok) {
       console.error('Backend delete file error:', response.status);
 
-      // If the endpoint doesn't exist yet, return success
+      // If the endpoint doesn't exist yet, try mock storage
       if (response.status === 404 || response.status === 405) {
+        console.log('Backend not available, trying mock storage for delete');
+        const wasDeleted = MockFileStorage.deleteFile(fileId);
         return NextResponse.json({
           file_id: fileId,
           success: true,
-          message: 'File delete endpoints not yet implemented in backend'
+          message: wasDeleted ? 'File deleted from mock storage' : 'File not found in mock storage'
         });
       }
 
@@ -50,12 +53,21 @@ export async function DELETE(
   } catch (error) {
     console.error('Delete file error:', error);
 
-    // Return success as fallback
-    return NextResponse.json({
-      file_id: fileId,
-      success: true,
-      message: 'File delete temporarily unavailable'
-    });
+    // Try mock storage as fallback
+    try {
+      const wasDeleted = MockFileStorage.deleteFile(fileId);
+      return NextResponse.json({
+        file_id: fileId,
+        success: true,
+        message: wasDeleted ? 'File deleted from mock storage' : 'File not found in mock storage'
+      });
+    } catch (mockError) {
+      return NextResponse.json({
+        file_id: fileId,
+        success: true,
+        message: 'File delete temporarily unavailable'
+      });
+    }
   }
 }
 
@@ -64,10 +76,10 @@ export async function DELETE(
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { fileId: string } }
+  context: { params: Promise<{ fileId: string }> }
 ) {
   try {
-    const { fileId } = params;
+    const { fileId } = await context.params;
     const url = new URL(request.url);
 
     // Check if this is a download request

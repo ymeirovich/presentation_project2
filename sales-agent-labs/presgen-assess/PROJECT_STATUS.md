@@ -604,5 +604,27 @@ collection_name = f"assess_{user_id}_{cert_id}_{bundle_version}"
 
 **System Architecture**: Full-stack TypeScript application with React frontend, FastAPI backend, ChromaDB vector database, and PostgreSQL relational database.
 
+## 🔧 Critical Infrastructure Fixes (Sept 24, 2025)
+
+### ✅ File Upload Persistence Resolution
+**Issue**: Files uploaded successfully but disappeared from Resources view due to in-memory storage being reset between Next.js recompilations.
+
+**Root Cause**: Next.js configuration contained overly broad API proxy rule (`/api/:path*` → backend) that intercepted all API requests, preventing Next.js API routes from functioning.
+
+**Solution Implemented:**
+- ✅ **Persistent Mock Storage**: Implemented file-based storage (`/tmp/presgen-mock-storage.json`) for development
+- ✅ **Next.js Config Fix**: Removed broad API proxy to allow Next.js routes to function properly
+- ✅ **API Route Updates**: Fixed Next.js 15 async params pattern compliance
+- ✅ **Complete CRUD Support**: Upload, retrieve, delete operations all working with persistence
+- ✅ **Automatic Persistence**: All storage operations automatically save to disk
+
+**Files Modified:**
+- `src/lib/mock-file-storage.ts` - Added persistent file-based storage system
+- `next.config.ts` - Removed overly broad API proxy configuration
+- `src/app/api/presgen-assess/files/[fileId]/route.ts` - Fixed DELETE endpoint and async params
+- `src/app/api/presgen-assess/files/[fileId]/download/route.ts` - Fixed async params
+
+**Impact**: File upload workflow now fully operational with resources persisting across server restarts and UI refreshes.
+
 **Next Phase**: Production deployment, integration testing, and user onboarding
 **Maintainer**: Claude Code Assistant

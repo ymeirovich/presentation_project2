@@ -13,10 +13,13 @@ const nextConfig: NextConfig = {
   },
   async rewrites() {
     return [
-      {
-        source: '/api/:path*',
-        destination: 'http://localhost:8080/:path*',
-      },
+      // Only proxy specific API routes to the backend, not all /api/* routes
+      // This allows our Next.js API routes in /api/presgen-assess/* to work
+      // Add specific backend routes here as needed
+      // {
+      //   source: '/api/backend/:path*',
+      //   destination: 'http://localhost:8080/:path*',
+      // },
     ];
   },
 };
