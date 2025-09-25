@@ -222,6 +222,7 @@ export default function PromptEditor({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
+                      type="button"
                       variant="outline"
                       size="sm"
                       onClick={() => copyToClipboard(promptValue, promptType)}
@@ -241,6 +242,7 @@ export default function PromptEditor({
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
+                      type="button"
                       variant="outline"
                       size="sm"
                       onClick={() => resetToDefault(promptType)}

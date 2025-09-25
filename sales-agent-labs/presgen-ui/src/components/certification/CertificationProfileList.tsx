@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Search, Plus, MoreHorizontal, Copy, BarChart3, CheckCircle, AlertCircle, Trash2 } from 'lucide-react';
+import { Search, Plus, MoreHorizontal, Copy, BarChart3, CheckCircle, AlertCircle, Trash2, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -28,6 +28,7 @@ interface CertificationProfileListProps {
   onSelectProfile?: (profile: CertificationProfile) => void;
   onCreateNew?: () => void;
   onEditProfile?: (profile: CertificationProfile) => void;
+  onViewProfile?: (profile: CertificationProfile) => void;
   onViewStatistics?: (profile: CertificationProfile) => void;
 }
 
@@ -35,6 +36,7 @@ export default function CertificationProfileList({
   onSelectProfile,
   onCreateNew,
   onEditProfile,
+  onViewProfile,
   onViewStatistics
 }: CertificationProfileListProps) {
   const [profiles, setProfiles] = useState<CertificationProfile[]>([]);
@@ -241,6 +243,10 @@ export default function CertificationProfileList({
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => onSelectProfile?.(profile)}>
                           Select Profile
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => onViewProfile?.(profile)}>
+                          <FileText className="h-4 w-4 mr-2" />
+                          View Profile
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={() => onEditProfile?.(profile)}>
                           Edit Profile

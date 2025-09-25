@@ -7,8 +7,9 @@ import { CertificationProfile } from '@/lib/certification-api';
 import CertificationProfileList from './CertificationProfileList';
 import EnhancedCertificationProfileForm from './EnhancedCertificationProfileForm';
 import CertificationProfileStats from './CertificationProfileStats';
+import CertificationProfileView from './CertificationProfileView';
 
-type ViewMode = 'list' | 'create' | 'edit' | 'stats';
+type ViewMode = 'list' | 'create' | 'edit' | 'stats' | 'view';
 
 interface ViewState {
   mode: ViewMode;
@@ -25,6 +26,10 @@ export default function CertificationProfileManager() {
 
   const handleEditProfile = (profile: CertificationProfile) => {
     setViewState({ mode: 'edit', profile });
+  };
+
+  const handleViewProfile = (profile: CertificationProfile) => {
+    setViewState({ mode: 'view', profile });
   };
 
   const handleViewStatistics = (profile: CertificationProfile) => {
@@ -77,12 +82,21 @@ export default function CertificationProfileManager() {
           />
         );
 
+      case 'view':
+        return (
+          <CertificationProfileView
+            profile={viewState.profile!}
+            onClose={handleBackToList}
+          />
+        );
+
       case 'list':
       default:
         return (
           <CertificationProfileList
             onCreateNew={handleCreateNew}
             onEditProfile={handleEditProfile}
+            onViewProfile={handleViewProfile}
             onViewStatistics={handleViewStatistics}
             onSelectProfile={handleSelectProfile}
           />
@@ -97,6 +111,8 @@ export default function CertificationProfileManager() {
         return 'Create Certification Profile';
       case 'edit':
         return `Edit ${viewState.profile?.name}`;
+      case 'view':
+        return `View ${viewState.profile?.name}`;
       case 'stats':
         return `Statistics - ${viewState.profile?.name}`;
       case 'list':

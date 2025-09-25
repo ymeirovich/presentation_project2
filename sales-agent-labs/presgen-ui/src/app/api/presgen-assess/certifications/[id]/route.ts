@@ -30,7 +30,44 @@ export async function GET(
       )
     }
 
-    return NextResponse.json(data)
+    // Transform backend data to include form fields from assessment_template
+    const transformedData = { ...data }
+
+    if (data.assessment_template) {
+      // Extract ChromaDB prompts if they exist
+      const chromadbPrompts = data.assessment_template._chromadb_prompts || {}
+      transformedData.assessment_prompt = chromadbPrompts.assessment_prompt || ''
+      transformedData.presentation_prompt = chromadbPrompts.presentation_prompt || ''
+      transformedData.gap_analysis_prompt = chromadbPrompts.gap_analysis_prompt || ''
+      transformedData.bundle_version = chromadbPrompts.bundle_version || 'v1.0'
+      transformedData.resource_binding_enabled = chromadbPrompts.resource_binding_enabled !== undefined
+        ? chromadbPrompts.resource_binding_enabled : true
+
+      // Extract metadata fields if they exist
+      const metadata = data.assessment_template._metadata || {}
+      transformedData.provider = metadata.provider || data.provider || ''
+      transformedData.description = metadata.description || data.description || ''
+      transformedData.exam_code = metadata.exam_code || data.exam_code || ''
+      transformedData.passing_score = metadata.passing_score || data.passing_score
+      transformedData.exam_duration_minutes = metadata.exam_duration_minutes || data.exam_duration_minutes
+      transformedData.question_count = metadata.question_count || data.question_count
+      transformedData.prerequisites = metadata.prerequisites || data.prerequisites || []
+      transformedData.recommended_experience = metadata.recommended_experience || data.recommended_experience || ''
+      transformedData.is_active = metadata.is_active !== undefined ? metadata.is_active : (data.is_active !== undefined ? data.is_active : true)
+    }
+
+    // Transform exam_domains back to form format (merge subdomains and skills_measured into topics)
+    if (data.exam_domains) {
+      transformedData.exam_domains = data.exam_domains.map(domain => ({
+        name: domain.name,
+        weight_percentage: domain.weight_percentage,
+        topics: [...(domain.subdomains || []), ...(domain.skills_measured || [])]
+      }))
+    }
+
+    console.log('Returning transformed profile data:', JSON.stringify(transformedData, null, 2))
+
+    return NextResponse.json(transformedData)
 
   } catch (error) {
     console.error('Error proxying to PresGen-Assess:', error)
@@ -47,17 +84,69 @@ export async function PUT(
 ) {
   try {
     const { id } = await params
-    const body = await request.json()
+    const updateData = await request.json()
     const backendUrl = `${ASSESS_API_URL}/api/v1/certifications/${id}`
 
     console.log('Proxying PUT request to:', backendUrl)
+    console.log('Update data received:', JSON.stringify(updateData, null, 2))
+
+    // Transform data similar to create/update logic to preserve custom fields
+    const db_exam_domains = []
+    for (const domain of updateData.exam_domains || []) {
+      // Ensure topics is always an array
+      const topics = Array.isArray(domain.topics) ? domain.topics :
+                     (typeof domain.topics === 'string' ?
+                      domain.topics.split(',').map((t: string) => t.trim()).filter((t: string) => t) : [])
+
+      const db_domain = {
+        'name': domain.name,
+        'weight_percentage': domain.weight_percentage,
+        'topics': topics, // Backend expects topics field
+        'subdomains': topics.slice(0, Math.floor(topics.length/2)) || [],
+        'skills_measured': topics.slice(Math.floor(topics.length/2)) || []
+      }
+      db_exam_domains.push(db_domain)
+    }
+
+    // Store ChromaDB fields and additional metadata in assessment_template
+    const assessment_template = {
+      _chromadb_prompts: {
+        assessment_prompt: updateData.assessment_prompt,
+        presentation_prompt: updateData.presentation_prompt,
+        gap_analysis_prompt: updateData.gap_analysis_prompt,
+        bundle_version: updateData.bundle_version,
+        resource_binding_enabled: updateData.resource_binding_enabled
+      },
+      _metadata: {
+        provider: updateData.provider,
+        description: updateData.description || null,
+        exam_code: updateData.exam_code || null,
+        passing_score: updateData.passing_score || null,
+        exam_duration_minutes: updateData.exam_duration_minutes || null,
+        question_count: updateData.question_count || null,
+        prerequisites: updateData.prerequisites || [],
+        recommended_experience: updateData.recommended_experience || null,
+        is_active: updateData.is_active !== undefined ? updateData.is_active : true
+      }
+    }
+
+    // Create profile data for backend (only include fields that exist in backend model)
+    const backendData = {
+      'name': updateData.name,
+      'version': updateData.version,
+      'exam_domains': db_exam_domains,
+      'knowledge_base_path': updateData.knowledge_base_path || `knowledge_base/${updateData.name.toLowerCase().replace(/ /g, '_')}_v${updateData.version}`,
+      'assessment_template': assessment_template
+    }
+
+    console.log('Sending to backend:', JSON.stringify(backendData, null, 2))
 
     const response = await fetch(backendUrl, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(backendData),
     })
 
     const data = await response.json()

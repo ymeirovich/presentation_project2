@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import {
@@ -51,13 +51,19 @@ interface EnhancedCertificationProfileFormProps {
   mode?: 'create' | 'edit';
 }
 
-interface FormData extends CertificationProfileCreate {
+interface FormData extends Omit<CertificationProfileCreate, 'exam_domains'> {
   // ChromaDB integration fields
   bundle_version?: string;
   assessment_prompt?: string;
   presentation_prompt?: string;
   gap_analysis_prompt?: string;
   resource_binding_enabled?: boolean;
+  // Override exam_domains to allow string topics in form
+  exam_domains: Array<{
+    name: string;
+    weight_percentage: number;
+    topics: string | string[]; // Allow both string and string array
+  }>;
 }
 
 export default function EnhancedCertificationProfileForm({
@@ -66,6 +72,7 @@ export default function EnhancedCertificationProfileForm({
   onCancel,
   mode = 'create'
 }: EnhancedCertificationProfileFormProps) {
+  console.log('EnhancedCertificationProfileForm profile:', profile);
   const [saving, setSaving] = useState(false);
   const [completionPercentage, setCompletionPercentage] = useState(0);
   const [activeTab, setActiveTab] = useState('basic');
@@ -75,18 +82,24 @@ export default function EnhancedCertificationProfileForm({
 
   // Enhanced default values with ChromaDB fields
   const defaultValues: FormData = profile ? {
-    name: profile.name,
-    version: profile.version,
-    provider: profile.provider || '',
+    name: profile.name || 'Existing Certification Profile',
+    version: profile.version || '1.0',
+    provider: profile.provider || 'Enter Provider',
     description: profile.description || '',
     exam_code: profile.exam_code || '',
     passing_score: profile.passing_score || undefined,
     exam_duration_minutes: profile.exam_duration_minutes || undefined,
     question_count: profile.question_count || undefined,
-    exam_domains: profile.exam_domains.map(domain => ({
+    exam_domains: profile.exam_domains?.length > 0 ? profile.exam_domains.map(domain => ({
       ...domain,
-      topics: domain.topics || []
-    })),
+      name: domain.name || 'Domain',
+      weight_percentage: domain.weight_percentage || 1,
+      topics: Array.isArray(domain.topics) ? domain.topics.join(', ') : (domain.topics || '')
+    })) : [{
+      name: 'Domain 1',
+      weight_percentage: 100,
+      topics: ''
+    }],
     prerequisites: profile.prerequisites || [],
     recommended_experience: profile.recommended_experience || '',
     is_active: profile.is_active !== undefined ? profile.is_active : true,
@@ -97,15 +110,19 @@ export default function EnhancedCertificationProfileForm({
     gap_analysis_prompt: profile.gap_analysis_prompt || '',
     resource_binding_enabled: profile.resource_binding_enabled !== undefined ? profile.resource_binding_enabled : true
   } : {
-    name: '',
+    name: 'New Certification Profile',
     version: '1.0',
-    provider: '',
+    provider: 'Enter Provider',
     description: '',
     exam_code: '',
     passing_score: undefined,
     exam_duration_minutes: undefined,
     question_count: undefined,
-    exam_domains: [createDefaultExamDomain()],
+    exam_domains: [{
+      name: 'Domain 1',
+      weight_percentage: 100,
+      topics: ''
+    }],
     prerequisites: [],
     recommended_experience: '',
     is_active: true,
@@ -117,6 +134,30 @@ export default function EnhancedCertificationProfileForm({
     resource_binding_enabled: true
   };
 
+  // Create form-specific schema that accepts string topics
+  const FormExamDomainSchema = z.object({
+    name: z.string().min(1),
+    weight_percentage: z.number().int().min(1).max(100),
+    topics: z.string().or(z.array(z.string())).default('') // Allow string or array
+  });
+
+  const extendedSchema = CertificationProfileCreateSchema.omit({ exam_domains: true }).extend({
+    // ChromaDB fields
+    bundle_version: z.string().optional(),
+    assessment_prompt: z.string().optional(),
+    presentation_prompt: z.string().optional(),
+    gap_analysis_prompt: z.string().optional(),
+    resource_binding_enabled: z.boolean().optional(),
+    // Form-specific exam domains with string topics
+    exam_domains: z.array(FormExamDomainSchema).refine(
+      (domains) => {
+        const totalWeight = domains.reduce((sum, domain) => sum + domain.weight_percentage, 0);
+        return totalWeight === 100;
+      },
+      { message: "Domain weights must sum to 100%" }
+    )
+  });
+
   const {
     register,
     control,
@@ -125,13 +166,7 @@ export default function EnhancedCertificationProfileForm({
     setValue,
     formState: { errors, isValid }
   } = useForm<FormData>({
-    resolver: zodResolver(CertificationProfileCreateSchema.extend({
-      bundle_version: z.string().optional(),
-      assessment_prompt: z.string().optional(),
-      presentation_prompt: z.string().optional(),
-      gap_analysis_prompt: z.string().optional(),
-      resource_binding_enabled: z.boolean().optional()
-    })),
+    resolver: zodResolver(extendedSchema),
     defaultValues,
     mode: 'onChange'
   });
@@ -142,6 +177,29 @@ export default function EnhancedCertificationProfileForm({
   });
 
   const watchedFields = watch();
+
+  // Debug form state
+  useEffect(() => {
+    console.log('=== Form Validation Debug ===');
+    console.log('isValid:', isValid);
+    console.log('errors:', errors);
+    console.log('Current form values:', watchedFields);
+
+    // Check domain weights specifically
+    if (watchedFields.exam_domains?.length > 0) {
+      const totalWeight = watchedFields.exam_domains.reduce((sum, domain) => sum + (domain.weight_percentage || 0), 0);
+      console.log('Domain weights sum to:', totalWeight, '(should be 100)');
+
+      watchedFields.exam_domains.forEach((domain, index) => {
+        console.log(`Domain ${index + 1}:`, {
+          name: domain.name || '(empty)',
+          weight: domain.weight_percentage || 0
+        });
+      });
+    }
+
+    console.log('=== End Debug ===');
+  }, [isValid, errors]);
 
   // Update completion percentage when form changes
   useEffect(() => {
@@ -214,32 +272,70 @@ export default function EnhancedCertificationProfileForm({
   };
 
   // Handle prompt changes
-  const handlePromptsChange = (prompts: any) => {
+  const handlePromptsChange = useCallback((prompts: any) => {
     setValue('assessment_prompt', prompts.assessment_prompt || '');
     setValue('presentation_prompt', prompts.presentation_prompt || '');
     setValue('gap_analysis_prompt', prompts.gap_analysis_prompt || '');
-  };
+  }, [setValue]);
+
+  const initialPrompts = useMemo(() => (profile ? {
+    assessment_prompt: profile.assessment_prompt,
+    presentation_prompt: profile.presentation_prompt,
+    gap_analysis_prompt: profile.gap_analysis_prompt
+  } : {}), [profile]);
 
   // Handle form submission
   const onSubmit = async (data: FormData) => {
     try {
       setSaving(true);
 
+      // Transform topics from string to array for each domain
+      const transformedData = {
+        ...data,
+        exam_domains: data.exam_domains.map(domain => ({
+          ...domain,
+          topics: typeof domain.topics === 'string'
+            ? domain.topics.split(',').map(topic => topic.trim()).filter(topic => topic.length > 0)
+            : domain.topics || []
+        }))
+      };
+
+      // Remove empty ChromaDB prompt fields to avoid overriding saved prompts from Knowledge Base tab
+      // Only include prompt fields if they have actual content
+      const promptFields = ['assessment_prompt', 'presentation_prompt', 'gap_analysis_prompt', 'bundle_version', 'resource_binding_enabled'];
+      promptFields.forEach(field => {
+        if (field === 'resource_binding_enabled') {
+          // Keep boolean fields as-is
+          return;
+        }
+        if (field === 'bundle_version') {
+          // Keep bundle_version if it's not the default
+          if (transformedData[field] === 'v1.0') {
+            delete transformedData[field];
+          }
+          return;
+        }
+        // Remove prompt fields if they're empty to avoid overriding saved prompts
+        if (!transformedData[field] || transformedData[field].trim() === '') {
+          delete transformedData[field];
+        }
+      });
+
       // Validate domain weights
-      const validation = validateDomainWeights(data.exam_domains);
+      const validation = validateDomainWeights(transformedData.exam_domains);
       if (!validation.isValid) {
         toast.error(validation.error);
         return;
       }
 
-      console.log('Submitting enhanced certification profile:', JSON.stringify(data, null, 2));
+      console.log('Submitting enhanced certification profile:', JSON.stringify(transformedData, null, 2));
 
       let result: CertificationProfile;
 
       if (mode === 'edit' && profile) {
-        result = await CertificationAPI.update(profile.id, data);
+        result = await CertificationAPI.update(profile.id, transformedData);
       } else {
-        result = await CertificationAPI.create(data);
+        result = await CertificationAPI.create(transformedData);
 
         // Create ChromaDB collection for new profiles
         if (result.id) {
@@ -344,6 +440,7 @@ export default function EnhancedCertificationProfileForm({
                     <Input
                       id="name"
                       placeholder="e.g., AWS Solutions Architect Associate"
+                      className={errors.name ? 'border-red-500' : ''}
                       {...register('name')}
                     />
                     {errors.name && (
@@ -356,6 +453,7 @@ export default function EnhancedCertificationProfileForm({
                     <Input
                       id="version"
                       placeholder="e.g., SAA-C03"
+                      className={errors.version ? 'border-red-500' : ''}
                       {...register('version')}
                     />
                     {errors.version && (
@@ -366,12 +464,16 @@ export default function EnhancedCertificationProfileForm({
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <Label htmlFor="provider">Provider</Label>
+                    <Label htmlFor="provider">Provider *</Label>
                     <Input
                       id="provider"
                       placeholder="e.g., AWS, Microsoft, CompTIA"
+                      className={errors.provider ? 'border-red-500' : ''}
                       {...register('provider')}
                     />
+                    {errors.provider && (
+                      <p className="text-sm text-red-600 mt-1">{errors.provider.message}</p>
+                    )}
                   </div>
 
                   <div>
@@ -485,6 +587,16 @@ export default function EnhancedCertificationProfileForm({
                     </div>
                   </div>
 
+                  {/* Domain weight validation error */}
+                  {errors.exam_domains && typeof errors.exam_domains.message === 'string' && (
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                      <p className="text-sm text-red-600 flex items-center">
+                        <AlertCircle className="w-4 h-4 mr-2" />
+                        {errors.exam_domains.message}
+                      </p>
+                    </div>
+                  )}
+
                   <div className="space-y-4">
                     {fields.map((field, index) => (
                       <Card key={field.id} className="p-4">
@@ -492,23 +604,35 @@ export default function EnhancedCertificationProfileForm({
                           <div className="flex-1 space-y-3">
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                               <div className="md:col-span-2">
-                                <Label htmlFor={`exam_domains.${index}.name`}>Domain Name</Label>
+                                <Label htmlFor={`exam_domains.${index}.name`}>Domain Name *</Label>
                                 <Input
                                   placeholder="e.g., Design Secure Architectures"
+                                  className={errors.exam_domains?.[index]?.name ? 'border-red-500' : ''}
                                   {...register(`exam_domains.${index}.name`)}
                                 />
+                                {errors.exam_domains?.[index]?.name && (
+                                  <p className="text-sm text-red-600 mt-1">
+                                    {errors.exam_domains[index]?.name?.message}
+                                  </p>
+                                )}
                               </div>
                               <div>
                                 <Label htmlFor={`exam_domains.${index}.weight_percentage`}>
-                                  Weight (%)
+                                  Weight (%) *
                                 </Label>
                                 <Input
                                   type="number"
                                   min="1"
                                   max="100"
                                   placeholder="30"
+                                  className={errors.exam_domains?.[index]?.weight_percentage ? 'border-red-500' : ''}
                                   {...register(`exam_domains.${index}.weight_percentage`, { valueAsNumber: true })}
                                 />
+                                {errors.exam_domains?.[index]?.weight_percentage && (
+                                  <p className="text-sm text-red-600 mt-1">
+                                    {errors.exam_domains[index]?.weight_percentage?.message}
+                                  </p>
+                                )}
                               </div>
                             </div>
 
@@ -593,16 +717,46 @@ export default function EnhancedCertificationProfileForm({
           {/* Prompts Configuration Tab */}
           <TabsContent value="prompts" className="mt-6">
             <PromptEditor
-              initialPrompts={{
-                assessment_prompt: watchedFields.assessment_prompt,
-                presentation_prompt: watchedFields.presentation_prompt,
-                gap_analysis_prompt: watchedFields.gap_analysis_prompt
-              }}
+              initialPrompts={initialPrompts}
               onPromptsChange={handlePromptsChange}
               certificationContext={getCertificationContext()}
             />
           </TabsContent>
         </Tabs>
+
+        {/* Validation Errors Debug Section */}
+        {!isValid && Object.keys(errors).length > 0 && (
+          <Card className="border-red-200 bg-red-50">
+            <CardHeader>
+              <CardTitle className="text-red-800 flex items-center">
+                <AlertCircle className="w-5 h-5 mr-2" />
+                Validation Errors
+              </CardTitle>
+              <CardDescription className="text-red-700">
+                Please fix the following issues before saving:
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {Object.entries(errors).map(([fieldName, error]) => (
+                  <div key={fieldName} className="text-sm">
+                    <span className="font-medium text-red-800">
+                      {fieldName.replace(/_/g, ' ').replace(/([A-Z])/g, ' $1').toLowerCase()}:
+                    </span>
+                    <span className="text-red-700 ml-2">
+                      {typeof error?.message === 'string'
+                        ? error.message
+                        : Array.isArray(error)
+                        ? `${error.length} field errors`
+                        : JSON.stringify(error) || 'Invalid value'
+                      }
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Form Actions */}
         <div className="flex items-center justify-between pt-6 border-t">
@@ -610,7 +764,7 @@ export default function EnhancedCertificationProfileForm({
             {!isValid && (
               <div className="flex items-center text-red-600">
                 <AlertCircle className="w-4 h-4 mr-1" />
-                <span className="text-sm">Please fix validation errors</span>
+                <span className="text-sm">Please fix validation errors above</span>
               </div>
             )}
 

@@ -31,7 +31,13 @@ export const CertificationProfileSchema = z.object({
   knowledge_base_path: z.string().optional(), // Optional since it's internal
   assessment_template: z.record(z.any()).optional().nullable(),
   created_at: z.string(), // Accept any datetime format
-  updated_at: z.string()  // Accept any datetime format
+  updated_at: z.string(),  // Accept any datetime format
+  // ChromaDB integration fields
+  bundle_version: z.string().optional(),
+  assessment_prompt: z.string().optional(),
+  presentation_prompt: z.string().optional(),
+  gap_analysis_prompt: z.string().optional(),
+  resource_binding_enabled: z.boolean().optional()
 });
 
 export const CertificationProfileCreateSchema = z.object({
@@ -53,7 +59,13 @@ export const CertificationProfileCreateSchema = z.object({
   prerequisites: z.array(z.string()).default([]),
   recommended_experience: z.string().optional(),
   assessment_template: z.record(z.any()).optional(),
-  is_active: z.boolean().default(true)
+  is_active: z.boolean().default(true),
+  // ChromaDB integration fields
+  bundle_version: z.string().optional(),
+  assessment_prompt: z.string().optional(),
+  presentation_prompt: z.string().optional(),
+  gap_analysis_prompt: z.string().optional(),
+  resource_binding_enabled: z.boolean().optional()
 });
 
 export const CertificationProfileUpdateSchema = CertificationProfileCreateSchema.partial();
@@ -212,9 +224,9 @@ export class CertificationAPI {
   // Update certification profile
   static async update(id: string, data: CertificationProfileUpdate): Promise<CertificationProfile> {
     const validatedData = CertificationProfileUpdateSchema.parse(data);
-    const profile = await this.request<CertificationProfile>(`/update`, {
-      method: 'POST',
-      body: JSON.stringify({ id, ...validatedData }),
+    const profile = await this.request<CertificationProfile>(`/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(validatedData),
     });
     const result = CertificationProfileSchema.safeParse(profile);
     if (result.success) {

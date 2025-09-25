@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Upload, Database, FileText, Settings, ChevronRight, AlertCircle } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -49,7 +49,7 @@ export default function FileUploadManager({ className }: FileUploadManagerProps)
     };
 
     loadProfiles();
-  }, [selectedProfileId]);
+  }, []);
 
   const selectedProfile = certificationProfiles.find(p => p.id === selectedProfileId);
 
@@ -75,10 +75,48 @@ export default function FileUploadManager({ className }: FileUploadManagerProps)
     console.log('Resources changed, refreshing...');
   };
 
-  const handlePromptsChange = (prompts: Record<string, unknown>) => {
+  const [pendingPrompts, setPendingPrompts] = useState<{
+    assessment_prompt?: string;
+    presentation_prompt?: string;
+    gap_analysis_prompt?: string;
+  }>({});
+  const [isSavingPrompts, setIsSavingPrompts] = useState(false);
+
+  const handlePromptsChange = useCallback((prompts: {
+    assessment_prompt?: string;
+    presentation_prompt?: string;
+    gap_analysis_prompt?: string;
+  }) => {
     console.log('Prompts updated:', prompts);
-    // This could update the certification profile with new prompts
+    setPendingPrompts(prompts);
+  }, []);
+
+  const handleSavePrompts = async () => {
+    if (!selectedProfile || Object.keys(pendingPrompts).length === 0) return;
+
+    setIsSavingPrompts(true);
+    try {
+      await CertificationAPI.update(selectedProfile.id, pendingPrompts);
+
+      // Clear pending prompts after successful save
+      setPendingPrompts({});
+
+      // Show success message
+      toast.success('Custom prompts saved successfully!');
+
+    } catch (error) {
+      console.error('Error saving prompts:', error);
+      toast.error('Failed to save prompts. Please try again.');
+    } finally {
+      setIsSavingPrompts(false);
+    }
   };
+
+  const initialPrompts = useMemo(() => (selectedProfile ? {
+    assessment_prompt: selectedProfile.assessment_prompt,
+    presentation_prompt: selectedProfile.presentation_prompt,
+    gap_analysis_prompt: selectedProfile.gap_analysis_prompt,
+  } : {}), [selectedProfile]);
 
   if (profilesLoading) {
     return (
@@ -227,15 +265,40 @@ export default function FileUploadManager({ className }: FileUploadManagerProps)
             </TabsContent>
 
             <TabsContent value="prompts" className="mt-6">
-              <PromptEditor
-                initialPrompts={{}}
-                onPromptsChange={handlePromptsChange}
-                certificationContext={selectedProfile ? {
-                  name: selectedProfile.name,
-                  domains: selectedProfile.exam_domains.map(d => d.name),
-                  industryContext: selectedProfile.description || 'Professional certification'
-                } : undefined}
-              />
+              <div className="space-y-6">
+                <PromptEditor
+                  initialPrompts={initialPrompts}
+                  onPromptsChange={handlePromptsChange}
+                  certificationContext={selectedProfile ? {
+                    name: selectedProfile.name,
+                    domains: selectedProfile.exam_domains.map(d => d.name),
+                    industryContext: selectedProfile.description || 'Professional certification'
+                  } : undefined}
+                />
+
+                {/* Save Button */}
+                {Object.keys(pendingPrompts).length > 0 && (
+                  <div className="flex justify-end">
+                    <Button
+                      onClick={handleSavePrompts}
+                      disabled={isSavingPrompts}
+                      className="flex items-center space-x-2"
+                    >
+                      {isSavingPrompts ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          <span>Saving...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Settings className="w-4 h-4" />
+                          <span>Save Custom Prompts</span>
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                )}
+              </div>
             </TabsContent>
           </Tabs>
         )}
