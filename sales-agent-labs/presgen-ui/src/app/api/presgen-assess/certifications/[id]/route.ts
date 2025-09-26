@@ -130,13 +130,64 @@ export async function PUT(
       }
     }
 
-    // Create profile data for backend (only include fields that exist in backend model)
-    const backendData = {
-      'name': updateData.name,
-      'version': updateData.version,
-      'exam_domains': db_exam_domains,
-      'knowledge_base_path': updateData.knowledge_base_path || `knowledge_base/${updateData.name.toLowerCase().replace(/ /g, '_')}_v${updateData.version}`,
-      'assessment_template': assessment_template
+    // Create profile data for backend, only including fields that are actually present
+    const backendData: Record<string, unknown> = {}
+
+    const setIfDefined = (key: string, value: unknown) => {
+      if (value !== undefined) {
+        backendData[key] = value
+      }
+    }
+
+    setIfDefined('name', updateData.name)
+    setIfDefined('version', updateData.version)
+
+    if (updateData.exam_domains !== undefined) {
+      backendData.exam_domains = db_exam_domains
+    }
+
+    if (updateData.knowledge_base_path) {
+      backendData.knowledge_base_path = updateData.knowledge_base_path
+    } else if (updateData.name && updateData.version) {
+      backendData.knowledge_base_path = `knowledge_base/${updateData.name.toLowerCase().replace(/ /g, '_')}_v${updateData.version}`
+    }
+
+    // Persist prompt fields directly so they reach the backend columns
+    setIfDefined('assessment_prompt', updateData.assessment_prompt)
+    setIfDefined('presentation_prompt', updateData.presentation_prompt)
+    setIfDefined('gap_analysis_prompt', updateData.gap_analysis_prompt)
+    setIfDefined('resource_binding_enabled', updateData.resource_binding_enabled)
+
+    // Preserve assessment template metadata only when we have content to update
+    const chromaPrompts = Object.fromEntries(
+      Object.entries({
+        assessment_prompt: updateData.assessment_prompt,
+        presentation_prompt: updateData.presentation_prompt,
+        gap_analysis_prompt: updateData.gap_analysis_prompt,
+        bundle_version: updateData.bundle_version,
+        resource_binding_enabled: updateData.resource_binding_enabled
+      }).filter(([, value]) => value !== undefined && value !== '')
+    )
+
+    const metadataFields = Object.fromEntries(
+      Object.entries({
+        provider: updateData.provider,
+        description: updateData.description ?? null,
+        exam_code: updateData.exam_code ?? null,
+        passing_score: updateData.passing_score ?? null,
+        exam_duration_minutes: updateData.exam_duration_minutes ?? null,
+        question_count: updateData.question_count ?? null,
+        prerequisites: updateData.prerequisites ?? [],
+        recommended_experience: updateData.recommended_experience ?? null,
+        is_active: updateData.is_active !== undefined ? updateData.is_active : undefined
+      }).filter(([, value]) => value !== undefined)
+    )
+
+    if (Object.keys(chromaPrompts).length > 0 || Object.keys(metadataFields).length > 0) {
+      backendData.assessment_template = {
+        _chromadb_prompts: Object.keys(chromaPrompts).length > 0 ? chromaPrompts : undefined,
+        _metadata: Object.keys(metadataFields).length > 0 ? metadataFields : undefined
+      }
     }
 
     console.log('Sending to backend:', JSON.stringify(backendData, null, 2))

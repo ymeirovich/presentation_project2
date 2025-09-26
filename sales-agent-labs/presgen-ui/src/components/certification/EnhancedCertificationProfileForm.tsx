@@ -506,7 +506,11 @@ export default function EnhancedCertificationProfileForm({
                       max="100"
                       placeholder="e.g., 72"
                       {...register('passing_score', { valueAsNumber: true })}
+                      className={errors.passing_score ? 'border-red-500' : ''}
                     />
+                    {errors.passing_score && (
+                      <p className="text-sm text-red-500 mt-1">{errors.passing_score.message}</p>
+                    )}
                   </div>
 
                   <div>

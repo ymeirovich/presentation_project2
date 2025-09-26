@@ -28,6 +28,9 @@ class CertificationProfileBase(BaseModel):
     prerequisites: Optional[List[str]] = Field(default_factory=list, description="Prerequisites")
     recommended_experience: Optional[str] = Field(None, description="Recommended experience")
     is_active: bool = Field(default=True, description="Whether profile is active")
+    assessment_prompt: Optional[str] = Field(None, description="Assessment prompt for generating questions")
+    presentation_prompt: Optional[str] = Field(None, description="Presentation prompt for generating learning materials")
+    gap_analysis_prompt: Optional[str] = Field(None, description="Gap analysis prompt for knowledge assessment")
 
     @validator('exam_domains')
     def validate_domain_weights(cls, domains):
@@ -64,6 +67,10 @@ class CertificationProfileUpdate(BaseModel):
     prerequisites: Optional[List[str]] = Field(None)
     recommended_experience: Optional[str] = Field(None)
     is_active: Optional[bool] = Field(None)
+    assessment_prompt: Optional[str] = Field(None)
+    presentation_prompt: Optional[str] = Field(None)
+    gap_analysis_prompt: Optional[str] = Field(None)
+    resource_binding_enabled: Optional[bool] = Field(None)
 
     @validator('exam_domains')
     def validate_domain_weights(cls, domains):

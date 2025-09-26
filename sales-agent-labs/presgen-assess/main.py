@@ -12,21 +12,30 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from src.service.app import app
 from src.common.config import settings
-
-# Configure logging
-logging.basicConfig(
-    level=getattr(logging, settings.log_level.upper()),
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+from src.common.logging_config import (
+    initialize_service_loggers,
+    log_application_startup,
+    log_application_shutdown,
+    get_service_logger
 )
 
-logger = logging.getLogger(__name__)
+# Initialize enhanced file-based logging
+initialize_service_loggers()
+
+# Get application logger
+logger = get_service_logger("main")
 
 
 def main():
     """Run the PresGen-Assess FastAPI application."""
-    logger.info("🚀 Starting PresGen-Assess application")
+    # Log detailed startup information
+    log_application_startup()
 
     try:
+        logger.info("🌐 Starting Uvicorn server on http://0.0.0.0:8080")
+        logger.info(f"🔧 Debug mode: {settings.debug}")
+        logger.info(f"📊 Log level: {settings.log_level}")
+
         uvicorn.run(
             "main:app",
             host="0.0.0.0",
@@ -36,9 +45,11 @@ def main():
             access_log=True
         )
     except KeyboardInterrupt:
-        logger.info("👋 PresGen-Assess application stopped")
+        log_application_shutdown()
+        logger.info("👋 PresGen-Assess application stopped gracefully")
     except Exception as e:
-        logger.error(f"❌ Failed to start application: {e}")
+        logger.error(f"❌ Failed to start application: {e}", exc_info=True)
+        log_application_shutdown()
         sys.exit(1)
 
 

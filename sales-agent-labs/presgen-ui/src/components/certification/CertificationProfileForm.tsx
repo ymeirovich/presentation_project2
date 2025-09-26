@@ -311,7 +311,11 @@ export default function CertificationProfileForm({
                   max="100"
                   {...register('passing_score', { valueAsNumber: true })}
                   placeholder="e.g., 72"
+                  className={errors.passing_score ? 'border-red-500' : ''}
                 />
+                {errors.passing_score && (
+                  <p className="text-sm text-red-500 mt-1">{errors.passing_score.message}</p>
+                )}
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
