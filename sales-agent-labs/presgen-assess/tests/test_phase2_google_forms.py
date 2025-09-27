@@ -4,6 +4,7 @@ Comprehensive test coverage for Google Forms service, assessment mapping, and re
 """
 
 import pytest
+import pytest_asyncio
 import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch, Mock
@@ -155,11 +156,11 @@ class TestGoogleFormsService:
             }
         }
 
-    @pytest.fixture
+    @pytest_asyncio.fixture
     async def google_forms_service(self, mock_forms_service, mock_drive_service):
         """Create Google Forms service with mocked dependencies."""
         with patch('src.services.google_forms_service.build') as mock_build:
-            mock_build.side_effect = lambda service, version, credentials: {
+            mock_build.side_effect = lambda service, version, credentials=None, **kwargs: {
                 'forms': mock_forms_service,
                 'drive': mock_drive_service
             }[service]
