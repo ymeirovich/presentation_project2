@@ -25,14 +25,9 @@ class VectorDatabaseManager:
         self.chroma_path = Path(settings.chroma_db_path)
         self.chroma_path.mkdir(parents=True, exist_ok=True)
 
-        # Initialize ChromaDB client
+        # Initialize ChromaDB client with new configuration format
         self.client = chromadb.PersistentClient(
-            path=str(self.chroma_path),
-            settings=Settings(
-                chroma_db_impl="duckdb+parquet",
-                persist_directory=str(self.chroma_path),
-                anonymized_telemetry=False
-            )
+            path=str(self.chroma_path)
         )
 
         # Set up OpenAI embedding function
