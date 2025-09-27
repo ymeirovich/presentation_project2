@@ -27,7 +27,7 @@ class DriveFolderManager:
     async def _get_drive_service(self):
         """Get authenticated Google Drive service."""
         if not self.drive_service:
-            credentials = await self.auth_manager.get_credentials()
+            credentials = self.auth_manager.get_service_credentials()
             self.drive_service = build('drive', 'v3', credentials=credentials)
         return self.drive_service
 

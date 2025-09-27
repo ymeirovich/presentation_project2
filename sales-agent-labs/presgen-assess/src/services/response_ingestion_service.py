@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Set
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, update
+from sqlalchemy import select, update, func
 from sqlalchemy.orm import selectinload
 
 from src.models.workflow import WorkflowExecution, WorkflowStatus

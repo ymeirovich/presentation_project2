@@ -233,7 +233,7 @@ class MonitoringService:
 
             # Test authentication
             try:
-                credentials = await self.google_forms_service.auth_manager.get_credentials()
+                credentials = self.google_forms_service.auth_manager.get_service_credentials()
                 auth_status = "valid" if credentials else "invalid"
             except Exception as e:
                 auth_status = f"error: {str(e)}"

@@ -113,6 +113,31 @@ def setup_enhanced_logging():
     return loggers
 
 
+_logger_cache: Dict[str, logging.Logger] = {}
+
+
+def get_enhanced_logger(name: str) -> logging.Logger:
+    """Get or create a logger configured with enhanced logging support."""
+
+    if name in _logger_cache:
+        return _logger_cache[name]
+
+    logger = logging.getLogger(name)
+
+    # Prevent duplicate handlers if the logger is already configured.
+    if not logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(DataFlowFormatter())
+        handler.addFilter(CorrelationIDFilter())
+        logger.addHandler(handler)
+
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
+    _logger_cache[name] = logger
+    return logger
+
+
 def set_correlation_id(correlation_id: str = None) -> str:
     """Set correlation ID for current context."""
     if correlation_id is None:

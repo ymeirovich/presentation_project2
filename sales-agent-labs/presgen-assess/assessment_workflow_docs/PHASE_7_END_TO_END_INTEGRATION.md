@@ -6,7 +6,232 @@ Final integration phase that connects all system components into a cohesive, pro
 
 ## 7.1 System Architecture Integration
 
-### 7.1.1 Master Orchestrator Service
+### 7.1.1 Real-Time Timeline UI Updates
+```python
+# /presgen-assess/src/service/ui/timeline_service.py
+class TimelineUpdateService:
+    """
+    Service for real-time workflow timeline updates to UI.
+    Manages WebSocket connections and status broadcasting.
+    """
+
+    def __init__(self):
+        self.websocket_manager = WebSocketManager()
+        self.timeline_cache = TTLCache(maxsize=1000, ttl=3600)
+
+    async def broadcast_workflow_update(
+        self,
+        workflow_id: str,
+        step_name: str,
+        status: str,
+        progress_percentage: int,
+        metadata: Dict[str, Any] = None
+    ):
+        """Broadcast workflow step updates to connected UI clients."""
+        timeline_event = {
+            "event_type": "workflow_step_update",
+            "workflow_id": workflow_id,
+            "step_name": step_name,
+            "status": status,
+            "progress_percentage": progress_percentage,
+            "timestamp": datetime.utcnow().isoformat(),
+            "metadata": metadata or {}
+        }
+
+        # Update timeline cache
+        self._update_timeline_cache(workflow_id, timeline_event)
+
+        # Broadcast to WebSocket clients
+        await self.websocket_manager.broadcast_to_workflow_subscribers(
+            workflow_id, timeline_event
+        )
+
+        # Update database step execution log
+        await self._persist_timeline_event(workflow_id, timeline_event)
+
+    async def get_workflow_timeline(self, workflow_id: str) -> List[Dict[str, Any]]:
+        """Get complete timeline for a workflow."""
+        # Check cache first
+        if workflow_id in self.timeline_cache:
+            return self.timeline_cache[workflow_id]
+
+        # Load from database
+        timeline = await self._load_timeline_from_db(workflow_id)
+        self.timeline_cache[workflow_id] = timeline
+        return timeline
+
+    async def subscribe_to_workflow_updates(self, websocket, workflow_id: str):
+        """Subscribe a WebSocket client to workflow updates."""
+        await self.websocket_manager.add_subscriber(websocket, workflow_id)
+
+        # Send current timeline state
+        current_timeline = await self.get_workflow_timeline(workflow_id)
+        await websocket.send_json({
+            "event_type": "timeline_sync",
+            "workflow_id": workflow_id,
+            "timeline": current_timeline
+        })
+
+class WebSocketManager:
+    """Manages WebSocket connections for real-time updates."""
+
+    def __init__(self):
+        self.connections = {}  # workflow_id -> List[WebSocket]
+
+    async def add_subscriber(self, websocket, workflow_id: str):
+        """Add WebSocket subscriber for workflow updates."""
+        if workflow_id not in self.connections:
+            self.connections[workflow_id] = []
+        self.connections[workflow_id].append(websocket)
+
+    async def remove_subscriber(self, websocket, workflow_id: str):
+        """Remove WebSocket subscriber."""
+        if workflow_id in self.connections:
+            self.connections[workflow_id].remove(websocket)
+
+    async def broadcast_to_workflow_subscribers(
+        self,
+        workflow_id: str,
+        message: Dict[str, Any]
+    ):
+        """Broadcast message to all subscribers of a workflow."""
+        if workflow_id not in self.connections:
+            return
+
+        disconnected = []
+        for websocket in self.connections[workflow_id]:
+            try:
+                await websocket.send_json(message)
+            except Exception:
+                disconnected.append(websocket)
+
+        # Clean up disconnected clients
+        for ws in disconnected:
+            self.connections[workflow_id].remove(ws)
+```
+
+### 7.1.2 Timeline Status Integration
+```python
+# /presgen-assess/src/service/workflow/timeline_integration.py
+class WorkflowTimelineIntegration:
+    """
+    Integrates timeline updates into existing workflow orchestration.
+    Updates UI in real-time as workflow progresses through phases.
+    """
+
+    def __init__(self, timeline_service: TimelineUpdateService):
+        self.timeline_service = timeline_service
+
+    async def track_workflow_step(
+        self,
+        workflow_id: str,
+        step_name: str,
+        step_function,
+        *args,
+        **kwargs
+    ):
+        """Decorator/wrapper to track workflow step execution with UI updates."""
+
+        # Start step notification
+        await self.timeline_service.broadcast_workflow_update(
+            workflow_id=workflow_id,
+            step_name=step_name,
+            status="in_progress",
+            progress_percentage=self._calculate_progress(step_name),
+            metadata={"started_at": datetime.utcnow().isoformat()}
+        )
+
+        try:
+            # Execute the actual step
+            result = await step_function(*args, **kwargs)
+
+            # Success notification
+            await self.timeline_service.broadcast_workflow_update(
+                workflow_id=workflow_id,
+                step_name=step_name,
+                status="completed",
+                progress_percentage=self._calculate_progress(step_name, completed=True),
+                metadata={
+                    "completed_at": datetime.utcnow().isoformat(),
+                    "result_summary": self._summarize_step_result(result)
+                }
+            )
+
+            return result
+
+        except Exception as e:
+            # Error notification
+            await self.timeline_service.broadcast_workflow_update(
+                workflow_id=workflow_id,
+                step_name=step_name,
+                status="failed",
+                progress_percentage=self._calculate_progress(step_name),
+                metadata={
+                    "failed_at": datetime.utcnow().isoformat(),
+                    "error_message": str(e),
+                    "error_type": type(e).__name__
+                }
+            )
+            raise
+
+    def _calculate_progress(self, step_name: str, completed: bool = False) -> int:
+        """Calculate overall workflow progress percentage."""
+        step_weights = {
+            "form_creation": 10,
+            "assessment_generation": 20,
+            "response_collection": 30,
+            "gap_analysis": 50,
+            "presentation_generation": 70,
+            "avatar_creation": 85,
+            "drive_organization": 95,
+            "completion": 100
+        }
+
+        base_progress = step_weights.get(step_name, 0)
+        if completed and step_name != "completion":
+            # Add partial progress to next step
+            next_steps = list(step_weights.keys())
+            current_index = next_steps.index(step_name)
+            if current_index < len(next_steps) - 1:
+                next_step = next_steps[current_index + 1]
+                base_progress += (step_weights[next_step] - base_progress) * 0.1
+
+        return min(int(base_progress), 100)
+```
+
+### 7.1.3 UI WebSocket Endpoint
+```python
+# /presgen-assess/src/service/api/v1/endpoints/websocket.py
+from fastapi import WebSocket, WebSocketDisconnect
+from src.service.ui.timeline_service import TimelineUpdateService
+
+timeline_service = TimelineUpdateService()
+
+@app.websocket("/ws/workflow/{workflow_id}")
+async def workflow_timeline_websocket(websocket: WebSocket, workflow_id: str):
+    """WebSocket endpoint for real-time workflow timeline updates."""
+    await websocket.accept()
+
+    try:
+        # Subscribe to workflow updates
+        await timeline_service.subscribe_to_workflow_updates(websocket, workflow_id)
+
+        # Keep connection alive and handle client messages
+        while True:
+            # Listen for client messages (ping/pong, etc.)
+            message = await websocket.receive_text()
+
+            if message == "ping":
+                await websocket.send_text("pong")
+
+    except WebSocketDisconnect:
+        # Clean up subscription
+        await timeline_service.websocket_manager.remove_subscriber(
+            websocket, workflow_id
+        )
+```
+
+### 7.1.4 Master Orchestrator Service with Timeline Integration
 ```python
 # /presgen-assess/src/service/orchestrator/master_orchestrator.py
 class MasterOrchestrator:
@@ -23,6 +248,10 @@ class MasterOrchestrator:
         self.assessment_engine = AssessmentEngine()
         self.knowledge_base = KnowledgeBaseManager()
         self.notification_service = NotificationService()
+
+        # Real-time timeline integration
+        self.timeline_service = TimelineUpdateService()
+        self.timeline_integration = WorkflowTimelineIntegration(self.timeline_service)
 
     async def execute_complete_workflow(
         self,
@@ -48,33 +277,51 @@ class MasterOrchestrator:
                 data_before=certification_request.dict()
             )
 
-            # Phase 1: Initialize certification structure
-            workflow_state = await self._phase_1_initialization(
+            # Phase 1: Initialize certification structure with timeline tracking
+            workflow_state = await self.timeline_integration.track_workflow_step(
+                workflow_state.workflow_id,
+                "form_creation",
+                self._phase_1_initialization,
                 workflow_state, certification_request
             )
 
-            # Phase 2: Process knowledge base content
-            workflow_state = await self._phase_2_knowledge_processing(
+            # Phase 2: Process knowledge base content with timeline tracking
+            workflow_state = await self.timeline_integration.track_workflow_step(
+                workflow_state.workflow_id,
+                "assessment_generation",
+                self._phase_2_knowledge_processing,
                 workflow_state
             )
 
-            # Phase 3: Generate and execute assessments
-            workflow_state = await self._phase_3_assessment_execution(
+            # Phase 3: Generate and execute assessments with timeline tracking
+            workflow_state = await self.timeline_integration.track_workflow_step(
+                workflow_state.workflow_id,
+                "response_collection",
+                self._phase_3_assessment_execution,
                 workflow_state
             )
 
-            # Phase 4: Generate presentations and avatars
-            workflow_state = await self._phase_4_content_generation(
+            # Phase 4: Generate presentations and avatars with timeline tracking
+            workflow_state = await self.timeline_integration.track_workflow_step(
+                workflow_state.workflow_id,
+                "presentation_generation",
+                self._phase_4_content_generation,
                 workflow_state
             )
 
-            # Phase 5: Organize and distribute results
-            workflow_state = await self._phase_5_result_distribution(
+            # Phase 5: Organize and distribute results with timeline tracking
+            workflow_state = await self.timeline_integration.track_workflow_step(
+                workflow_state.workflow_id,
+                "drive_organization",
+                self._phase_5_result_distribution,
                 workflow_state
             )
 
-            # Phase 6: Generate final reports and analytics
-            workflow_state = await self._phase_6_reporting_analytics(
+            # Phase 6: Generate final reports and analytics with timeline tracking
+            workflow_state = await self.timeline_integration.track_workflow_step(
+                workflow_state.workflow_id,
+                "completion",
+                self._phase_6_reporting_analytics,
                 workflow_state
             )
 
@@ -1341,31 +1588,187 @@ This completes Phase 7 - End-to-End Integration, bringing together all component
 5. **Customer Experience Validation**
    - Conduct scenario-based UAT covering educator, learner, and admin workflows end-to-end.
 
+## Enhanced Technical Infrastructure
+
+### 7.6 Advanced Circuit Breaker Implementation
+```python
+# Enhanced MasterOrchestrator with circuit breakers
+class EnhancedMasterOrchestrator(MasterOrchestrator):
+    def __init__(self):
+        super().__init__()
+        self.circuit_breakers = {
+            'google_apis': CircuitBreaker(failure_threshold=5, recovery_timeout=300),
+            'presgen_core': CircuitBreaker(failure_threshold=3, recovery_timeout=600),
+            'presgen_avatar': CircuitBreaker(failure_threshold=2, recovery_timeout=900),
+            'knowledge_base': CircuitBreaker(failure_threshold=4, recovery_timeout=120)
+        }
+
+    async def execute_phase_with_circuit_breaker(self, phase_name, phase_func, *args):
+        circuit_breaker = self.circuit_breakers.get(phase_name)
+        if circuit_breaker:
+            return await circuit_breaker.call(phase_func, *args)
+        return await phase_func(*args)
+```
+
+### 7.7 Intelligent Workflow Optimization
+```python
+# AI-powered workflow optimization
+class WorkflowOptimizer:
+    async def optimize_execution_plan(self, workflow_request):
+        """Use ML to optimize workflow execution based on historical data."""
+        optimization_analysis = await self.ml_service.analyze_workflow_patterns({
+            'certification_type': workflow_request.certification_name,
+            'user_profile': workflow_request.user_profile_id,
+            'historical_performance': await self.get_historical_metrics()
+        })
+
+        return {
+            'recommended_parallel_phases': optimization_analysis['parallelizable_tasks'],
+            'resource_allocation': optimization_analysis['optimal_resources'],
+            'estimated_completion_time': optimization_analysis['time_prediction']
+        }
+```
+
+### 7.8 Advanced Quality Assurance Framework
+```python
+# Enhanced QA with automated testing and validation
+class AdvancedQAFramework:
+    async def validate_workflow_quality(self, workflow_result):
+        """Comprehensive quality validation with AI-powered checks."""
+        quality_checks = {
+            'content_quality': await self._validate_content_quality(workflow_result),
+            'accessibility_compliance': await self._check_accessibility(workflow_result),
+            'performance_metrics': await self._analyze_performance(workflow_result),
+            'user_experience_score': await self._calculate_ux_score(workflow_result)
+        }
+
+        return {
+            'overall_quality_score': self._calculate_overall_score(quality_checks),
+            'improvement_recommendations': await self._generate_recommendations(quality_checks),
+            'compliance_status': self._check_compliance(quality_checks)
+        }
+```
+
 ## Test-Driven Development Strategy
 
+### Enhanced Testing Framework
 1. **Integration Test Suites**
    - Build comprehensive tests simulating full workflows from intake to remediation outputs with mocked external services.
+   - Test circuit breaker functionality and fallback mechanisms.
+
 2. **End-to-End (E2E) Tests**
    - Use Playwright/Cypress to exercise the UI across persona flows, validating workflow states and artifact availability.
+   - Automated accessibility testing and compliance validation.
+
 3. **Resilience & Chaos Testing**
    - Inject failures (API outages, queue delays) confirming orchestrator recovery paths and alerting trigger correctly.
+   - Test automatic scaling and load balancing under stress.
+
 4. **Performance & Load Testing**
    - Stress test concurrent workflows ensuring throughput meets SLA (<30 min end-to-end for target volume).
+   - AI-powered performance optimization validation.
+
 5. **Security & Compliance Tests**
    - Run automated scans (OWASP ZAP, dependency scanning), verify RBAC rules, and ensure audit logs capture critical events.
+   - Continuous security monitoring and threat detection.
+
+6. **Quality Assurance Tests**
+   - Automated content quality validation using AI.
+   - User experience scoring and optimization testing.
 
 ## Logging & Observability Enhancements
 
-1. **Unified Workflow Timeline Logging**
+### Enhanced Monitoring Framework
+1. **Intelligent Workflow Timeline Logging**
    - Aggregate step logs, metrics, and alerts into a single timeline per workflow for fast debugging.
-2. **Dashboards**
+   - AI-powered anomaly detection in workflow execution patterns.
+
+2. **Advanced Analytics Dashboards**
    - Construct dashboards showing workflow throughput, success rate, stage-wise latency, and backlog depth.
-3. **Alerting Strategy**
+   - Predictive analytics for capacity planning and resource optimization.
+   - Real-time quality metrics and user satisfaction scores.
+
+3. **Proactive Alerting Strategy**
    - Define alert thresholds for each stage (Forms, Assessment Engine, PresGen, Avatar, Drive) with escalation paths.
-4. **Traceability**
+   - Machine learning-based alert correlation and noise reduction.
+   - Context-aware notification routing based on severity and impact.
+
+4. **Comprehensive Traceability**
    - Implement distributed tracing (OpenTelemetry) to follow requests across services, including external API calls.
-5. **Postmortem Templates**
+   - End-to-end transaction monitoring with performance bottleneck identification.
+   - Automated root cause analysis for workflow failures.
+
+5. **Enhanced Postmortem Framework**
    - Prepare standardized templates and logging checklists for incident reviews, ensuring lessons feed back into observability.
+   - Automated incident timeline reconstruction and impact analysis.
+   - Continuous improvement feedback loop with actionable insights.
+
+## Success Metrics & KPIs
+
+### Technical Metrics
+- **System Reliability**: 99.9% uptime across all components
+- **Workflow Success Rate**: >95% successful completion rate
+- **Performance**: <30 minutes average end-to-end execution time
+- **Scalability**: Support for 1000+ concurrent workflows
+- **Recovery Time**: <5 minutes average recovery from failures
+
+### Business Metrics
+- **User Satisfaction**: >90% user satisfaction score
+- **Learning Effectiveness**: 40% improvement in certification pass rates
+- **Time to Value**: 50% reduction in assessment-to-remediation time
+- **Cost Efficiency**: 30% reduction in manual assessment processes
+- **Adoption Rate**: 80% user adoption within first quarter
+
+### Operational Metrics
+- **Deployment Frequency**: Daily automated deployments with zero downtime
+- **Error Recovery**: 100% automated error recovery for transient failures
+- **Resource Utilization**: <70% average CPU and memory usage
+- **Security Incidents**: Zero security breaches or data leaks
+- **Compliance**: 100% adherence to regulatory requirements
+
+## Priority Matrix
+
+### High Priority (Sprint 1)
+1. **Master Orchestrator Implementation** - Critical for system integration
+2. **Circuit Breaker Integration** - Essential for reliability
+3. **End-to-End Testing Framework** - Required for quality assurance
+4. **Production Deployment Pipeline** - Needed for go-live
+
+### Medium Priority (Sprint 2)
+1. **Advanced Monitoring and Alerting** - Important for operations
+2. **Performance Optimization** - Needed for scale
+3. **Quality Assurance Framework** - Important for user experience
+4. **Security Hardening** - Critical for compliance
+
+### Low Priority (Sprint 3)
+1. **AI-Powered Optimization** - Nice-to-have for efficiency
+2. **Advanced Analytics** - Enhancement for insights
+3. **Automated Recovery Systems** - Future improvement
+4. **Multi-region Deployment** - Scalability enhancement
+
+## Risk Assessment & Mitigation
+
+### High-Risk Areas
+1. **Component Integration Complexity**
+   - *Mitigation*: Comprehensive integration testing and circuit breakers
+
+2. **Performance Under Load**
+   - *Mitigation*: Load testing, auto-scaling, and performance monitoring
+
+3. **Data Consistency Across Services**
+   - *Mitigation*: Transaction patterns and eventual consistency validation
+
+### Medium-Risk Areas
+1. **External API Dependencies**
+   - *Mitigation*: Fallback mechanisms and service degradation patterns
+
+2. **Security and Compliance**
+   - *Mitigation*: Regular audits, automated security scanning, and compliance monitoring
+
+### Continuous Risk Monitoring
+- Real-time risk assessment dashboards
+- Automated risk mitigation triggers
+- Regular risk review and update cycles
 
 <function_calls>
 <invoke name="TodoWrite">

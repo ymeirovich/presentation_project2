@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from pydantic import BaseModel, Field, validator
 
@@ -69,7 +70,8 @@ class ProcessedFormResponse(FormResponse):
 class AssessmentWorkflowRequest(BaseModel):
     """Kick-off payload for assessment-to-form workflow orchestration."""
 
-    certification_profile_id: str
-    assessment_parameters: Dict[str, Any] = Field(default_factory=dict)
-    workflow_name: Optional[str] = None
+    certification_profile_id: UUID
+    user_id: str
+    assessment_data: Dict[str, Any]
     form_settings: Optional[FormSettings] = None
+    workflow_name: Optional[str] = None

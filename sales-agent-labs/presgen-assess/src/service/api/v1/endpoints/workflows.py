@@ -15,7 +15,7 @@ from src.schemas.workflow import (
     WorkflowResumeRequest,
     WorkflowStatusUpdate
 )
-from src.schemas.google_forms import AssessmentWorkflowRequest
+from src.schemas.google_forms import AssessmentWorkflowRequest, FormSettings
 from src.service.database import get_db
 from src.services.workflow_orchestrator import WorkflowOrchestrator
 from src.services.response_ingestion_service import ResponseIngestionService
@@ -74,6 +74,52 @@ async def create_workflow(
             workflow.status,
             workflow.current_step,
         )
+
+        # Auto-trigger orchestration for assessment_generation workflows
+        if workflow.workflow_type == "assessment_generation":
+            try:
+                logger.info("🚀 Auto-triggering orchestration for assessment_generation workflow")
+
+                # Convert workflow parameters to assessment_data format
+                assessment_data = {
+                    "questions": [
+                        {
+                            "id": f"q{i+1}",
+                            "question_text": f"Sample question {i+1} for {workflow.parameters.get('title', 'Assessment')}",
+                            "question_type": "multiple_choice",
+                            "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
+                            "correct_answer": "A"
+                        } for i in range(min(5, workflow.parameters.get('question_count', 24) // 5))
+                    ],
+                    "metadata": {
+                        "certification_name": workflow.parameters.get('title', 'Assessment'),
+                        "difficulty_level": workflow.parameters.get('difficulty_level', 'beginner'),
+                        "question_count": workflow.parameters.get('question_count', 24),
+                        "domain_distribution": workflow.parameters.get('domain_distribution', {})
+                    }
+                }
+
+                form_settings = FormSettings(
+                    collect_email=True,
+                    require_login=False
+                )
+
+                orchestrator = WorkflowOrchestrator()
+                orchestration_result = await orchestrator.execute_assessment_to_form_workflow(
+                    certification_profile_id=workflow.certification_profile_id,
+                    user_id=workflow.user_id,
+                    assessment_data=assessment_data,
+                    form_settings=form_settings
+                )
+
+                if orchestration_result.get("success"):
+                    logger.info(f"✅ Auto-orchestration successful for workflow {workflow.id}")
+                else:
+                    logger.warning(f"⚠️ Auto-orchestration failed for workflow {workflow.id}: {orchestration_result.get('error')}")
+
+            except Exception as e:
+                logger.error(f"❌ Auto-orchestration error for workflow {workflow.id}: {e}")
+
         return WorkflowResponse.model_validate(workflow)
 
     except Exception as e:
@@ -151,21 +197,6 @@ async def get_workflow(
         )
 
 
-@router.post("/assessment-to-form")
-async def assessment_to_form_workflow(request: AssessmentWorkflowRequest):
-    """Placeholder endpoint that kicks off the assessment-to-form workflow."""
-
-    logger.info(
-        "🚀 Assessment-to-form workflow requested | profile_id=%s workflow=%s",
-        request.certification_profile_id,
-        request.workflow_name or "assessment-to-form",
-    )
-
-    return {
-        "success": True,
-        "workflow_name": request.workflow_name or "assessment-to-form",
-        "certification_profile_id": request.certification_profile_id,
-    }
 
 
 @router.get("/token/{resume_token}", response_model=WorkflowResponse)
@@ -487,4 +518,88 @@ async def get_ingestion_statistics(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get ingestion statistics: {str(e)}"
+        )
+
+
+@router.post("/{workflow_id}/trigger-orchestration")
+async def trigger_workflow_orchestration(
+    workflow_id: UUID,
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """Trigger assessment-to-form orchestration for an existing workflow."""
+    try:
+        logger.info(f"🚀 Triggering orchestration for workflow: {workflow_id}")
+
+        # Get the workflow
+        stmt = select(WorkflowExecution).where(WorkflowExecution.id == workflow_id)
+        result = await db.execute(stmt)
+        workflow = result.scalar_one_or_none()
+
+        if not workflow:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Workflow with ID {workflow_id} not found"
+            )
+
+        if workflow.workflow_type != "assessment_generation":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Orchestration only supported for assessment_generation workflows, got: {workflow.workflow_type}"
+            )
+
+        # Convert workflow parameters to assessment_data format
+        assessment_data = {
+            "questions": [
+                {
+                    "id": f"q{i+1}",
+                    "question_text": f"Sample question {i+1} for {workflow.parameters.get('title', 'Assessment')}",
+                    "question_type": "multiple_choice",
+                    "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
+                    "correct_answer": "A"
+                } for i in range(min(5, workflow.parameters.get('question_count', 24) // 5))
+            ],
+            "metadata": {
+                "certification_name": workflow.parameters.get('title', 'Assessment'),
+                "difficulty_level": workflow.parameters.get('difficulty_level', 'beginner'),
+                "question_count": workflow.parameters.get('question_count', 24),
+                "domain_distribution": workflow.parameters.get('domain_distribution', {})
+            }
+        }
+
+        form_settings = FormSettings(
+            collect_email=True,
+            require_login=False
+        )
+
+        orchestrator = WorkflowOrchestrator()
+        orchestration_result = await orchestrator.execute_assessment_to_form_workflow(
+            certification_profile_id=workflow.certification_profile_id,
+            user_id=workflow.user_id,
+            assessment_data=assessment_data,
+            form_settings=form_settings
+        )
+
+        if orchestration_result.get("success"):
+            logger.info(f"✅ Orchestration successful for workflow {workflow_id}")
+            return {
+                "success": True,
+                "message": "Workflow orchestration triggered successfully",
+                "workflow_id": str(workflow_id),
+                "orchestration_result": orchestration_result
+            }
+        else:
+            logger.error(f"❌ Orchestration failed for workflow {workflow_id}: {orchestration_result.get('error')}")
+            return {
+                "success": False,
+                "error": f"Orchestration failed: {orchestration_result.get('error')}",
+                "workflow_id": str(workflow_id)
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error triggering orchestration for workflow {workflow_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to trigger orchestration: {str(e)}"
         )
