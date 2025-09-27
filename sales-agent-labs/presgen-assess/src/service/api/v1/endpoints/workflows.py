@@ -1,13 +1,13 @@
 """Async workflow management API endpoints."""
 
-import logging
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.common.logging_config import get_workflow_logger
 from src.models.workflow import WorkflowExecution
 from src.schemas.workflow import (
     WorkflowCreate,
@@ -15,9 +15,12 @@ from src.schemas.workflow import (
     WorkflowResumeRequest,
     WorkflowStatusUpdate
 )
+from src.schemas.google_forms import AssessmentWorkflowRequest
 from src.service.database import get_db
+from src.services.workflow_orchestrator import WorkflowOrchestrator
+from src.services.response_ingestion_service import ResponseIngestionService
 
-logger = logging.getLogger(__name__)
+logger = get_workflow_logger()
 
 router = APIRouter()
 
@@ -29,20 +32,57 @@ async def create_workflow(
 ) -> WorkflowResponse:
     """Create a new async workflow."""
     try:
-        workflow = WorkflowExecution(**workflow_data.model_dump())
+        # Map WorkflowCreate data to WorkflowExecution fields
+        workflow_dict = workflow_data.model_dump(exclude_none=True)
+
+        # Ensure required fields exist for ORM compatibility and UI expectations
+        workflow_dict.setdefault('current_step', 'initiated')
+        workflow_dict.setdefault('execution_status', 'pending')
+        workflow_dict['status'] = workflow_dict.get('execution_status', 'pending')
+        workflow_dict.setdefault('progress', 0)
+
+        # Backfill slide count tracking so downstream steps have defaults
+        if 'requested_slide_count' not in workflow_dict:
+            requested_slides = (
+                workflow_dict.get('parameters', {}).get('slide_count')
+                if isinstance(workflow_dict.get('parameters'), dict)
+                else None
+            )
+            if requested_slides:
+                workflow_dict['requested_slide_count'] = requested_slides
+
+        # Map schema field names to database column names
+        google_sheet_url = workflow_dict.pop('google_sheet_url', None)
+        if google_sheet_url:
+            workflow_dict['sheet_url_input'] = google_sheet_url
+
+        logger.info(
+            "📥 Creating workflow | user_id=%s profile_id=%s workflow_type=%s",
+            workflow_dict.get('user_id'),
+            workflow_dict.get('certification_profile_id'),
+            workflow_dict.get('workflow_type'),
+        )
+
+        workflow = WorkflowExecution(**workflow_dict)
         db.add(workflow)
         await db.commit()
         await db.refresh(workflow)
 
-        logger.info(f"✅ Created workflow: {workflow.id}")
+        logger.info(
+            "✅ Workflow created | id=%s status=%s current_step=%s",
+            workflow.id,
+            workflow.status,
+            workflow.current_step,
+        )
         return WorkflowResponse.model_validate(workflow)
 
     except Exception as e:
         await db.rollback()
-        logger.error(f"❌ Failed to create workflow: {e}")
+        logger.exception("❌ Failed to create workflow")
+        logger.error("❌ Payload causing failure: %s", workflow_data.model_dump())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create workflow"
+            detail=f"Failed to create workflow: {str(e)}"
         )
 
 
@@ -80,26 +120,52 @@ async def get_workflow(
 ) -> WorkflowResponse:
     """Get a specific workflow by ID."""
     try:
+        logger.info("🔍 Fetching workflow detail | id=%s", workflow_id)
         stmt = select(WorkflowExecution).where(WorkflowExecution.id == workflow_id)
         result = await db.execute(stmt)
         workflow = result.scalar_one_or_none()
 
         if not workflow:
+            logger.warning("⚠️ Workflow not found | id=%s", workflow_id)
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Workflow with ID {workflow_id} not found"
             )
 
-        return WorkflowResponse.model_validate(workflow)
+        response = WorkflowResponse.model_validate(workflow)
+        logger.info(
+            "📤 Workflow detail retrieved | id=%s status=%s step=%s",
+            workflow_id,
+            response.status,
+            response.current_step,
+        )
+        return response
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"❌ Failed to get workflow {workflow_id}: {e}")
+        logger.exception("❌ Failed to get workflow %s", workflow_id)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to retrieve workflow"
         )
+
+
+@router.post("/assessment-to-form")
+async def assessment_to_form_workflow(request: AssessmentWorkflowRequest):
+    """Placeholder endpoint that kicks off the assessment-to-form workflow."""
+
+    logger.info(
+        "🚀 Assessment-to-form workflow requested | profile_id=%s workflow=%s",
+        request.certification_profile_id,
+        request.workflow_name or "assessment-to-form",
+    )
+
+    return {
+        "success": True,
+        "workflow_name": request.workflow_name or "assessment-to-form",
+        "certification_profile_id": request.certification_profile_id,
+    }
 
 
 @router.get("/token/{resume_token}", response_model=WorkflowResponse)
@@ -264,4 +330,161 @@ async def delete_workflow(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete workflow"
+        )
+
+
+# Sprint 2 Enhancement: Workflow Orchestration Endpoints
+
+@router.post("/assessment-to-form")
+async def create_assessment_form_workflow(
+    request: AssessmentWorkflowRequest,
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """Create and execute assessment-to-form workflow with orchestration."""
+    try:
+        logger.info("🚀 Starting assessment-to-form workflow orchestration")
+
+        orchestrator = WorkflowOrchestrator()
+
+        # Execute orchestrated workflow
+        result = await orchestrator.execute_assessment_to_form_workflow(
+            certification_profile_id=request.certification_profile_id,
+            user_id=request.user_id,
+            assessment_data=request.assessment_data,
+            form_settings=request.form_settings
+        )
+
+        if result["success"]:
+            logger.info(f"✅ Assessment-to-form workflow created successfully: {result['workflow_id']}")
+        else:
+            logger.error(f"❌ Assessment-to-form workflow failed: {result.get('error')}")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"❌ Assessment-to-form workflow error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Workflow execution failed: {str(e)}"
+        )
+
+
+@router.post("/{workflow_id}/force-ingest-responses")
+async def force_ingest_responses(
+    workflow_id: UUID,
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """Manually trigger response ingestion for a workflow."""
+    try:
+        logger.info(f"🔄 Forcing response ingestion for workflow: {workflow_id}")
+
+        ingestion_service = ResponseIngestionService()
+        result = await ingestion_service.force_ingest_workflow_responses(workflow_id)
+
+        if result["success"]:
+            logger.info(f"✅ Response ingestion completed for workflow: {workflow_id}")
+        else:
+            logger.error(f"❌ Response ingestion failed for workflow: {workflow_id}")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"❌ Response ingestion error for workflow {workflow_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Response ingestion failed: {str(e)}"
+        )
+
+
+@router.post("/{workflow_id}/process-responses")
+async def process_workflow_responses(
+    workflow_id: UUID,
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """Process collected responses and generate analysis."""
+    try:
+        logger.info(f"📊 Processing responses for workflow: {workflow_id}")
+
+        orchestrator = WorkflowOrchestrator()
+        result = await orchestrator.process_completed_responses(workflow_id)
+
+        if result["success"]:
+            logger.info(f"✅ Response processing completed for workflow: {workflow_id}")
+        else:
+            logger.error(f"❌ Response processing failed for workflow: {workflow_id}")
+
+        return result
+
+    except Exception as e:
+        logger.error(f"❌ Response processing error for workflow {workflow_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Response processing failed: {str(e)}"
+        )
+
+
+@router.get("/{workflow_id}/orchestration-status")
+async def get_orchestration_status(
+    workflow_id: UUID,
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """Get detailed orchestration status for a workflow."""
+    try:
+        logger.info(f"📋 Getting orchestration status for workflow: {workflow_id}")
+
+        orchestrator = WorkflowOrchestrator()
+        result = await orchestrator.get_workflow_status(workflow_id)
+
+        return result
+
+    except Exception as e:
+        logger.error(f"❌ Error getting orchestration status for workflow {workflow_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get orchestration status: {str(e)}"
+        )
+
+
+@router.get("/active/orchestration")
+async def list_active_orchestrated_workflows(
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """List all active workflows with orchestration details."""
+    try:
+        logger.info("📋 Listing active orchestrated workflows")
+
+        orchestrator = WorkflowOrchestrator()
+        result = await orchestrator.list_active_workflows()
+
+        return result
+
+    except Exception as e:
+        logger.error(f"❌ Error listing active orchestrated workflows: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list active workflows: {str(e)}"
+        )
+
+
+@router.get("/ingestion/stats")
+async def get_ingestion_statistics(
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """Get response ingestion statistics."""
+    try:
+        logger.info("📊 Getting ingestion statistics")
+
+        ingestion_service = ResponseIngestionService()
+        result = await ingestion_service.get_ingestion_stats()
+
+        return {
+            "success": True,
+            "stats": result
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error getting ingestion statistics: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get ingestion statistics: {str(e)}"
         )
