@@ -1,0 +1,39 @@
+# Pre-commit hooks for automated test enforcement
+repos:
+  - repo: local
+    hooks:
+      - id: prompt-system-tests
+        name: Run prompt system tests
+        entry: python3 -m pytest tests/test_prompt_system.py -v
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [commit]
+
+      - id: full-test-suite
+        name: Run full test suite
+        entry: python3 -m pytest tests/ -v
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [commit]
+
+      - id: test-coverage-check
+        name: Check test coverage
+        entry: python3 -m pytest tests/ --cov=src --cov-fail-under=80
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [commit]
+
+  - repo: https://github.com/psf/black
+    rev: 23.12.1
+    hooks:
+      - id: black
+        language_version: python3
+
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.0.0
+    hooks:
+      - id: flake8
+        args: [--max-line-length=88, --extend-ignore=E203,W503]

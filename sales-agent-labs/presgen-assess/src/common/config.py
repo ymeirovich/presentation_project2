@@ -20,12 +20,14 @@ class Settings(BaseSettings):
     openai_api_key: str = Field(..., alias="OPENAI_API_KEY")
     openai_org_id: Optional[str] = Field(default=None, alias="OPENAI_ORG_ID")
 
-    # Google Cloud Configuration
+    # Google Cloud & OAuth Configuration
     google_application_credentials: Optional[str] = Field(
         default="./config/google-service-account.json",
         alias="GOOGLE_APPLICATION_CREDENTIALS"
     )
     google_cloud_project: Optional[str] = Field(default=None, alias="GOOGLE_CLOUD_PROJECT")
+    oauth_client_json: Optional[str] = Field(default=None, alias="OAUTH_CLIENT_JSON")
+    google_user_token_path: Optional[str] = Field(default=None, alias="GOOGLE_USER_TOKEN_PATH")
 
     # PresGen Module Integration (40-slide support)
     presgen_core_url: str = Field(default="http://localhost:8001", alias="PRESGEN_CORE_URL")

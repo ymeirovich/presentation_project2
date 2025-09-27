@@ -1092,6 +1092,43 @@ class ContentGenerationPipeline:
 
 This completes Phase 4 - PresGen-Core Integration, providing comprehensive integration with the presentation generation system for creating personalized learning content.
 
+## Implementation Roadmap (Detailed)
+
+1. **API Contract Alignment**
+   - Formalize request/response contracts between PresGen-Assess and PresGen-Core (slide quotas, themes, asset links) via shared schema package.
+   - Implement adapter layer translating assessment outputs into PresGen prompt payloads.
+2. **Content Orchestration**
+   - Build pipeline that ingests gap-analysis results, maps them to storyline segments, and sequences modules for slide generation.
+   - Support multiple templates (executive summary, deep dive) with configuration flags.
+3. **Asset Management**
+   - Store generated presentations (slide IDs, share links) in `generated_content_urls` and replicate metadata to Google Drive structure.
+4. **Error Recovery & Idempotency**
+   - Detect partial presentation generations, allow resumption, and avoid duplicate slide decks.
+5. **Workflow Hooks**
+   - Update workflow statuses (`generating_presentation`, `presentations_generated`) and emit notifications when assets ready.
+
+## Test-Driven Development Strategy
+
+1. **Adapter Tests**
+   - TDD transformation functions converting gap analysis into PresGen content sections, ensuring deterministic outputs.
+2. **API Interaction Tests**
+   - Mock PresGen-Core endpoints to simulate successes, partial failures, and timeouts, asserting retries and error reporting.
+3. **Asset Persistence Tests**
+   - Verify presentation metadata is stored correctly and accessible through API detail endpoints.
+4. **Workflow Progress Tests**
+   - Ensure status changes happen only after successful responses and that failures roll back/mark workflows accordingly.
+
+## Logging & Observability Enhancements
+
+1. **Integration Logs**
+   - Log each PresGen-Core call with payload summary, asset IDs, and latency.
+2. **Metrics**
+   - Track number of presentations generated, success vs failure rates, and average slide generation time.
+3. **Audit Trail**
+   - Persist version history of generated decks and link to underlying assessment data for traceability.
+4. **Alerting**
+   - Notify on repeated generation failures, large latency spikes, or asset persistence errors.
+
 <function_calls>
 <invoke name="TodoWrite">
 <parameter name="todos">[{"content": "Create detailed Phase 1 document - Google APIs Foundation", "status": "completed", "activeForm": "Creating detailed Phase 1 document - Google APIs Foundation"}, {"content": "Create detailed Phase 2 document - Google Forms Automation", "status": "completed", "activeForm": "Creating detailed Phase 2 document - Google Forms Automation"}, {"content": "Create detailed Phase 3 document - Response Collection Pipeline", "status": "completed", "activeForm": "Creating detailed Phase 3 document - Response Collection Pipeline"}, {"content": "Create detailed Phase 4 document - PresGen-Core Integration", "status": "completed", "activeForm": "Creating detailed Phase 4 document - PresGen-Core Integration"}, {"content": "Create detailed Phase 5 document - PresGen-Avatar Integration", "status": "in_progress", "activeForm": "Creating detailed Phase 5 document - PresGen-Avatar Integration"}, {"content": "Fix UUID serialization issue in enhanced logging", "status": "completed", "activeForm": "Fixing UUID serialization issue in enhanced logging"}]

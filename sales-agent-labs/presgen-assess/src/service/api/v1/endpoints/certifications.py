@@ -20,6 +20,12 @@ from src.service.database import get_db
 
 # Import enhanced logging
 from src.common.logging_config import get_certification_logger, get_database_logger
+from src.common.enhanced_logging import (
+    CERT_PROMPTS_API_LOGGER,
+    set_correlation_id,
+    track_data_transformation,
+    log_data_flow
+)
 
 logger = get_certification_logger()
 db_logger = get_database_logger()
@@ -217,9 +223,10 @@ async def create_certification_profile(
             db_exam_domains.append(db_domain)
 
         # Store additional form fields in assessment_template as metadata
+        # NOTE: Removing _chromadb_prompts to separate knowledge base and certification prompts
         assessment_template = getattr(profile_data, 'assessment_template', None) or {}
 
-        # Add form metadata to assessment_template
+        # Add form metadata to assessment_template (NO longer including prompts here)
         if not isinstance(assessment_template, dict):
             assessment_template = {}
 
@@ -235,14 +242,45 @@ async def create_certification_profile(
             'is_active': getattr(profile_data, 'is_active', True)
         }
 
-        # Create profile data for database model (only include fields that exist in DB model)
+        # Log enhanced data flow with correlation ID
+        correlation_id = set_correlation_id()
+        log_data_flow(
+            logger=CERT_PROMPTS_API_LOGGER,
+            step="create_profile_data_prep",
+            component="certification_api",
+            message="Preparing certification profile data for creation",
+            data_before={
+                "name": profile_data.name,
+                "version": profile_data.version,
+                "has_assessment_prompt": bool(getattr(profile_data, 'assessment_prompt', None)),
+                "has_presentation_prompt": bool(getattr(profile_data, 'presentation_prompt', None)),
+                "has_gap_analysis_prompt": bool(getattr(profile_data, 'gap_analysis_prompt', None))
+            }
+        )
+
+        # Create profile data for database model (including prompt fields directly in columns)
         db_profile_data = {
             'name': profile_data.name,
             'version': profile_data.version,
             'exam_domains': db_exam_domains,
             'knowledge_base_path': f"knowledge_base/{profile_data.name.lower().replace(' ', '_')}_v{profile_data.version}",
-            'assessment_template': assessment_template
+            'assessment_template': assessment_template,
+            # Store certification profile prompts directly in database columns
+            'assessment_prompt': getattr(profile_data, 'assessment_prompt', None),
+            'presentation_prompt': getattr(profile_data, 'presentation_prompt', None),
+            'gap_analysis_prompt': getattr(profile_data, 'gap_analysis_prompt', None),
+            'resource_binding_enabled': getattr(profile_data, 'resource_binding_enabled', True)
         }
+
+        # Log data flow before database operation
+        log_data_flow(
+            logger=CERT_PROMPTS_API_LOGGER,
+            step="create_profile_db_prep",
+            component="certification_api",
+            message="Prepared data for database insertion",
+            data_after=db_profile_data,
+            transformation="api_to_db"
+        )
 
         profile = CertificationProfile(**db_profile_data)
         db.add(profile)
@@ -413,24 +451,38 @@ async def get_certification_profile(
 
         logger.info(f"✅ Found certification profile: {profile.name} v{profile.version}")
 
-        # Log raw database values for prompt fields
+        # Enhanced logging with correlation ID for data flow tracking
+        correlation_id = set_correlation_id()
+
+        # Log data flow from database retrieval
         db_prompts = {
             "assessment_prompt": profile.assessment_prompt,
             "presentation_prompt": profile.presentation_prompt,
             "gap_analysis_prompt": profile.gap_analysis_prompt
         }
-        log_prompt_values("GET_from_database", str(profile_id), db_prompts, "database_columns")
 
-        # Also log any prompts from assessment_template
-        template_prompts = {}
-        if profile.assessment_template and isinstance(profile.assessment_template, dict):
-            chromadb_prompts = profile.assessment_template.get('_chromadb_prompts', {})
-            template_prompts = {
-                "assessment_prompt": chromadb_prompts.get('assessment_prompt'),
-                "presentation_prompt": chromadb_prompts.get('presentation_prompt'),
-                "gap_analysis_prompt": chromadb_prompts.get('gap_analysis_prompt')
-            }
-            log_prompt_values("GET_from_template", str(profile_id), template_prompts, "assessment_template._chromadb_prompts")
+        log_data_flow(
+            logger=CERT_PROMPTS_API_LOGGER,
+            step="get_profile_db_retrieval",
+            component="certification_api",
+            message=f"Retrieved certification profile from database: {profile_id}",
+            data_after={
+                "profile_id": str(profile_id),
+                "name": profile.name,
+                "version": profile.version,
+                "prompt_fields": {
+                    "has_assessment_prompt": bool(profile.assessment_prompt),
+                    "has_presentation_prompt": bool(profile.presentation_prompt),
+                    "has_gap_analysis_prompt": bool(profile.gap_analysis_prompt),
+                    "assessment_prompt_length": len(profile.assessment_prompt or ""),
+                    "presentation_prompt_length": len(profile.presentation_prompt or ""),
+                    "gap_analysis_prompt_length": len(profile.gap_analysis_prompt or "")
+                }
+            },
+            transformation="db_to_api"
+        )
+
+        # NOTE: Removed _chromadb_prompts usage - prompts now come only from database columns
 
         # Convert database model to API schema
         response_domains = []
@@ -573,8 +625,24 @@ async def update_certification_profile(
         if profile.assessment_template and isinstance(profile.assessment_template, dict):
             metadata = profile.assessment_template.get('_metadata', {})
 
-        # Extract prompt values from both database columns and assessment_template
-        prompts = profile.assessment_template.get('_chromadb_prompts', {}) if profile.assessment_template else {}
+        # NOTE: Removed _chromadb_prompts usage - prompts now come only from database columns
+        # Enhanced logging for data flow tracking during update response preparation
+        log_data_flow(
+            logger=CERT_PROMPTS_API_LOGGER,
+            step="update_profile_response_prep",
+            component="certification_api",
+            message=f"Preparing update response for profile: {profile_id}",
+            data_after={
+                "profile_id": str(profile_id),
+                "updated_fields_count": len(update_data) if 'update_data' in locals() else 0,
+                "prompt_fields": {
+                    "assessment_prompt_length": len(profile.assessment_prompt or ""),
+                    "presentation_prompt_length": len(profile.presentation_prompt or ""),
+                    "gap_analysis_prompt_length": len(profile.gap_analysis_prompt or "")
+                }
+            },
+            transformation="db_to_response"
+        )
 
         response_data = {
             'id': profile.id,

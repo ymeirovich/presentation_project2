@@ -6,12 +6,15 @@ from src.service.api.v1.endpoints import (
     assessments,
     certifications,
     knowledge,
+    knowledge_prompts,
+    google_forms,
     workflows,
     llm,
     engine,
     gap_analysis,
     presentations,
-    auth
+    auth,
+    monitoring
 )
 
 api_router = APIRouter()
@@ -34,6 +37,18 @@ api_router.include_router(
     knowledge.router,
     prefix="/knowledge",
     tags=["knowledge"]
+)
+
+api_router.include_router(
+    knowledge_prompts.router,
+    prefix="/knowledge-prompts",
+    tags=["knowledge-prompts"]
+)
+
+api_router.include_router(
+    google_forms.router,
+    prefix="/google-forms",
+    tags=["google-forms"]
 )
 
 api_router.include_router(
@@ -71,4 +86,11 @@ api_router.include_router(
     presentations.router,
     prefix="/presentations",
     tags=["presentations", "ai-services"]
+)
+
+# Sprint 3: Monitoring and production readiness endpoints
+api_router.include_router(
+    monitoring.router,
+    prefix="/monitoring",
+    tags=["monitoring", "health", "production"]
 )

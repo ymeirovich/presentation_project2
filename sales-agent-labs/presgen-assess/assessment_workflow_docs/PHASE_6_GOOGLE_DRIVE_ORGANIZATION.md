@@ -773,6 +773,43 @@ class TestDriveIntegration:
 
 This completes Phase 6 - Google Drive Organization. Moving to Phase 7.
 
+## Implementation Roadmap (Detailed)
+
+1. **Drive Structure Provisioning**
+   - Automate creation of certification workspace hierarchy (Assessments, Responses, Presentations, Videos, Archives) with configurable permissions.
+   - Support shared drive vs. individual drive deployments.
+2. **Lifecycle Management**
+   - Implement retention policies to archive or delete stale assets per certification SLA.
+   - Build scheduled jobs to enforce retention and update metadata.
+3. **Metadata Tagging**
+   - Tag files with workflow ID, certification, content type, and PII sensitivity to aid discovery and compliance.
+4. **Linking & Notifications**
+   - Store Drive links in workflow outputs and send notifications to stakeholders when assets are ready.
+5. **Access Governance**
+   - Integrate Admin SDK to audit permissions, ensuring least-privilege access and revoking on workflow completion.
+
+## Test-Driven Development Strategy
+
+1. **Structure Tests**
+   - Validate folder tree generation matches specification, including naming conventions and permissions.
+2. **Retention Tests**
+   - Simulate aged files ensuring archival/move operations execute and log appropriately.
+3. **Metadata Tests**
+   - Ensure tagging applies correct properties and is queryable via Drive search.
+4. **Integration Tests**
+   - Mock Drive API operations verifying retries, error handling, and rate-limit compliance.
+
+## Logging & Observability Enhancements
+
+1. **Provisioning Logs**
+   - Log folder creation, permissions changes, and archival actions with actor and workflow context.
+2. **Metrics**
+   - Track number of assets per category, storage consumption, and retention actions executed.
+3. **Alerts**
+   - Trigger alerts when retention jobs fail, orphaned files accumulate, or permissions drift detected.
+4. **Audit Trail**
+   - Maintain change history for compliance reviews, ensuring traceability from assessments to stored assets.
+
 <function_calls>
 <invoke name="TodoWrite">
 <parameter name="todos">[{"content": "Create detailed Phase 1 document - Google APIs Foundation", "status": "completed", "activeForm": "Creating detailed Phase 1 document - Google APIs Foundation"}, {"content": "Create detailed Phase 2 document - Google Forms Automation", "status": "completed", "activeForm": "Creating detailed Phase 2 document - Google Forms Automation"}, {"content": "Create detailed Phase 3 document - Response Collection Pipeline", "status": "completed", "activeForm": "Creating detailed Phase 3 document - Response Collection Pipeline"}, {"content": "Create detailed Phase 4 document - PresGen-Core Integration", "status": "completed", "activeForm": "Creating detailed Phase 4 document - PresGen-Core Integration"}, {"content": "Create detailed Phase 5 document - PresGen-Avatar Integration", "status": "completed", "activeForm": "Creating detailed Phase 5 document - PresGen-Avatar Integration"}, {"content": "Create detailed Phase 6 document - Google Drive Organization", "status": "completed", "activeForm": "Creating detailed Phase 6 document - Google Drive Organization"}, {"content": "Create detailed Phase 7 document - End-to-End Integration", "status": "in_progress", "activeForm": "Creating detailed Phase 7 document - End-to-End Integration"}]

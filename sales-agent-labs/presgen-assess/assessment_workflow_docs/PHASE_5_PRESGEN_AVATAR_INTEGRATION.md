@@ -1346,6 +1346,44 @@ class VideoLibraryManager:
 
 This completes Phase 5 - PresGen-Avatar Integration, providing comprehensive avatar video generation capabilities for personalized learning experiences.
 
+## Implementation Roadmap (Detailed)
+
+1. **Persona & Voice Management**
+   - Catalog avatar personas, voice profiles, and animation presets; expose selection APIs by certification and learner persona.
+   - Handle voice cloning approvals and storage securely.
+2. **Script-to-Video Pipeline**
+   - Convert remediation plans into scripts, pair with TTS generation, and orchestrate avatar rendering, slide overlay, and caption creation.
+3. **Playlist & Delivery**
+   - Assemble video playlists (overview, remediation, quick review) and deliver via streaming links stored in workflow outputs.
+4. **Quality Controls**
+   - Run automated checks for lip-sync accuracy, caption completeness, and audio levels; requeue renders when issues detected.
+5. **Workflow Integration**
+   - Update statuses for each playlist item and allow manual overrides/resubmissions.
+
+## Test-Driven Development Strategy
+
+1. **Persona Selection Tests**
+   - Ensure personas and voices map correctly to certification profiles and that unsupported combinations raise validation errors.
+2. **Script Pipeline Tests**
+   - Validate script generation meets length constraints and narrative structure using snapshot tests.
+3. **API Interaction Tests**
+   - Mock PresGen-Avatar endpoints verifying payloads, progress polling, and error recovery logic.
+4. **Playlist Assembly Tests**
+   - Confirm playlists maintain proper order, metadata, and link back to underlying video assets.
+5. **Workflow Tests**
+   - Assert status transitions and retry semantics behave as expected under success/failure scenarios.
+
+## Logging & Observability Enhancements
+
+1. **Pipeline Logging**
+   - Log each major step (`persona_select`, `script_generate`, `tts_render`, `video_publish`) with asset IDs and durations.
+2. **Metrics**
+   - Track render success rates, average video duration, and time per pipeline stage.
+3. **Alerting**
+   - Notify when renders fail repeatedly for the same persona/script or when latency breaches thresholds.
+4. **Audit Trail**
+   - Record script, persona, and asset metadata for compliance and future re-renders.
+
 <function_calls>
 <invoke name="TodoWrite">
 <parameter name="todos">[{"content": "Create detailed Phase 1 document - Google APIs Foundation", "status": "completed", "activeForm": "Creating detailed Phase 1 document - Google APIs Foundation"}, {"content": "Create detailed Phase 2 document - Google Forms Automation", "status": "completed", "activeForm": "Creating detailed Phase 2 document - Google Forms Automation"}, {"content": "Create detailed Phase 3 document - Response Collection Pipeline", "status": "completed", "activeForm": "Creating detailed Phase 3 document - Response Collection Pipeline"}, {"content": "Create detailed Phase 4 document - PresGen-Core Integration", "status": "completed", "activeForm": "Creating detailed Phase 4 document - PresGen-Core Integration"}, {"content": "Create detailed Phase 5 document - PresGen-Avatar Integration", "status": "completed", "activeForm": "Creating detailed Phase 5 document - PresGen-Avatar Integration"}, {"content": "Fix UUID serialization issue in enhanced logging", "status": "completed", "activeForm": "Fixing UUID serialization issue in enhanced logging"}]

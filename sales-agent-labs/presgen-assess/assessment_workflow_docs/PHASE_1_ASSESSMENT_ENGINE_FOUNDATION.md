@@ -658,3 +658,57 @@ RAG_SOURCE_CITATION_REQUIRED=true
 - [ ] Production Readiness Validation
 
 **Phase 1 Status**: ✅ **CORE IMPLEMENTATION COMPLETE** - Ready for Phase 2 Integration
+
+## Implementation Roadmap (Detailed)
+
+1. **Strengthen AssessmentEngine Contracts**
+   - Refine `AssessmentEngine` constructor to accept explicit protocol interfaces (`QuestionGenerator`, `ContextRetriever`, `AssessmentValidator`).
+   - Introduce dataclasses (`AssessmentBlueprint`, `GeneratedQuestion`, `AssessmentValidationResult`) to freeze the JSON schema written into `WorkflowExecution.assessment_data`.
+   - Enforce deterministic seeding paths so repeatable tests can assert generated structures without leaking LLM randomness.
+2. **Prompt Composition & Dispatch**
+   - Materialize prompt templates in `config/prompts/assessment/` with placeholders for Bloom level, domain taxonomy, and difficulty targets.
+   - Build a composer that merges profile metadata, retrieved RAG snippets, and guardrails (e.g., citation requirements) before handing off to `LLMService`.
+   - Integrate exponential backoff with jitter and total budget enforcement; emit structured retry logs.
+3. **RAG Enrichment & Fallbacks**
+   - Implement asynchronous ingestion pipelines with chunking specifications (max token/window) and metadata tagging aligned to certification domains.
+   - Provide a retrieval planner that balances exam guide vs transcript streams and falls back to cached exemplars when Chroma misses.
+4. **Validation Pipeline Expansion**
+   - Layer validators (coverage, distractor quality, duplication, answer-key integrity) with actionable remediation states (`regen_domain`, `regen_question`, `manual_review`).
+   - Serialize validation telemetry into `assessment_data.validation_report` for downstream dashboards.
+5. **API Integration & Job Scheduling**
+   - Wrap service calls inside FastAPI dependencies that enqueue background jobs (Celery/RQ/Arq) while immediately returning workflow IDs.
+   - Update `WorkflowExecution` at each stage (e.g., `current_step='generate_questions'`, `execution_status='in_progress'`) for UI visibility.
+
+## Test-Driven Development Strategy
+
+1. **Model & Schema Tests**
+   - Start with failing tests verifying `AssessmentBlueprint` serialization and schema migrations for workflow payloads.
+   - Validate Pydantic schemas accept optional fields and reject malformed domain distributions.
+2. **Prompt Rendering Tests**
+   - Parameterize tests across difficulty × question type × Bloom level ensuring composer outputs match stored snapshots (use syrupy/SnapShot testing).
+3. **LLM Adapter Tests**
+   - Mock OpenAI responses to ensure parsing logic handles enumerated options, rationale extraction, and citation injection.
+   - Verify retry logic triggers on simulated rate limits and logs telemetry counters.
+4. **RAG Retrieval Tests**
+   - Use temporary Chroma collections with synthetic documents; assert balanced retrieval and fallback pathways hit when collections are empty.
+5. **Validation Pipeline Tests**
+   - Write TDD cases for each validator: domain coverage failure, duplicate answers, invalid distractors, rubric generation.
+6. **API Integration Tests**
+   - Through FastAPI test client, drive `POST /engine/comprehensive/generate` and assert enqueued workflow, structured response, and step logging.
+
+All tests should run locally (`pytest -m phase1_assessment`) and in CI, gating merges.
+
+## Logging & Observability Enhancements
+
+1. **Structured Step Logging**
+   - Emit INFO logs per stage (`prompt_build`, `rag_retrieve`, `llm_generate`, `validate_assessment`) with correlation ID, elapsed ms, question counts, and token usage.
+   - Append audit entries to `step_execution_log` with structured payloads for later timeline rendering.
+2. **Metrics & Alerts**
+   - Instrument counters (`assessment.questions_generated_total`, `assessment.validation_failures_total`) and histograms (`assessment.latency_seconds`).
+   - Alert when validation failure rate exceeds configured thresholds or when OpenAI retries exceed policy.
+3. **Debug Artefacts**
+   - Optionally persist prompt/response pairs in S3 or encrypted storage when debug flag enabled, redacting PII.
+4. **User-Facing Feedback**
+   - Surface condensed validation summaries via API so the UI can highlight why assessments require regeneration.
+5. **Error Handling**
+   - Convert exceptions into structured error responses, logging stack traces with `logger.exception` to `presgen_assess.workflows` while returning safe messages to clients.

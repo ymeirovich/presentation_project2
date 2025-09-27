@@ -4,6 +4,12 @@
 ## Overview
 Automated Google Forms creation and management system that dynamically generates assessment forms, collects responses, and integrates with the certification workflow. Builds on Phase 1's Google API foundation to provide comprehensive form lifecycle management.
 
+### Implementation Progress (2025-09-27)
+- ✅ Google Forms service is wired to live OAuth credentials and can create forms end-to-end (verified via smoke test).
+- ✅ Assessment mapper covers multiple-choice/true-false/scenario questions and feeds `batchUpdate` requests.
+- 🚧 Form settings payloads are currently stubbed to avoid invalid API fields; needs follow-on implementation aligned with Google schema.
+- 🚧 Response ingestion jobs, idempotent template registry, and expanded question type coverage remain outstanding.
+
 ## 2.1 Dynamic Form Generation
 
 ### 2.1.1 Form Template Engine
@@ -1291,6 +1297,46 @@ class ResponseAnalyzer:
 ```
 
 This completes Phase 2 - Google Forms Automation, providing comprehensive form generation, response collection, and analysis capabilities.
+
+## Implementation Roadmap (Detailed)
+
+1. **Template Library & Metadata**
+   - Define canonical form templates per certification module with JSON descriptors (sections, question bank references, validation rules).
+   - Implement a template registry enabling versioning and rollback when Google Forms APIs evolve.
+2. **Form Generation Engine**
+   - Build an idempotent creator that duplicates templates, applies certification customizations, and maps question IDs to workflow metadata.
+   - Include automated branching logic and input validation (required fields, regex constraints) inferred from certification profile.
+3. **Response Intake Pipeline**
+   - Stand up webhook or scheduled pollers to ingest responses, normalize them, and persist into `assessment_results` staging tables.
+   - Support resume tokens and incremental fetch windows to avoid duplicate ingestion.
+4. **Automation Controls**
+   - Expose toggles for auto-publishing forms, enabling/disabling sections, and email notifications for administrators.
+5. **Integration Hooks**
+   - Surface generated form IDs and edit URLs back into `WorkflowExecution.generated_content_urls` for downstream orchestrator phases.
+
+## Test-Driven Development Strategy
+
+1. **Template Rendering Tests**
+   - TDD form builder to ensure generated structures match expected question order, validation rules, and metadata tags.
+   - Use snapshot tests to detect accidental template drift.
+2. **API Interaction Tests**
+   - Mock Google Forms API to validate creation, update, and publish flows including error handling for permission issues.
+3. **Response Pipeline Tests**
+   - Simulate form submissions and assert normalization logic produces deterministic records stored in staging tables.
+   - Verify duplicate detection and resume token handling.
+4. **End-to-End Smoke Tests**
+   - Flagged live tests (`pytest -m forms_live`) to create a sandbox form, submit sample responses, and validate ingestion before release.
+
+## Logging & Observability Enhancements
+
+1. **Form Lifecycle Logging**
+   - Log each major step (`template_load`, `form_clone`, `publish`, `response_ingest`) with form ID, workflow ID, latency, and errors.
+2. **Response Intake Metrics**
+   - Emit counters for responses processed, duplicates skipped, and failures requiring manual review.
+3. **Audit Trails**
+   - Persist form version metadata and change history to Drive or database for compliance and rollback.
+4. **Alerting**
+   - Set alerts for ingestion gaps (no responses for scheduled polls) and high error rates from Forms API.
 
 <function_calls>
 <invoke name="TodoWrite">

@@ -1201,6 +1201,48 @@ class TestGoogleAPIPerformance:
 
 This completes Phase 1 - Google APIs Foundation, providing the core infrastructure needed for all Google service integrations in the certification assessment platform.
 
+## Implementation Roadmap (Detailed)
+
+1. **Credential & Scope Management**
+   - Harden `GoogleAuthManager` to reconcile scopes per service and emit warnings when mandatory scopes are absent.
+   - Build automated key rotation scripts plus Secret Manager integration for production deployments.
+2. **Service Wrapper Build-Out**
+   - Templatize Sheets, Forms, Drive, Storage, and Admin SDK wrappers with consistent retry/backoff decorators and structured error translation.
+   - Expose interface protocols so higher layers can mock Google clients in unit tests.
+3. **Configuration Governance**
+   - Document config precedence (`env`, YAML, Secret Manager) and validate on startup.
+   - Provide CLI utilities for seeding shared drives, forms templates, and default storage buckets.
+4. **Quota & Rate-Limit Protection**
+   - Implement adaptive rate control (token bucket) with metrics-backed thresholds.
+   - Add caching for read-heavy endpoints (e.g., Drive metadata) to reduce API consumption.
+5. **Integration Hooks for Downstream Phases**
+   - Publish helper functions for Drive folder provisioning, Sheets tab creation, and Form duplication to be invoked by workflow orchestrator phases.
+
+## Test-Driven Development Strategy
+
+1. **Auth Flow Tests**
+   - TDD service-account loading, OAuth refresh, and error propagation (e.g., missing key file) using fixtures.
+   - Validate scope merging with explicit tests asserting correct `SCOPES` union.
+2. **Client Wrapper Tests**
+   - Mock Google APIs via `pytest-httpx`/`responses` to ensure retries, pagination, and error translation behave as expected.
+   - Confirm that Drive uploads honor MIME types and backup storage path rules.
+3. **Rate Limiting & Backoff**
+   - Simulate HTTP 429/5xx responses and assert exponential backoff with jitter plus logging occurs.
+4. **Integration Smoke Tests**
+   - `pytest -m google_live` optional tests to hit sandbox projects verifying credentials, necessary for release gates.
+
+## Logging & Observability Enhancements
+
+1. **Structured API Logging**
+   - Log each Google API call with service/method, latency, quota cost, correlation ID, and retry attempts.
+   - Append audit entries to workflow `step_execution_log` when operations are part of a workflow.
+2. **Metrics & Alerts**
+   - Record Prometheus counters (`google.forms.requests_total`) and histograms for latency; set alerts when error ratios exceed thresholds.
+3. **Credential Health Monitoring**
+   - Emit warnings when tokens approach expiration or keys are older than rotation SLA.
+4. **Debug Artefacts**
+   - Provide optional verbose logging (guarded by env flag) to dump sanitized request/response bodies during development.
+
 <function_calls>
 <invoke name="TodoWrite">
 <parameter name="todos">[{"content": "Create detailed Phase 1 document - Google APIs Foundation", "status": "completed", "activeForm": "Creating detailed Phase 1 document - Google APIs Foundation"}, {"content": "Create detailed Phase 2 document - Google Forms Automation", "status": "in_progress", "activeForm": "Creating detailed Phase 2 document - Google Forms Automation"}, {"content": "Create detailed Phase 3 document - Response Collection Pipeline", "status": "pending", "activeForm": "Creating detailed Phase 3 document - Response Collection Pipeline"}, {"content": "Create detailed Phase 4 document - PresGen-Core Integration", "status": "pending", "activeForm": "Creating detailed Phase 4 document - PresGen-Core Integration"}, {"content": "Create detailed Phase 5 document - PresGen-Avatar Integration", "status": "pending", "activeForm": "Creating detailed Phase 5 document - PresGen-Avatar Integration"}, {"content": "Fix UUID serialization issue in enhanced logging", "status": "completed", "activeForm": "Fixing UUID serialization issue in enhanced logging"}]

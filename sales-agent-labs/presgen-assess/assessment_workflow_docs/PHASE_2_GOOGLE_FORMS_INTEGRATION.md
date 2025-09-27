@@ -3,6 +3,12 @@
 ## Overview
 **Phase 2** implements dynamic Google Forms creation and management for assessment delivery, building on Phase 1's assessment generation capabilities to create comprehensive end-to-end assessment workflows.
 
+### Implementation Progress (2025-09-27)
+- ✅ `/api/v1/google-forms/create` now creates live Google Forms using OAuth user credentials; responses include form IDs/URLs.
+- ✅ GoogleAuthManager prefers user tokens and refreshes them automatically, falling back to service accounts only if needed.
+- 🚧 Workflow orchestration, Drive folder placement, and response ingestion have not been wired into the API layer yet.
+- 🚧 Test suite still fails on async fixture initialisation; integration tests for the new endpoints are pending.
+
 ## Architecture Components
 
 ### 1. Google Forms Service (`src/services/google_forms_service.py`)
@@ -906,3 +912,40 @@ GOOGLE_API_REQUESTS_PER_MINUTE=90
 - [ ] Production Deployment Configuration
 
 **Phase 2 Status**: ✅ **CORE IMPLEMENTATION COMPLETE** - Ready for Phase 3 Integration
+
+## Implementation Roadmap (Detailed)
+
+1. **End-to-End Form Lifecycle Management**
+   - Build high-level orchestration functions (`provision_assessment_form`, `close_form`, `archive_form`) aggregating lower-level APIs.
+   - Store form metadata (edit URL, response URL, question mapping) in database tables keyed by workflow.
+2. **Mapping & Personalization**
+   - Implement mapping engine translating assessment blueprint objects into form questions, preserving IDs for later scoring.
+   - Support localization and accessibility tweaks (e.g., alt text, aria labels) based on certification config.
+3. **Response Pipeline Integration**
+   - Align response ingestion to workflow timeline: mark workflow step `awaiting_completion` when form is published and update status once responses arrive.
+4. **Admin Controls**
+   - Expose API endpoints for manual operations (duplicate forms, regenerate sections, schedule closures) with role-based access checks.
+5. **Scalability & Caching**
+   - Introduce caching for static form metadata and implement request batching to honor rate limits.
+
+## Test-Driven Development Strategy
+
+1. **Mapping Engine Tests**
+   - Write initial failing tests ensuring assessment blueprints produce expected Google Form JSON structures, including branching and validation.
+2. **API Endpoint Tests**
+   - Use FastAPI test client with mocked Google APIs verifying POST/PUT/DELETE endpoints handle happy path, validation errors, and permission failures.
+3. **Response Handling Tests**
+   - Simulate partial submissions, multi-response scenarios, and confirm deduplication + workflow status updates.
+4. **Resilience Tests**
+   - Force quota errors/timeouts and ensure retry/backoff logic behaves while logging appropriately.
+
+## Logging & Observability Enhancements
+
+1. **Lifecycle Logs**
+   - Log each transition (`form_created`, `form_published`, `responses_ingested`, `form_closed`) with workflow ID and timestamps.
+2. **Metrics**
+   - Track number of forms provisioned, response throughput, and ingestion latency.
+3. **Audit Records**
+   - Persist change history (updates to form questions/settings) for compliance and debugging.
+4. **Alerting**
+   - Notify operators when response ingestion stalls or when form creation fails repeatedly for the same workflow.
