@@ -10,11 +10,32 @@ from uuid import uuid4
 import chromadb
 from chromadb.config import Settings
 from chromadb.utils import embedding_functions
-import openai
+from openai import OpenAI
 
 from src.common.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+class OpenAIEmbeddingFunctionV1:
+    """Custom OpenAI embedding function compatible with OpenAI v1.0+ API."""
+
+    def __init__(self, api_key: str, model_name: str = "text-embedding-3-small"):
+        """Initialize with OpenAI client."""
+        self.client = OpenAI(api_key=api_key)
+        self.model_name = model_name
+
+    def __call__(self, input_texts: List[str]) -> List[List[float]]:
+        """Generate embeddings for input texts."""
+        try:
+            response = self.client.embeddings.create(
+                input=input_texts,
+                model=self.model_name
+            )
+            return [data.embedding for data in response.data]
+        except Exception as e:
+            logger.error(f"❌ OpenAI embedding failed: {e}")
+            raise
 
 
 class VectorDatabaseManager:
@@ -30,8 +51,8 @@ class VectorDatabaseManager:
             path=str(self.chroma_path)
         )
 
-        # Set up OpenAI embedding function
-        self.embedding_function = embedding_functions.OpenAIEmbeddingFunction(
+        # Set up OpenAI embedding function (compatible with OpenAI v1.0+)
+        self.embedding_function = OpenAIEmbeddingFunctionV1(
             api_key=settings.openai_api_key,
             model_name="text-embedding-3-small"
         )
@@ -84,10 +105,16 @@ class VectorDatabaseManager:
             # Generate unique IDs for chunks
             chunk_ids = [f"{content_classification}_{uuid4()}" for _ in chunks]
 
+            # Filter out None values from metadata (ChromaDB doesn't support None values)
+            clean_metadata = []
+            for meta in metadata:
+                clean_meta = {k: v for k, v in meta.items() if v is not None}
+                clean_metadata.append(clean_meta)
+
             # Add chunks to the appropriate collection
             collection.add(
                 documents=chunks,
-                metadatas=metadata,
+                metadatas=clean_metadata,
                 ids=chunk_ids
             )
 

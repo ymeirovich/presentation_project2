@@ -425,6 +425,30 @@ class AssessmentEngine:
 
         return issues
 
+    async def generate_llm_response(
+        self,
+        prompt: str,
+        max_tokens: int = 800,
+        temperature: float = 0.7
+    ) -> str:
+        """Generate LLM response for a given prompt."""
+        try:
+            response = await self.llm_service.client.chat.completions.create(
+                model=self.llm_service.model,
+                messages=[
+                    {"role": "system", "content": "You are an expert certification exam question generator. Always respond with valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+
+            return response.choices[0].message.content.strip()
+
+        except Exception as e:
+            logger.error(f"❌ LLM response generation failed: {e}")
+            raise
+
     async def get_engine_stats(self) -> Dict:
         """Get assessment engine statistics."""
         llm_stats = await self.llm_service.get_usage_stats()

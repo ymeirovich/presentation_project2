@@ -126,7 +126,26 @@ class WorkflowOrchestrator:
                 .where(WorkflowExecution.execution_status != WorkflowStatus.ERROR)
                 .order_by(WorkflowExecution.created_at.desc())
             )
-            existing_workflow = result.scalar_one_or_none()
+            existing_workflows = result.scalars().all()
+
+            # Handle case where multiple non-completed workflows exist
+            if len(existing_workflows) > 1:
+                self.logger.warning(
+                    "Multiple active workflows found for user=%s profile=%s, using most recent",
+                    user_id, certification_profile_id,
+                    extra={"workflow_count": len(existing_workflows)}
+                )
+                # Mark older workflows as completed to avoid future conflicts
+                for old_workflow in existing_workflows[1:]:
+                    old_workflow.execution_status = WorkflowStatus.COMPLETED
+                    old_workflow.current_step = "auto_completed_duplicate"
+                    self.logger.info(
+                        "Auto-completing duplicate workflow id=%s to prevent conflicts",
+                        old_workflow.id
+                    )
+                await session.commit()
+
+            existing_workflow = existing_workflows[0] if existing_workflows else None
 
             if existing_workflow:
                 # Continue existing workflow
@@ -320,9 +339,18 @@ class WorkflowOrchestrator:
 
             if additional_data:
                 if additional_data.get("paused_at"):
-                    update_values["paused_at"] = datetime.fromisoformat(
-                        additional_data["paused_at"].replace("Z", "+00:00")
-                    )
+                    paused_at_value = additional_data["paused_at"]
+                    # Handle different data types for paused_at
+                    if isinstance(paused_at_value, str):
+                        update_values["paused_at"] = datetime.fromisoformat(
+                            paused_at_value.replace("Z", "+00:00")
+                        )
+                    elif isinstance(paused_at_value, (int, float)):
+                        # Assume it's a timestamp
+                        update_values["paused_at"] = datetime.fromtimestamp(paused_at_value)
+                    elif isinstance(paused_at_value, datetime):
+                        # Already a datetime object
+                        update_values["paused_at"] = paused_at_value
 
             await session.execute(
                 update(WorkflowExecution)

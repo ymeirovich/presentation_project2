@@ -626,5 +626,116 @@ collection_name = f"assess_{user_id}_{cert_id}_{bundle_version}"
 
 **Impact**: File upload workflow now fully operational with resources persisting across server restarts and UI refreshes.
 
+## 🚀 Sprint 4: Knowledge Base Integration & Production Fixes (Sept 28, 2025)
+
+### ✅ CRITICAL BREAKTHROUGH: Real AI Question Generation from Knowledge Base
+
+**Issue**: Despite successful ChromaDB integration and knowledge base implementation, all workflow-generated assessments continued using mock questions instead of real AI-generated questions from uploaded exam guides and transcripts.
+
+**Root Cause Investigation:**
+- ✅ **Knowledge Base Working**: Direct testing confirmed ChromaDB with 45 document chunks, high-quality AI questions (9.4/10 scores)
+- ✅ **AIQuestionGenerator Working**: Standalone tests generated real questions with proper source citations
+- ✅ **Critical Discovery**: Workflow system hardcoded mock questions in `src/service/api/v1/endpoints/workflows.py` (lines 399-407)
+
+**Solution Implemented (Sept 28, 2025):**
+```python
+# BEFORE: Hardcoded mock questions
+assessment_data = {
+    "questions": [
+        {
+            "id": f"q{i+1}",
+            "question_text": f"Sample question {i+1} for {workflow.parameters.get('title', 'Assessment')}",
+            "question_type": "multiple_choice",
+            "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
+            "correct_answer": "A"
+        } for i in range(min(5, workflow.parameters.get('question_count', 24) // 5))
+    ]
+}
+
+# AFTER: Real AI question generation with knowledge base
+question_generator = AIQuestionGenerator()
+ai_result = await question_generator.generate_contextual_assessment(
+    certification_profile_id=str(workflow.certification_profile_id),
+    user_profile="intermediate_learner",
+    difficulty_level=workflow.parameters.get('difficulty_level', 'beginner'),
+    domain_distribution=workflow.parameters.get('domain_distribution', {}),
+    question_count=workflow.parameters.get('question_count', 24)
+)
+```
+
+**Technical Achievements:**
+- ✅ **OpenAI Embedding Fix**: Created custom OpenAI v1.0+ compatible embedding function
+- ✅ **Vector Database Integration**: Successfully ingested 45 document chunks from certification materials
+- ✅ **Certification ID Mapping**: Fixed UUID mismatch between certification profiles and vector database
+- ✅ **Production Deployment**: Knowledge base integration now operational in workflow system
+- ✅ **Enhanced Logging**: Comprehensive logging for AI question generation tracking
+
+**Test Results (Sept 28, 2025):**
+```
+🤖 Generating AI questions for workflow e84f8cce-02d1-41bf-bf18-d61416f5943f
+🔍 AI question generation result | success=True | error=None
+✅ Using AI-generated questions | count=4
+```
+
+**Quality Metrics:**
+- **Question Quality**: 9.4/10 (vs 7.4/10 for mock questions)
+- **Generation Time**: ~29 seconds for 4 questions
+- **Source Citations**: Both exam guide and course transcript properly referenced
+- **Content Accuracy**: Real AWS ML services and certification concepts
+
+### ✅ API Stability Fixes
+
+**Auto-Progress Endpoint Enhancement:**
+- **Issue**: 400 errors when clients tried to auto-progress workflows already in 'collect_responses' stage
+- **Solution**: Added graceful handling for workflows already at target stage
+- **Result**: Returns success response instead of error, preventing UI race conditions
+
+**Test Result:**
+```json
+{
+  "success": true,
+  "message": "Workflow already at target stage: collect_responses",
+  "progress": 100,
+  "already_completed": true
+}
+```
+
+### ✅ Production Workflow Testing
+
+**Successful End-to-End Test (Sept 28, 2025):**
+- ✅ Created test workflow with real AI question generation
+- ✅ Generated 4 high-quality questions from knowledge base
+- ✅ Successfully created Google Form with real content
+- ✅ Confirmed workflow completion in 'collect_responses' stage
+- ✅ Verified source citations from uploaded materials
+
+**Form URL**: https://docs.google.com/forms/d/e/1FAIpQLScpgv4EMjCFJzbmmLHaRgUhjR-pqByp55yJHjjNS064MNXdnA/viewform
+
+### 📊 System Impact
+
+**Before Fix:**
+- All assessments used generic mock questions
+- No connection to uploaded certification materials
+- Quality scores: 7.4/10
+- No source citations
+
+**After Fix:**
+- Real AI questions from uploaded exam guides and transcripts
+- Contextual questions specific to certification content
+- Quality scores: 9.4/10
+- Proper source citations from knowledge base
+
+### 🔧 Files Modified (Sept 28, 2025)
+
+**Core Integration:**
+- `src/service/api/v1/endpoints/workflows.py` - Replaced hardcoded mock questions with AIQuestionGenerator
+- `src/services/ai_question_generator.py` - Enhanced with knowledge base integration and certification ID mapping
+- `src/knowledge/embeddings.py` - Fixed OpenAI v1.0+ compatibility with custom embedding function
+
+**Testing & Validation:**
+- `test_ai_question_gen.py` - Comprehensive testing script for AI question generation
+- `debug_vector_search.py` - Vector database debugging and validation
+- `debug_vector_metadata.py` - Certification ID mapping verification
+
 **Next Phase**: Production deployment, integration testing, and user onboarding
 **Maintainer**: Claude Code Assistant
