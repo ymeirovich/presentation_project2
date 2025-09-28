@@ -50,40 +50,66 @@ export function GapAnalysisDashboard({
 
   if (loading) {
     return (
-      <Card className={className}>
-        <CardHeader>
-          <CardTitle className="text-base">Gap Analysis Dashboard</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-center py-8">
-            <div className="text-center space-y-2">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto" />
-              <p className="text-sm text-muted-foreground">Loading gap analysis...</p>
-            </div>
+      <div className={className}>
+        {/* Header with Back Button */}
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            {onBack && (
+              <Button variant="outline" size="sm" onClick={onBack}>
+                ← Back to Workflows
+              </Button>
+            )}
           </div>
-        </CardContent>
-      </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Gap Analysis Dashboard</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-center py-8">
+              <div className="text-center space-y-2">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto" />
+                <p className="text-sm text-muted-foreground">Loading gap analysis...</p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     )
   }
 
   if (error) {
     return (
-      <Card className={className}>
-        <CardHeader>
-          <CardTitle className="text-base">Gap Analysis Dashboard</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-center py-8">
-            <div className="text-center space-y-2">
-              <AlertTriangle className="h-8 w-8 text-red-600 mx-auto" />
-              <p className="text-sm text-red-600">{error}</p>
-              <Button variant="outline" size="sm" onClick={fetchData}>
-                Try Again
+      <div className={className}>
+        {/* Header with Back Button */}
+        <div className="flex justify-between items-center mb-6">
+          <div>
+            {onBack && (
+              <Button variant="outline" size="sm" onClick={onBack}>
+                ← Back to Workflows
               </Button>
-            </div>
+            )}
           </div>
-        </CardContent>
-      </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Gap Analysis Dashboard</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-center py-8">
+              <div className="text-center space-y-2">
+                <AlertTriangle className="h-8 w-8 text-red-600 mx-auto" />
+                <p className="text-sm text-red-600">{error}</p>
+                <Button variant="outline" size="sm" onClick={fetchData}>
+                  Try Again
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     )
   }
 

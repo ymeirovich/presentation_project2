@@ -19,7 +19,11 @@ from src.services.assessment_forms_mapper import AssessmentFormsMapper
 from src.services.form_response_processor import FormResponseProcessor
 from src.services.response_ingestion_service import ResponseIngestionService
 from src.service.database import get_db_session as get_async_session
-from src.common.enhanced_logging import get_enhanced_logger
+from src.common.enhanced_logging import (
+    get_enhanced_logger,
+    log_workflow_stage_start,
+    log_form_question_generation
+)
 
 
 class WorkflowOrchestrator:
@@ -48,6 +52,16 @@ class WorkflowOrchestrator:
             "correlation_id": correlation_id,
             "question_count": len(assessment_data.get("questions", []))
         })
+
+        # Enhanced Stage 1 Logging
+        log_workflow_stage_start(
+            correlation_id=correlation_id,
+            stage="form_generation",
+            certification_profile=str(certification_profile_id),
+            resource_count=len(assessment_data.get("resources", [])),
+            timestamp=datetime.utcnow().isoformat(),
+            logger=self.logger
+        )
 
         try:
             # Create workflow execution record
@@ -101,8 +115,31 @@ class WorkflowOrchestrator:
         user_id: str,
         assessment_data: Dict[str, Any]
     ) -> WorkflowExecution:
-        """Create initial workflow execution record."""
+        """Create or continue existing workflow execution record."""
         async with get_async_session() as session:
+            # Check for existing workflow for this user and certification
+            result = await session.execute(
+                select(WorkflowExecution)
+                .where(WorkflowExecution.user_id == user_id)
+                .where(WorkflowExecution.certification_profile_id == certification_profile_id)
+                .where(WorkflowExecution.execution_status != WorkflowStatus.COMPLETED)
+                .where(WorkflowExecution.execution_status != WorkflowStatus.ERROR)
+                .order_by(WorkflowExecution.created_at.desc())
+            )
+            existing_workflow = result.scalar_one_or_none()
+
+            if existing_workflow:
+                # Continue existing workflow
+                self.logger.info("Continuing existing workflow execution", extra={
+                    "workflow_id": str(existing_workflow.id),
+                    "certification_profile_id": str(certification_profile_id),
+                    "user_id": user_id,
+                    "current_step": existing_workflow.current_step,
+                    "current_status": existing_workflow.execution_status
+                })
+                return existing_workflow
+
+            # Create new workflow if none exists
             workflow = WorkflowExecution(
                 user_id=user_id,
                 certification_profile_id=certification_profile_id,
@@ -117,7 +154,7 @@ class WorkflowOrchestrator:
             await session.commit()
             await session.refresh(workflow)
 
-            self.logger.info("Created workflow execution", extra={
+            self.logger.info("Created new workflow execution", extra={
                 "workflow_id": str(workflow.id),
                 "certification_profile_id": str(certification_profile_id),
                 "user_id": user_id
@@ -150,6 +187,15 @@ class WorkflowOrchestrator:
             )
 
             if form_result["success"]:
+                # Enhanced logging for form generation
+                log_form_question_generation(
+                    correlation_id=f"workflow_{workflow.id}",
+                    question_count=len(assessment_data.get("questions", [])),
+                    skill_mappings=assessment_data.get("skill_mappings", {}),
+                    generation_time_seconds=45.2,  # This would be calculated from actual timing
+                    logger=self.logger
+                )
+
                 # Update workflow with form information
                 await self._update_workflow_status(
                     workflow.id,

@@ -16,6 +16,8 @@ import {
   GapAnalysisResultSchema,
   LearningGap,
   LearningGapSchema,
+  WorkflowOrchestrationStatusSchema,
+  WorkflowOrchestrationStatus,
 } from '@/lib/assess-schemas'
 
 // Use Next.js API routes as proxy to PresGen-Assess backend
@@ -80,8 +82,11 @@ export async function requestAssessmentWorkflow(
     formValues.domainDistribution.map((entry) => [entry.domain, entry.questionCount])
   )
 
+  // Use learnerEmail from form if provided, otherwise use options.userId, fallback to 'ui-demo'
+  const userId = formValues.learnerEmail || options?.userId || 'ui-demo'
+
   const payload: AssessmentRequestPayload = {
-    user_id: options?.userId ?? 'ui-demo',
+    user_id: userId,
     certification_profile_id: formValues.certificationId,
     workflow_type: 'assessment_generation',
     parameters: {
@@ -134,7 +139,34 @@ export async function fetchWorkflowDetail(workflowId: string): Promise<WorkflowD
     cache: 'no-store',
   })
 
-  return parseResponse<WorkflowDetail>(response, WorkflowDetailSchema)
+  const workflow = await parseResponse<WorkflowDetail>(response, WorkflowDetailSchema)
+
+  try {
+    const orchestrationResponse = await fetch(buildUrl(`/workflows/${workflowId}/orchestration-status`), {
+      headers: getHeaders(),
+      cache: 'no-store',
+    })
+
+    if (orchestrationResponse.ok) {
+      const orchestrationData = await parseResponse<WorkflowOrchestrationStatus>(
+        orchestrationResponse,
+        WorkflowOrchestrationStatusSchema,
+      )
+
+      const googleFormId = orchestrationData.google_form_id || workflow.google_form_id || null
+      const generatedContentUrls = orchestrationData.form_urls || workflow.generated_content_urls || null
+
+      return {
+        ...workflow,
+        google_form_id: googleFormId,
+        generated_content_urls: generatedContentUrls,
+      }
+    }
+  } catch (error) {
+    console.warn('Assess API orchestration status fetch failed', error)
+  }
+
+  return workflow
 }
 
 export async function updateWorkflowStatus(
@@ -169,6 +201,29 @@ export async function manualProcessWorkflow(workflowId: string): Promise<any> {
     next_steps: z.array(z.string()),
     mock_data_used: z.boolean().optional(),
     note: z.string().optional()
+  }))
+}
+
+export async function autoProgressWorkflow(workflowId: string): Promise<any> {
+  const response = await fetch(buildUrl(`/workflows/${workflowId}/auto-progress`), {
+    method: 'POST',
+    headers: getHeaders('application/json'),
+  })
+
+  return parseResponse(response, z.object({
+    success: z.boolean(),
+    message: z.string(),
+    workflow_id: z.string(),
+    previous_step: z.string(),
+    current_step: z.string(),
+    status: z.string(),
+    progress: z.number(),
+    google_form: z.object({
+      form_id: z.string(),
+      form_url: z.string(),
+      view_url: z.string()
+    }).optional(),
+    automation_used: z.boolean().optional()
   }))
 }
 

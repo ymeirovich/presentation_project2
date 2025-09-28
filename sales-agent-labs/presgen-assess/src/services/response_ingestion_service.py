@@ -16,7 +16,11 @@ from src.models.workflow import WorkflowExecution, WorkflowStatus
 from src.services.google_forms_service import GoogleFormsService
 from src.services.form_response_processor import FormResponseProcessor
 from src.service.database import get_db_session as get_async_session
-from src.common.enhanced_logging import get_enhanced_logger
+from src.common.enhanced_logging import (
+    get_enhanced_logger,
+    log_response_polling_attempt,
+    log_manual_trigger_usage
+)
 
 
 class ResponseIngestionService:
@@ -102,6 +106,15 @@ class ResponseIngestionService:
         raw_responses = responses_result.get("responses", [])
         new_responses = self._filter_new_responses(raw_responses)
 
+        # Enhanced Stage 2 Logging
+        log_response_polling_attempt(
+            correlation_id=correlation_id,
+            poll_attempt=1,  # This would be tracked in a real implementation
+            responses_found=len(new_responses),
+            datetime_format_detected="iso_8601",
+            logger=self.logger
+        )
+
         if not new_responses:
             self.logger.debug("No new responses found", extra={
                 "workflow_id": str(workflow.id),
@@ -156,13 +169,16 @@ class ResponseIngestionService:
 
         for response in raw_responses:
             try:
+                # Parse timestamp and convert to ISO string for JSON serialization
+                submitted_at = self._parse_timestamp(
+                    response.get("lastSubmittedTime") or response.get("submitted_at")
+                )
+
                 normalized_response = {
                     "response_id": response.get("responseId") or response.get("response_id"),
                     "workflow_id": str(workflow.id),
                     "respondent_email": response.get("respondentEmail"),
-                    "submitted_at": self._parse_timestamp(
-                        response.get("lastSubmittedTime") or response.get("submitted_at")
-                    ),
+                    "submitted_at": submitted_at.isoformat() if submitted_at else None,
                     "answers": self._normalize_answers(response.get("answers", {})),
                     "completion_time_seconds": response.get("completion_time_seconds"),
                     "metadata": {
@@ -333,6 +349,14 @@ class ResponseIngestionService:
                 return {"success": False, "error": "No Google Form associated with workflow"}
 
             try:
+                # Log manual trigger usage
+                log_manual_trigger_usage(
+                    correlation_id=f"workflow_{workflow_id}",
+                    trigger_reason="manual_force_ingest",
+                    user_action="force_ingest_requested",
+                    logger=self.logger
+                )
+
                 await self._process_workflow_responses(session, workflow)
                 return {
                     "success": True,

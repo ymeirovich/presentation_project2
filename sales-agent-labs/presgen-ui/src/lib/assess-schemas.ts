@@ -24,35 +24,39 @@ export type CertificationDomain = z.infer<typeof CertificationDomainSchema>
 
 export const DomainDistributionEntrySchema = z.object({
   domain: z.string().min(1, 'Domain name is required'),
-  questionCount: z.coerce.number({ invalid_type_error: 'Enter a number' })
-    .int('Question count must be an integer')
-    .min(0, 'Question count cannot be negative'),
+  questionCount: z.coerce.number()
+    .refine(Number.isInteger, { message: 'Question count must be an integer' })
+    .min(0),
 })
 
 export const AssessmentFormSchema = z.object({
   certificationId: z.string().uuid('Select a certification profile'),
+  learnerEmail: z.union([
+    z.string().email('Please enter a valid email address'),
+    z.literal(''),
+  ]).transform((value) => (value === '' ? undefined : value)),
   title: z.string().min(3, 'Title must be at least 3 characters').max(200),
   summaryMarkdown: z.string().min(30, 'Provide at least 30 characters of context').max(4000),
   difficulty: z.enum(['beginner', 'intermediate', 'advanced']),
-  questionCount: z.coerce.number({ invalid_type_error: 'Question count is required' })
-    .int('Question count must be a whole number')
-    .min(5, 'Minimum 5 questions')
-    .max(50, 'Maximum 50 questions'),
-  passingScore: z.coerce.number({ invalid_type_error: 'Passing score is required' })
-    .int('Passing score must be a whole number')
-    .min(0, 'Minimum passing score is 0%')
-    .max(100, 'Maximum passing score is 100%'),
+  questionCount: z.coerce.number()
+    .refine(Number.isInteger, { message: 'Question count must be a whole number' })
+    .min(5)
+    .max(50),
+  passingScore: z.coerce.number()
+    .refine(Number.isInteger, { message: 'Passing score must be a whole number' })
+    .min(0)
+    .max(100),
   timeLimitMinutes: z.union([
-    z.coerce.number({ invalid_type_error: 'Enter a number or leave blank' })
-      .int('Time limit must be a whole number')
-      .min(10, 'Minimum 10 minutes')
-      .max(240, 'Maximum 240 minutes'),
+    z.coerce.number()
+      .refine(Number.isInteger, { message: 'Time limit must be a whole number' })
+      .min(10)
+      .max(240),
     z.literal(''),
   ]).transform((value) => (value === '' ? undefined : value)),
-  slideCount: z.coerce.number({ invalid_type_error: 'Slide count is required' })
-    .int('Slide count must be a whole number')
-    .min(5, 'Minimum 5 slides')
-    .max(40, 'Maximum 40 slides'),
+  slideCount: z.coerce.number()
+    .refine(Number.isInteger, { message: 'Slide count must be a whole number' })
+    .min(5)
+    .max(40),
   includeAvatar: z.boolean().default(false),
   domainDistribution: z.array(DomainDistributionEntrySchema).min(1, 'Add at least one domain'),
   notesMarkdown: z.string().max(4000, 'Maximum 4000 characters').optional().default(''),
@@ -78,7 +82,7 @@ export const AssessmentWorkflowResponseSchema = z.object({
   progress: z.number().int(),
   created_at: z.string(),
   updated_at: z.string(),
-  parameters: z.record(z.unknown()).optional(),
+  parameters: z.record(z.string(), z.unknown()).optional(),
 })
 
 export type AssessmentWorkflowResponse = z.infer<typeof AssessmentWorkflowResponseSchema>
@@ -93,6 +97,21 @@ export const WorkflowStepSchema = z.object({
   duration_seconds: z.number().nullable().optional(),
 })
 
+export const GeneratedContentUrlsSchema = z.object({
+  form_url: z.string().optional().nullable(),
+  form_edit_url: z.string().optional().nullable(),
+  form_title: z.string().optional().nullable(),
+}).partial().passthrough()
+
+export const WorkflowOrchestrationStatusSchema = z.object({
+  success: z.boolean().optional(),
+  workflow_id: z.string().uuid().optional(),
+  status: z.string().optional(),
+  current_step: z.string().optional(),
+  google_form_id: z.string().optional().nullable(),
+  form_urls: GeneratedContentUrlsSchema.optional().nullable(),
+}).passthrough()
+
 export const WorkflowDetailSchema = z.object({
   id: z.string().uuid(),
   user_id: z.string(),
@@ -100,7 +119,8 @@ export const WorkflowDetailSchema = z.object({
   current_step: z.string(),
   execution_status: z.enum(['pending', 'in_progress', 'completed', 'failed', 'awaiting_completion']),
   workflow_type: z.string(),
-  parameters: z.record(z.unknown()).optional(),
+  parameters: z.record(z.string(), z.unknown()).optional(),
+  google_form_id: z.string().optional().nullable(),
   progress: z.number().int().min(0).max(100),
   created_at: z.string(),
   updated_at: z.string(),
@@ -109,6 +129,7 @@ export const WorkflowDetailSchema = z.object({
   resume_token: z.string().nullable().optional(),
   error_message: z.string().nullable().optional(),
   step_execution_log: z.array(WorkflowStepSchema).optional(),
+  generated_content_urls: GeneratedContentUrlsSchema.optional().nullable(),
 })
 
 export const WorkflowListResponseSchema = z.array(WorkflowDetailSchema)
@@ -116,6 +137,8 @@ export const WorkflowListResponseSchema = z.array(WorkflowDetailSchema)
 export type WorkflowStep = z.infer<typeof WorkflowStepSchema>
 export type WorkflowDetail = z.infer<typeof WorkflowDetailSchema>
 export type WorkflowListResponse = z.infer<typeof WorkflowListResponseSchema>
+export type GeneratedContentUrls = z.infer<typeof GeneratedContentUrlsSchema>
+export type WorkflowOrchestrationStatus = z.infer<typeof WorkflowOrchestrationStatusSchema>
 
 export interface AssessmentRequestPayload {
   user_id: string

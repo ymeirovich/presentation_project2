@@ -27,6 +27,7 @@ interface AssessmentFormState {
 
 const DEFAULT_VALUES: AssessmentFormValues = {
   certificationId: '',
+  learnerEmail: '',
   title: '',
   summaryMarkdown: '',
   difficulty: 'intermediate',
@@ -278,6 +279,21 @@ export function AssessmentForm() {
               {errors.title && (
                 <p className="text-sm text-destructive">{errors.title.message}</p>
               )}
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="learnerEmail">Learner Email (Optional)</Label>
+              <Input
+                id="learnerEmail"
+                type="email"
+                placeholder="learner@example.com"
+                {...register('learnerEmail')}
+              />
+              {errors.learnerEmail && (
+                <p className="text-sm text-destructive">{errors.learnerEmail.message}</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                If provided, will be used to assign the assessment to a specific learner
+              </p>
             </div>
 
             <div className="grid md:grid-cols-2 gap-6">

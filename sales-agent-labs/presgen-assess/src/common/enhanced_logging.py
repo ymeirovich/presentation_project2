@@ -347,6 +347,151 @@ CERT_PROMPTS_UI_LOGGER = logging.getLogger('cert_prompts.ui')
 DATA_FLOW_LOGGER = logging.getLogger('data_flow')
 
 
+# Workflow Stage-Specific Logging Functions
+def log_workflow_stage_start(
+    correlation_id: str,
+    stage: str,
+    certification_profile: str,
+    resource_count: int,
+    timestamp: str,
+    logger: Optional[logging.Logger] = None
+):
+    """Log the start of a workflow stage."""
+    if logger is None:
+        logger = get_enhanced_logger('workflow.stages')
+
+    logger.info("Workflow stage started", extra={
+        "correlation_id": correlation_id,
+        "stage": stage,
+        "certification_profile": certification_profile,
+        "resource_count": resource_count,
+        "timestamp": timestamp,
+        "event_type": "stage_start"
+    })
+
+
+def log_form_question_generation(
+    correlation_id: str,
+    question_count: int,
+    skill_mappings: dict,
+    generation_time_seconds: float,
+    logger: Optional[logging.Logger] = None
+):
+    """Log form question generation details."""
+    if logger is None:
+        logger = get_enhanced_logger('workflow.form_generation')
+
+    logger.info("Form questions generated", extra={
+        "correlation_id": correlation_id,
+        "question_count": question_count,
+        "skill_mapping_count": len(skill_mappings),
+        "generation_time_seconds": generation_time_seconds,
+        "event_type": "questions_generated"
+    })
+
+
+def log_response_polling_attempt(
+    correlation_id: str,
+    poll_attempt: int,
+    responses_found: int,
+    datetime_format_detected: str,
+    logger: Optional[logging.Logger] = None
+):
+    """Log response polling attempts."""
+    if logger is None:
+        logger = get_enhanced_logger('workflow.response_collection')
+
+    logger.info("Response polling attempt", extra={
+        "correlation_id": correlation_id,
+        "poll_attempt": poll_attempt,
+        "responses_found": responses_found,
+        "datetime_format_detected": datetime_format_detected,
+        "event_type": "polling_attempt"
+    })
+
+
+def log_manual_trigger_usage(
+    correlation_id: str,
+    trigger_reason: str,
+    user_action: str,
+    logger: Optional[logging.Logger] = None
+):
+    """Log manual trigger usage."""
+    if logger is None:
+        logger = get_enhanced_logger('workflow.manual_triggers')
+
+    logger.info("Manual trigger used", extra={
+        "correlation_id": correlation_id,
+        "trigger_reason": trigger_reason,
+        "user_action": user_action,
+        "event_type": "manual_trigger"
+    })
+
+
+def log_gap_analysis_processing(
+    correlation_id: str,
+    incorrect_answers: int,
+    skill_gaps_identified: int,
+    processing_time_seconds: float,
+    certification_prompt_version: str,
+    logger: Optional[logging.Logger] = None
+):
+    """Log gap analysis processing details."""
+    if logger is None:
+        logger = get_enhanced_logger('workflow.gap_analysis')
+
+    logger.info("Gap analysis processed", extra={
+        "correlation_id": correlation_id,
+        "incorrect_answers": incorrect_answers,
+        "skill_gaps_identified": skill_gaps_identified,
+        "processing_time_seconds": processing_time_seconds,
+        "certification_prompt_version": certification_prompt_version,
+        "event_type": "gap_analysis_complete"
+    })
+
+
+def log_sheets_generation(
+    correlation_id: str,
+    sheets_created: list,
+    sheet_links: dict,
+    content_mapping_accuracy: float,
+    logger: Optional[logging.Logger] = None
+):
+    """Log Google Sheets generation."""
+    if logger is None:
+        logger = get_enhanced_logger('workflow.sheets_generation')
+
+    logger.info("Google Sheets generated", extra={
+        "correlation_id": correlation_id,
+        "sheets_created": sheets_created,
+        "sheet_count": len(sheets_created),
+        "content_mapping_accuracy": content_mapping_accuracy,
+        "event_type": "sheets_generated"
+    })
+
+
+def log_presentation_generation(
+    correlation_id: str,
+    prompts_generated: int,
+    content_files_created: int,
+    avatar_generation_time_seconds: float,
+    final_presentation_urls: list,
+    logger: Optional[logging.Logger] = None
+):
+    """Log presentation generation."""
+    if logger is None:
+        logger = get_enhanced_logger('workflow.presentation_generation')
+
+    logger.info("Presentation generated", extra={
+        "correlation_id": correlation_id,
+        "prompts_generated": prompts_generated,
+        "content_files_created": content_files_created,
+        "avatar_generation_time_seconds": avatar_generation_time_seconds,
+        "presentation_count": len(final_presentation_urls),
+        "event_type": "presentation_complete"
+    })
+
+
 # Phase-Specific Logging Enhancements
 
 def log_assessment_generation_start(assessment_params: Dict, correlation_id: str = None):
