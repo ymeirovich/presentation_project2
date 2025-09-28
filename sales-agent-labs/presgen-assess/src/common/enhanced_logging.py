@@ -98,6 +98,10 @@ def setup_enhanced_logging():
         'kb_prompts.proxy',
         'kb_prompts.ui',
         'cert_prompts.database',
+        'ai_question_generation.service',
+        'ai_question_generation.quality',
+        'ai_question_generation.performance',
+        'workflow_orchestration.ai_integration',
         'cert_prompts.api',
         'cert_prompts.proxy',
         'cert_prompts.ui',
@@ -473,6 +477,142 @@ class PhaseAwareLogger:
         )
 
 
+# AI Question Generation Logging Functions (Sprint 4)
+def log_ai_question_generation_start(
+    logger: logging.Logger,
+    correlation_id: str,
+    certification_profile_id: str,
+    question_count: int,
+    difficulty_level: str,
+    domain_distribution: Dict[str, int]
+):
+    """Log the start of AI question generation."""
+    log_data_flow(
+        logger=logger,
+        step="ai_question_generation_start",
+        component="ai_question_generator",
+        message="Starting AI question generation",
+        data_before={
+            "certification_profile_id": certification_profile_id,
+            "question_count": question_count,
+            "difficulty_level": difficulty_level,
+            "domain_distribution": domain_distribution,
+            "correlation_id": correlation_id
+        }
+    )
+
+
+def log_ai_question_generation_complete(
+    logger: logging.Logger,
+    correlation_id: str,
+    questions_generated: int,
+    generation_time_ms: int,
+    quality_scores: Dict[str, float],
+    domain_distribution: Dict[str, int]
+):
+    """Log the completion of AI question generation with quality metrics."""
+    log_data_flow(
+        logger=logger,
+        step="ai_question_generation_complete",
+        component="ai_question_generator",
+        message="AI question generation completed successfully",
+        data_after={
+            "questions_generated": questions_generated,
+            "generation_time_ms": generation_time_ms,
+            "quality_scores": quality_scores,
+            "domain_distribution_actual": domain_distribution,
+            "avg_quality_score": quality_scores.get("overall", 0.0)
+        },
+        duration_ms=generation_time_ms,
+        success=True
+    )
+
+
+def log_ai_question_generation_error(
+    logger: logging.Logger,
+    correlation_id: str,
+    error: Exception,
+    context: Dict[str, Any] = None
+):
+    """Log AI question generation errors with context."""
+    log_data_flow(
+        logger=logger,
+        step="ai_question_generation_error",
+        component="ai_question_generator",
+        message=f"AI question generation failed: {str(error)}",
+        error=str(error),
+        success=False,
+        data_before=dict((context or {}), correlation_id=correlation_id)
+    )
+
+
+def log_ai_quality_validation(
+    logger: logging.Logger,
+    question_id: str,
+    domain: str,
+    quality_metrics: Dict[str, float],
+    passed_validation: bool,
+    correlation_id: str
+):
+    """Log AI question quality validation results."""
+    log_data_flow(
+        logger=logger,
+        step="ai_quality_validation",
+        component="question_quality_validator",
+        message=f"Quality validation for question {question_id}",
+        data_after={
+            "question_id": question_id,
+            "domain": domain,
+            "quality_metrics": quality_metrics,
+            "passed_validation": passed_validation,
+            "overall_score": quality_metrics.get("overall_score", 0.0),
+            "correlation_id": correlation_id
+        },
+        success=passed_validation
+    )
+
+
+def log_ai_fallback_activation(
+    logger: logging.Logger,
+    correlation_id: str,
+    reason: str,
+    fallback_question_count: int
+):
+    """Log when AI generation falls back to sample questions."""
+    log_data_flow(
+        logger=logger,
+        step="ai_fallback_activation",
+        component="ai_question_generator",
+        message=f"AI generation fallback activated: {reason}",
+        data_after={
+            "fallback_reason": reason,
+            "fallback_question_count": fallback_question_count,
+            "fallback_mode": True,
+            "correlation_id": correlation_id
+        },
+        success=False
+    )
+
+
+def log_workflow_ai_integration(
+    logger: logging.Logger,
+    workflow_id: str,
+    ai_generation_enabled: bool,
+    integration_result: Dict[str, Any],
+    correlation_id: str
+):
+    """Log workflow integration with AI question generation."""
+    log_data_flow(
+        logger=logger,
+        step="workflow_ai_integration",
+        component="workflow_orchestrator",
+        message=f"Workflow {workflow_id} AI integration",
+        data_before={"workflow_id": workflow_id, "ai_enabled": ai_generation_enabled, "correlation_id": correlation_id},
+        data_after=integration_result,
+        success=integration_result.get("success", False)
+    )
+
+
 # Phase-specific pre-configured loggers
 ASSESSMENT_ENGINE_LOGGER = logging.getLogger('assessment_engine')
 GOOGLE_FORMS_LOGGER = logging.getLogger('google_forms')
@@ -482,6 +622,12 @@ PRESGEN_INTEGRATION_LOGGER = logging.getLogger('presgen_integration')
 AVATAR_GENERATOR_LOGGER = logging.getLogger('avatar_generator')
 GOOGLE_API_LOGGER = logging.getLogger('google_api')
 PERFORMANCE_LOGGER = logging.getLogger('performance')
+
+# Sprint 4 Enhanced Loggers
+AI_QUESTION_GENERATOR_LOGGER = logging.getLogger('ai_question_generation.service')
+AI_QUALITY_VALIDATOR_LOGGER = logging.getLogger('ai_question_generation.quality')
+AI_PERFORMANCE_LOGGER = logging.getLogger('ai_question_generation.performance')
+WORKFLOW_AI_INTEGRATION_LOGGER = logging.getLogger('workflow_orchestration.ai_integration')
 
 # Initialize logging on import
 setup_enhanced_logging()

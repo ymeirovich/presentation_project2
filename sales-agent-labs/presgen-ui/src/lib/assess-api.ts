@@ -154,6 +154,24 @@ export async function retryWorkflow(workflowId: string): Promise<WorkflowDetail>
   return updateWorkflowStatus(workflowId, { status: 'pending', progress: 0 })
 }
 
+export async function manualProcessWorkflow(workflowId: string): Promise<any> {
+  const response = await fetch(buildUrl(`/workflows/${workflowId}/manual-process`), {
+    method: 'POST',
+    headers: getHeaders('application/json'),
+  })
+
+  return parseResponse(response, z.object({
+    success: z.boolean(),
+    message: z.string(),
+    workflow_id: z.string(),
+    status: z.string(),
+    current_step: z.string(),
+    next_steps: z.array(z.string()),
+    mock_data_used: z.boolean().optional(),
+    note: z.string().optional()
+  }))
+}
+
 // Gap Analysis API Functions
 
 export async function fetchGapAnalysis(workflowId: string): Promise<GapAnalysisResult> {

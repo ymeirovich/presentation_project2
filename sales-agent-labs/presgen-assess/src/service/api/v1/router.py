@@ -14,7 +14,8 @@ from src.service.api.v1.endpoints import (
     gap_analysis,
     presentations,
     auth,
-    monitoring
+    monitoring,
+    ai_question_generation
 )
 
 api_router = APIRouter()
@@ -93,4 +94,11 @@ api_router.include_router(
     monitoring.router,
     prefix="/monitoring",
     tags=["monitoring", "health", "production"]
+)
+
+# Sprint 4: AI Question Generation
+api_router.include_router(
+    ai_question_generation.router,
+    prefix="/ai-question-generator",
+    tags=["AI Question Generation", "ai-services"]
 )

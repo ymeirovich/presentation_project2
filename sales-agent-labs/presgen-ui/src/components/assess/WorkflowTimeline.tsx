@@ -1,14 +1,14 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Clock, CheckCircle, XCircle, AlertCircle, RefreshCw } from 'lucide-react'
+import { Clock, CheckCircle, XCircle, AlertCircle, RefreshCw, Play } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { WorkflowDetail, WorkflowStep } from '@/lib/assess-schemas'
-import { fetchWorkflowDetail, retryWorkflow } from '@/lib/assess-api'
+import { fetchWorkflowDetail, retryWorkflow, manualProcessWorkflow } from '@/lib/assess-api'
 
 interface WorkflowTimelineProps {
   workflowId: string
@@ -61,6 +61,7 @@ export function WorkflowTimeline({ workflowId, className, onRetry }: WorkflowTim
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [retrying, setRetrying] = useState(false)
+  const [manualProcessing, setManualProcessing] = useState(false)
 
   const fetchData = async () => {
     try {
@@ -86,6 +87,21 @@ export function WorkflowTimeline({ workflowId, className, onRetry }: WorkflowTim
       setError(err instanceof Error ? err.message : 'Failed to retry workflow')
     } finally {
       setRetrying(false)
+    }
+  }
+
+  const handleManualProcess = async () => {
+    if (!workflow) return
+
+    try {
+      setManualProcessing(true)
+      await manualProcessWorkflow(workflow.id)
+      onRetry?.()
+      await fetchData() // Refresh the data
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to process workflow manually')
+    } finally {
+      setManualProcessing(false)
     }
   }
 
@@ -154,6 +170,7 @@ export function WorkflowTimeline({ workflowId, className, onRetry }: WorkflowTim
 
   const currentStepIndex = WORKFLOW_STEPS.findIndex(step => step.id === workflow.current_step)
   const canRetry = workflow.execution_status === 'failed'
+  const canManualProcess = workflow.execution_status === 'awaiting_completion' && workflow.current_step === 'collect_responses'
 
   return (
     <Card className={className}>
@@ -241,6 +258,35 @@ export function WorkflowTimeline({ workflowId, className, onRetry }: WorkflowTim
                 </>
               )}
             </Button>
+          </div>
+        )}
+
+        {canManualProcess && (
+          <div className="pt-4 border-t">
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground px-1">
+                ⚠️ Form completed but responses not detected. Process manually to continue.
+              </div>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleManualProcess}
+                disabled={manualProcessing}
+                className="w-full bg-blue-600 hover:bg-blue-700"
+              >
+                {manualProcessing ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    Processing Form...
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-4 w-4 mr-2" />
+                    Process Completed Form
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         )}
 
