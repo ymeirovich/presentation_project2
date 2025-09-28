@@ -737,5 +737,62 @@ ai_result = await question_generator.generate_contextual_assessment(
 - `debug_vector_search.py` - Vector database debugging and validation
 - `debug_vector_metadata.py` - Certification ID mapping verification
 
+### ✅ Comprehensive Logging & Workflow Management (Sept 28, 2025)
+
+**Issue**: Logging not enabled for `api.log` and `assessments.log`, and workflow timeline stuck at Gap Analysis step.
+
+**Solutions Implemented:**
+
+#### 🗃️ **Production Logging System**
+- ✅ **Application Startup**: Added logging initialization to FastAPI lifespan
+- ✅ **Service Loggers**: Enabled api.log, assessments.log, workflows.log
+- ✅ **API Request Tracking**: All POST /workflows requests logged with user context
+- ✅ **Assessment Generation Tracking**: Complete AI question generation lifecycle logged
+- ✅ **End-to-End Visibility**: Submit Assessment Request → Form Generation fully logged
+
+**Logging Architecture:**
+```
+📂 src/logs/
+├── api.log              # API request tracking
+├── assessments.log      # AI question generation tracking
+├── workflows.log        # Workflow orchestration tracking
+├── presgen_assess_combined.log  # All services combined
+└── presgen_assess_errors.log    # Error-only logging
+```
+
+**Sample Log Output:**
+```
+api.log:         📥 POST /workflows | user_id=test-logging | workflow_type=assessment_generation
+assessments.log: 🚀 Starting assessment generation | workflow_id=52f10bd6 | question_count=2
+assessments.log: ✅ Assessment generation completed | success=True | questions_generated=2
+```
+
+#### 🔄 **Workflow Progression Management**
+- ✅ **Manual Progression Endpoints**: `/manual-gap-analysis` and `/manual-presentation`
+- ✅ **Stuck Workflow Recovery**: Fixed workflow 0c415914-d011-4c54-a999-dac3efa5216e
+- ✅ **Timeline Progression**: gap_analysis (75%) → presentation_generation (85%) → finalize_workflow (100%)
+- ✅ **Status Management**: Proper workflow state transitions implemented
+
+**Workflow Progression API:**
+```bash
+# Complete gap analysis and advance to presentation
+POST /api/v1/workflows/{id}/manual-gap-analysis
+
+# Complete presentation generation and finalize
+POST /api/v1/workflows/{id}/manual-presentation
+```
+
+#### 📊 **Enhanced Monitoring Capabilities**
+- ✅ **Real-time Logging**: File-based persistent logging with rotation
+- ✅ **Service Isolation**: Separate loggers for API, assessments, and workflows
+- ✅ **Performance Tracking**: Generation times, success rates, and quality metrics
+- ✅ **Debug Support**: Comprehensive logging for troubleshooting
+
+**Files Modified:**
+- `src/service/app.py`: Added logging initialization to application startup
+- `src/service/api/v1/endpoints/workflows.py`: Added API and assessment logging
+- `src/logs/api.log`: Now tracking all API requests
+- `src/logs/assessments.log`: Now tracking AI question generation
+
 **Next Phase**: Production deployment, integration testing, and user onboarding
 **Maintainer**: Claude Code Assistant

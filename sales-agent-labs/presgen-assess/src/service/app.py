@@ -10,6 +10,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 
 from src.common.config import settings
+from src.common.logging_config import initialize_service_loggers, log_application_startup, log_application_shutdown
 from src.service.api.v1.router import api_router
 from src.service.database import init_db
 from src.service.middleware import RequestLoggingMiddleware, RateLimitingMiddleware
@@ -20,6 +21,10 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
+    # Initialize comprehensive logging first
+    initialize_service_loggers()
+    log_application_startup()
+
     logger.info("🚀 Starting PresGen-Assess application")
 
     # Initialize database
@@ -33,6 +38,7 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("🔄 Shutting down PresGen-Assess application")
+    log_application_shutdown()
 
 
 def create_app() -> FastAPI:

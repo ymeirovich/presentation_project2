@@ -10,7 +10,7 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.common.logging_config import get_workflow_logger
+from src.common.logging_config import get_workflow_logger, get_api_logger, get_assessment_logger
 from src.common.config import settings
 from src.models.workflow import WorkflowExecution
 from src.schemas.workflow import (
@@ -28,6 +28,8 @@ from src.services.google_sheets_service import GoogleSheetsService, EnhancedGapA
 from fastapi.responses import JSONResponse, Response
 
 logger = get_workflow_logger()
+api_logger = get_api_logger()
+assessment_logger = get_assessment_logger()
 
 router = APIRouter()
 
@@ -346,6 +348,9 @@ async def create_workflow(
     db: AsyncSession = Depends(get_db)
 ) -> WorkflowResponse:
     """Create a new async workflow."""
+    # Log API request
+    api_logger.info(f"📥 POST /workflows | user_id={workflow_data.user_id} | workflow_type={workflow_data.workflow_type} | cert_profile_id={workflow_data.certification_profile_id}")
+
     try:
         # Map WorkflowCreate data to WorkflowExecution fields
         workflow_dict = workflow_data.model_dump(exclude_none=True)
@@ -397,6 +402,7 @@ async def create_workflow(
 
                 # Generate real AI questions using knowledge base
                 logger.info(f"🤖 Generating AI questions for workflow {workflow.id} | cert_profile_id={workflow.certification_profile_id} | domain_distribution={workflow.parameters.get('domain_distribution', {})} | question_count={workflow.parameters.get('question_count', 24)}")
+                assessment_logger.info(f"🚀 Starting assessment generation | workflow_id={workflow.id} | cert_profile_id={workflow.certification_profile_id} | question_count={workflow.parameters.get('question_count', 24)}")
 
                 question_generator = AIQuestionGenerator()
                 ai_result = await question_generator.generate_contextual_assessment(
@@ -408,6 +414,7 @@ async def create_workflow(
                 )
 
                 logger.info(f"🔍 AI question generation result | success={ai_result.get('success')} | error={ai_result.get('error', 'None')}")
+                assessment_logger.info(f"✅ Assessment generation completed | success={ai_result.get('success')} | questions_generated={len(ai_result.get('assessment_data', {}).get('questions', []))} | workflow_id={workflow.id}")
 
                 if ai_result.get('success') and ai_result.get('assessment_data', {}).get('questions'):
                     # Use AI-generated questions
