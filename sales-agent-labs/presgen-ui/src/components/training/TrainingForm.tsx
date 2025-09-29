@@ -1,6 +1,9 @@
 'use client'
 
 import { useState, useEffect } from "react"
+
+// Cache setting - disable in development mode
+const USE_CACHE = process.env.PRESGEN_DEV_MODE !== 'true'
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -107,7 +110,7 @@ export function TrainingForm({ onJobCreated, className }: TrainingFormProps) {
         quality_level: data.quality_level,
         content_text: data.content_text || undefined,
         google_slides_url: data.google_slides_url || undefined,
-        use_cache: true,
+        use_cache: USE_CACHE,
       }
 
       console.log('Submitting training request:', requestData)

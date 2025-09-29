@@ -31,7 +31,10 @@ import { z } from 'zod';
 // Import ChromaDB components
 import FileUploadZone, { FileUploadStatus } from '@/components/file-upload/FileUploadZone';
 import ResourceManager from '@/components/file-upload/ResourceManager';
-import PromptEditor from '@/components/file-upload/PromptEditor';
+
+// Import separated prompt components
+import CertificationPromptEditor from '@/components/prompts/CertificationPromptEditor';
+import KnowledgeBasePromptEditor from '@/components/prompts/KnowledgeBasePromptEditor';
 
 // Import existing API and schemas
 import {
@@ -79,6 +82,83 @@ export default function EnhancedCertificationProfileForm({
   const [uploadedFiles, setUploadedFiles] = useState<FileUploadStatus[]>([]);
   const [collectionCreated, setCollectionCreated] = useState(false);
   const [resourceCount, setResourceCount] = useState(0);
+  const [knowledgeBasePrompts, setKnowledgeBasePrompts] = useState<{
+    document_ingestion_prompt?: string;
+    context_retrieval_prompt?: string;
+    semantic_search_prompt?: string;
+    content_classification_prompt?: string;
+  }>({});
+  const [kbPromptsLoading, setKbPromptsLoading] = useState(false);
+
+  // Load knowledge base prompts
+  const loadKnowledgeBasePrompts = async (collectionName: string) => {
+    if (!collectionName) return;
+
+    console.log('🗂️ PROMPT_DEBUG: Loading knowledge base prompts for collection:', collectionName);
+    setKbPromptsLoading(true);
+
+    try {
+      const response = await fetch(`/api/presgen-assess/knowledge-prompts/${collectionName}`);
+      if (response.ok) {
+        const kbPrompts = await response.json();
+        console.log('🗂️ PROMPT_DEBUG: Loaded knowledge base prompts:', kbPrompts);
+        setKnowledgeBasePrompts(kbPrompts);
+      } else if (response.status === 404) {
+        console.log('🗂️ PROMPT_DEBUG: No knowledge base prompts found for collection:', collectionName);
+        setKnowledgeBasePrompts({});
+      } else {
+        console.error('🗂️ PROMPT_DEBUG: Failed to load knowledge base prompts:', response.status);
+      }
+    } catch (error) {
+      console.error('🗂️ PROMPT_DEBUG: Error loading knowledge base prompts:', error);
+    } finally {
+      setKbPromptsLoading(false);
+    }
+  };
+
+  // Save knowledge base prompts
+  const saveKnowledgeBasePrompts = async (collectionName: string, prompts: any) => {
+    if (!collectionName) return;
+
+    console.log('🗂️ PROMPT_DEBUG: Saving knowledge base prompts for collection:', collectionName, prompts);
+
+    try {
+      // First try to update existing prompts
+      let response = await fetch(`/api/presgen-assess/knowledge-prompts/${collectionName}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(prompts)
+      });
+
+      // If not found, create new prompts
+      if (response.status === 404) {
+        response = await fetch('/api/presgen-assess/knowledge-prompts/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            collection_name: collectionName,
+            certification_name: watch('name'),
+            version: 'v1.0',
+            is_active: true,
+            ...prompts
+          })
+        });
+      }
+
+      if (response.ok) {
+        const savedPrompts = await response.json();
+        console.log('🗂️ PROMPT_DEBUG: Saved knowledge base prompts:', savedPrompts);
+        setKnowledgeBasePrompts(savedPrompts);
+        toast.success('Knowledge base prompts saved successfully');
+      } else {
+        console.error('🗂️ PROMPT_DEBUG: Failed to save knowledge base prompts:', response.status);
+        toast.error('Failed to save knowledge base prompts');
+      }
+    } catch (error) {
+      console.error('🗂️ PROMPT_DEBUG: Error saving knowledge base prompts:', error);
+      toast.error('Error saving knowledge base prompts');
+    }
+  };
 
   // Enhanced default values with ChromaDB fields
   const defaultValues: FormData = profile ? {
@@ -201,6 +281,14 @@ export default function EnhancedCertificationProfileForm({
     console.log('=== End Debug ===');
   }, [isValid, errors]);
 
+  // Load knowledge base prompts when profile is available
+  useEffect(() => {
+    if (profile && profile.name && profile.version) {
+      const collectionName = `${profile.name.toLowerCase().replace(/ /g, '_')}_v${profile.version}`;
+      loadKnowledgeBasePrompts(collectionName);
+    }
+  }, [profile]);
+
   // Update completion percentage when form changes
   useEffect(() => {
     const basePercentage = calculateCompletionPercentage(watchedFields);
@@ -271,18 +359,7 @@ export default function EnhancedCertificationProfileForm({
     toast.success('Resource deleted successfully');
   };
 
-  // Handle prompt changes
-  const handlePromptsChange = useCallback((prompts: any) => {
-    setValue('assessment_prompt', prompts.assessment_prompt || '');
-    setValue('presentation_prompt', prompts.presentation_prompt || '');
-    setValue('gap_analysis_prompt', prompts.gap_analysis_prompt || '');
-  }, [setValue]);
-
-  const initialPrompts = useMemo(() => (profile ? {
-    assessment_prompt: profile.assessment_prompt,
-    presentation_prompt: profile.presentation_prompt,
-    gap_analysis_prompt: profile.gap_analysis_prompt
-  } : {}), [profile]);
+  // Legacy prompt handling functions removed - no longer needed with separated prompt components
 
   // Handle form submission
   const onSubmit = async (data: FormData) => {
@@ -720,11 +797,56 @@ export default function EnhancedCertificationProfileForm({
 
           {/* Prompts Configuration Tab */}
           <TabsContent value="prompts" className="mt-6">
-            <PromptEditor
-              initialPrompts={initialPrompts}
-              onPromptsChange={handlePromptsChange}
-              certificationContext={getCertificationContext()}
-            />
+            <div className="space-y-8">
+              {/* Certification Profile Prompts */}
+              <CertificationPromptEditor
+                profileId={profile?.id}
+                certificationName={watch('name')}
+                initialPrompts={{
+                  assessment_prompt: watch('assessment_prompt'),
+                  presentation_prompt: watch('presentation_prompt'),
+                  gap_analysis_prompt: watch('gap_analysis_prompt')
+                }}
+                onPromptsChange={(prompts) => {
+                  console.log('🎯 FORM_DEBUG: Certification prompts changed, updating form values:', prompts);
+                  setValue('assessment_prompt', prompts.assessment_prompt || '');
+                  setValue('presentation_prompt', prompts.presentation_prompt || '');
+                  setValue('gap_analysis_prompt', prompts.gap_analysis_prompt || '');
+                }}
+                certificationContext={getCertificationContext()}
+              />
+
+              {/* Knowledge Base Prompts */}
+              <KnowledgeBasePromptEditor
+                collectionName={`${watch('name')?.toLowerCase().replace(/ /g, '_')}_v${watch('version')}`}
+                certificationName={watch('name')}
+                initialPrompts={knowledgeBasePrompts}
+                onPromptsChange={(kbPrompts) => {
+                  console.log('🎯 PROMPT_DEBUG: Knowledge base prompts changed:', kbPrompts);
+                  const collectionName = `${watch('name')?.toLowerCase().replace(/ /g, '_')}_v${watch('version')}`;
+                  saveKnowledgeBasePrompts(collectionName, kbPrompts);
+                }}
+              />
+
+              {/* Legacy Prompt Editor - DISABLED to prevent coupling issues */}
+              <Card className="border-gray-200 bg-gray-50 opacity-50">
+                <CardHeader>
+                  <CardTitle className="text-gray-600 flex items-center">
+                    <AlertCircle className="w-5 h-5 mr-2" />
+                    Legacy Prompt Editor - DISABLED
+                  </CardTitle>
+                  <CardDescription className="text-gray-500">
+                    This component has been disabled to prevent prompt coupling issues. Use the separated prompt editors above.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-center py-8 text-gray-400">
+                    <X className="w-12 h-12 mx-auto mb-4" />
+                    <p>Legacy component disabled - use separated prompt editors above</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
         </Tabs>
 

@@ -1,6 +1,7 @@
 'use client'
 
 import React from 'react'
+import type { TooltipProps } from 'recharts'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ScatterChart, Scatter } from 'recharts'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -14,6 +15,7 @@ interface DomainPerformanceChartProps {
 
 interface ChartDataPoint {
   domain: string
+  displayDomain: string
   score: number
   confidence: number
   overconfidence: number
@@ -27,40 +29,39 @@ export function DomainPerformanceChart({
   chartType = 'bar',
   className
 }: DomainPerformanceChartProps) {
-  const chartData: ChartDataPoint[] = data.map(domain => ({
-    domain: domain.domain.length > 15 ? domain.domain.substring(0, 15) + '...' : domain.domain,
-    score: domain.score,
-    confidence: domain.confidence_score,
-    overconfidence: domain.overconfidence_ratio,
-    questionCount: domain.question_count,
-    correctCount: domain.correct_count,
-    isOverconfident: domain.overconfidence_ratio > 1.2,
-  }))
+  const chartData: ChartDataPoint[] = data.map(domain => {
+    const truncated = domain.domain.length > 15 ? `${domain.domain.substring(0, 15)}...` : domain.domain
+    return {
+      domain: domain.domain,
+      displayDomain: truncated,
+      score: domain.score,
+      confidence: domain.confidence_score,
+      overconfidence: domain.overconfidence_ratio,
+      questionCount: domain.question_count,
+      correctCount: domain.correct_count,
+      isOverconfident: domain.overconfidence_ratio > 1.2,
+    }
+  })
 
-  const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: any[]; label?: string }) => {
+  const CustomTooltip: React.FC<TooltipProps<number, string>> = ({ active, payload }) => {
     if (active && payload && payload.length) {
-      const data = payload[0].payload
-      const originalDomain = data.domain.endsWith('...')
-        ? data.domain.substring(0, data.domain.length - 3)
-        : data.domain
-
-      const fullDomain = data.find((d: DomainPerformance) => d.domain.startsWith(originalDomain))?.domain || data.domain
+      const point = payload[0].payload as ChartDataPoint
 
       return (
         <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-md">
-          <p className="font-semibold">{fullDomain}</p>
+          <p className="font-semibold">{point.domain}</p>
           <p className="text-sm text-gray-600">
-            Performance: {data.score.toFixed(1)}%
+            Performance: {point.score.toFixed(1)}%
           </p>
           <p className="text-sm text-gray-600">
-            Confidence: {data.confidence.toFixed(1)}%
+            Confidence: {point.confidence.toFixed(1)}%
           </p>
           <p className="text-sm text-gray-600">
-            Questions: {data.correctCount}/{data.questionCount}
+            Questions: {point.correctCount}/{point.questionCount}
           </p>
-          {data.isOverconfident && (
+          {point.isOverconfident && (
             <p className="text-sm text-orange-600">
-              ⚠️ Overconfident (ratio: {data.overconfidence.toFixed(2)})
+              ⚠️ Overconfident (ratio: {point.overconfidence.toFixed(2)})
             </p>
           )}
         </div>
@@ -82,7 +83,7 @@ export function DomainPerformanceChart({
       >
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis
-          dataKey="domain"
+          dataKey="displayDomain"
           angle={-45}
           textAnchor="end"
           height={80}

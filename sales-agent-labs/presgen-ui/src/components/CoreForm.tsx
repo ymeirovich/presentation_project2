@@ -16,7 +16,7 @@ import { MarkdownPreview } from "./MarkdownPreview"
 import { ServerResponseCard, ServerResponse } from "./ServerResponseCard"
 import { CoreFormSchema, CoreFormWithTextSchema, CoreFormData } from "@/lib/schemas"
 import { createPresentation, ApiError } from "@/lib/api"
-import { ACCEPTED_TEXT_FILES, TEMPLATE_STYLES } from "@/lib/types"
+import { ACCEPTED_REPORT_FILES, TEMPLATE_STYLES } from "@/lib/types"
 import { toast } from "sonner"
 import { FileText, Loader2 } from "lucide-react"
 
@@ -173,7 +173,7 @@ export function CoreForm({ className }: CoreFormProps) {
               <div className="space-y-2">
                 <Label>Upload Document</Label>
                 <FileDrop
-                  accept={ACCEPTED_TEXT_FILES}
+                  accept={ACCEPTED_REPORT_FILES}
                   onFileSelect={onFileSelect}
                   onFileRemove={removeFile}
                   selectedFile={uploadedFile || undefined}

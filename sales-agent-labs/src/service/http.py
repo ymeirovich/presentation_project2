@@ -301,7 +301,17 @@ async def render(req: RenderRequest):
             raise HTTPException(status_code=400, detail="report_text cannot be empty")
         
         jlog(log, logging.INFO, event="render_calling_orchestrate", **request_info)
-        
+
+        # Log cache decision in HTTP layer
+        jlog(
+            log,
+            logging.INFO,
+            event="http_cache_decision",
+            request_use_cache=req.use_cache,
+            presgen_use_cache_global=PRESGEN_USE_CACHE,
+            request_id=req.request_id,
+        )
+
         res = orchestrate(
             req.report_text,
             client_request_id=req.request_id,
@@ -2217,6 +2227,17 @@ async def data_ask(req: DataAsk):
         request_info["dataset_id"] = ds
         jlog(log, logging.INFO, event="data_ask_dataset_resolved", **request_info)
         
+        # Log cache decision for data ask
+        jlog(
+            log,
+            logging.INFO,
+            event="data_ask_cache_decision",
+            request_use_cache=req.use_cache,
+            presgen_use_cache_global=PRESGEN_USE_CACHE,
+            dataset_id=ds,
+            question_count=len(req.questions),
+        )
+
         # Call orchestrate_mixed with enhanced error context
         res = orchestrate_mixed(
             req.report_text,

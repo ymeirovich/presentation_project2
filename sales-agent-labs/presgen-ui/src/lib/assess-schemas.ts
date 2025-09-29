@@ -219,6 +219,20 @@ export type DomainPerformance = z.infer<typeof DomainPerformanceSchema>
 export type LearningGap = z.infer<typeof LearningGapSchema>
 export type GapAnalysisResult = z.infer<typeof GapAnalysisResultSchema>
 
+export const GapAnalysisSheetsExportSchema = z.object({
+  success: z.boolean(),
+  workflow_id: z.string().uuid(),
+  spreadsheet_id: z.string().optional(),
+  spreadsheet_url: z.string().url().optional(),
+  spreadsheet_title: z.string().optional(),
+  export_timestamp: z.string().optional(),
+  mock_response: z.boolean().optional(),
+  message: z.string().optional(),
+  export_summary: z.any().optional(),
+  additional_exports: z.any().optional(),
+  instructions: z.array(z.string()).optional(),
+})
+
 export const BLOOM_TAXONOMY_LEVELS = [
   { value: 'remember', label: 'Remember', color: '#e3f2fd' },
   { value: 'understand', label: 'Understand', color: '#bbdefb' },

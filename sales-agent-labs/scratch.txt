@@ -1,0 +1,27 @@
+{
+  "ok": true,
+  "message": "Assessment workflow submitted successfully",
+  "workflow_id": "a10b954c-f52e-4a6c-880a-e7a8e6f5ca01",
+  "status": "pending",
+  "resume_token": "1436ede4-97d7-476a-917b-60b02416a8c6",
+  "progress": 0,
+  "parameters": {
+    "title": "ass7",
+    "summary_markdown": "ass7 learner is beginner in MLOps",
+    "difficulty_level": "beginner",
+    "question_count": 24,
+    "passing_score": 70,
+    "time_limit_minutes": 90,
+    "slide_count": 12,
+    "domain_distribution": {
+      "Data Engineering": 4,
+      "Exploratory Data Analysis": 5,
+      "Modeling": 7,
+      "Machine Learning Implementation and Operations": 8
+    },
+    "include_avatar": true,
+    "notes_markdown": ""
+  },
+  "created_at": "2025-09-28T07:24:46",
+  "updated_at": "2025-09-28T07:24:46"
+}

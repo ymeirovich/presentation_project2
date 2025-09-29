@@ -14,6 +14,7 @@ import {
   WorkflowStatusUpdate,
   GapAnalysisResult,
   GapAnalysisResultSchema,
+  GapAnalysisSheetsExportSchema,
   LearningGap,
   LearningGapSchema,
   WorkflowOrchestrationStatusSchema,
@@ -253,6 +254,20 @@ export async function exportGapAnalysisReport(
   }
 
   return response.blob()
+}
+
+export async function exportGapAnalysisToSheets(
+  workflowId: string,
+  options?: { share_email?: string | null }
+) {
+  const response = await fetch(buildUrl(`/workflows/${workflowId}/gap-analysis/export-to-sheets`), {
+    method: 'POST',
+    headers: getHeaders('application/json'),
+    body: JSON.stringify(options ?? {}),
+    cache: 'no-store',
+  })
+
+  return parseResponse(response, GapAnalysisSheetsExportSchema)
 }
 
 export async function fetchRemediationAssets(workflowId: string): Promise<LearningGap[]> {

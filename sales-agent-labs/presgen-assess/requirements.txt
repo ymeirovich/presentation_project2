@@ -45,6 +45,7 @@ redis==5.0.1
 
 # Monitoring and observability
 prometheus-client==0.19.0
+psutil==7.1.0
 
 # Testing framework
 pytest==7.4.3

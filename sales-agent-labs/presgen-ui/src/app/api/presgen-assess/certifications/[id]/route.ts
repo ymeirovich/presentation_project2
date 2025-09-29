@@ -1,17 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { randomUUID } from 'crypto'
 
 // PresGen-Assess Backend API URL
 const ASSESS_API_URL = process.env.NEXT_PUBLIC_ASSESS_API_URL || 'http://localhost:8081'
+
+// Enhanced logging utility with correlation ID support
+function logDataFlow(
+  step: string,
+  correlationId: string,
+  component: string,
+  message: string,
+  data?: any
+) {
+  const logEntry = {
+    timestamp: new Date().toISOString(),
+    correlationId,
+    step,
+    component,
+    message,
+    data: data ? (typeof data === 'object' ? JSON.stringify(data, null, 2) : data) : undefined
+  }
+
+  console.log(`[PROXY-${step.toUpperCase()}] ${JSON.stringify(logEntry, null, 2)}`)
+}
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const correlationId = randomUUID()
+
   try {
     const { id } = await params
     const backendUrl = `${ASSESS_API_URL}/api/v1/certifications/${id}`
 
-    console.log('Proxying GET request to:', backendUrl)
+    logDataFlow(
+      'proxy_get_start',
+      correlationId,
+      'certification_proxy',
+      `Starting GET request for certification profile: ${id}`,
+      { profileId: id, backendUrl }
+    )
 
     const response = await fetch(backendUrl, {
       method: 'GET',
@@ -30,20 +59,28 @@ export async function GET(
       )
     }
 
-    // Transform backend data to include form fields from assessment_template
+    // Log data received from backend
+    logDataFlow(
+      'proxy_get_backend_response',
+      correlationId,
+      'certification_proxy',
+      'Received data from backend API',
+      {
+        profileId: id,
+        hasAssessmentTemplate: !!data.assessment_template,
+        promptFields: {
+          assessment_prompt_length: (data.assessment_prompt || '').length,
+          presentation_prompt_length: (data.presentation_prompt || '').length,
+          gap_analysis_prompt_length: (data.gap_analysis_prompt || '').length
+        }
+      }
+    )
+
+    // Transform backend data - prompts now come directly from database columns
     const transformedData = { ...data }
 
     if (data.assessment_template) {
-      // Extract ChromaDB prompts if they exist
-      const chromadbPrompts = data.assessment_template._chromadb_prompts || {}
-      transformedData.assessment_prompt = chromadbPrompts.assessment_prompt || ''
-      transformedData.presentation_prompt = chromadbPrompts.presentation_prompt || ''
-      transformedData.gap_analysis_prompt = chromadbPrompts.gap_analysis_prompt || ''
-      transformedData.bundle_version = chromadbPrompts.bundle_version || 'v1.0'
-      transformedData.resource_binding_enabled = chromadbPrompts.resource_binding_enabled !== undefined
-        ? chromadbPrompts.resource_binding_enabled : true
-
-      // Extract metadata fields if they exist
+      // Extract metadata fields (NO longer extracting _chromadb_prompts)
       const metadata = data.assessment_template._metadata || {}
       transformedData.provider = metadata.provider || data.provider || ''
       transformedData.description = metadata.description || data.description || ''
@@ -55,6 +92,29 @@ export async function GET(
       transformedData.recommended_experience = metadata.recommended_experience || data.recommended_experience || ''
       transformedData.is_active = metadata.is_active !== undefined ? metadata.is_active : (data.is_active !== undefined ? data.is_active : true)
     }
+
+    // Prompts come directly from database columns (not from _chromadb_prompts)
+    transformedData.assessment_prompt = data.assessment_prompt || ''
+    transformedData.presentation_prompt = data.presentation_prompt || ''
+    transformedData.gap_analysis_prompt = data.gap_analysis_prompt || ''
+    transformedData.resource_binding_enabled = data.resource_binding_enabled !== undefined
+      ? data.resource_binding_enabled : true
+
+    // Log transformation results
+    logDataFlow(
+      'proxy_get_transform_complete',
+      correlationId,
+      'certification_proxy',
+      'Data transformation completed',
+      {
+        profileId: id,
+        transformedPromptFields: {
+          assessment_prompt_length: transformedData.assessment_prompt.length,
+          presentation_prompt_length: transformedData.presentation_prompt.length,
+          gap_analysis_prompt_length: transformedData.gap_analysis_prompt.length
+        }
+      }
+    )
 
     // Transform exam_domains back to form format (merge subdomains and skills_measured into topics)
     if (data.exam_domains) {
@@ -82,13 +142,32 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const correlationId = randomUUID()
+
   try {
     const { id } = await params
     const updateData = await request.json()
     const backendUrl = `${ASSESS_API_URL}/api/v1/certifications/${id}`
 
-    console.log('Proxying PUT request to:', backendUrl)
-    console.log('Update data received:', JSON.stringify(updateData, null, 2))
+    logDataFlow(
+      'proxy_put_start',
+      correlationId,
+      'certification_proxy',
+      `Starting PUT request for certification profile: ${id}`,
+      {
+        profileId: id,
+        backendUrl,
+        updateFields: Object.keys(updateData),
+        promptFields: {
+          has_assessment_prompt: !!updateData.assessment_prompt,
+          has_presentation_prompt: !!updateData.presentation_prompt,
+          has_gap_analysis_prompt: !!updateData.gap_analysis_prompt,
+          assessment_prompt_length: (updateData.assessment_prompt || '').length,
+          presentation_prompt_length: (updateData.presentation_prompt || '').length,
+          gap_analysis_prompt_length: (updateData.gap_analysis_prompt || '').length
+        }
+      }
+    )
 
     // Transform data similar to create/update logic to preserve custom fields
     const db_exam_domains = []
@@ -108,15 +187,8 @@ export async function PUT(
       db_exam_domains.push(db_domain)
     }
 
-    // Store ChromaDB fields and additional metadata in assessment_template
+    // Store only metadata in assessment_template (NO longer storing _chromadb_prompts)
     const assessment_template = {
-      _chromadb_prompts: {
-        assessment_prompt: updateData.assessment_prompt,
-        presentation_prompt: updateData.presentation_prompt,
-        gap_analysis_prompt: updateData.gap_analysis_prompt,
-        bundle_version: updateData.bundle_version,
-        resource_binding_enabled: updateData.resource_binding_enabled
-      },
       _metadata: {
         provider: updateData.provider,
         description: updateData.description || null,
@@ -129,6 +201,23 @@ export async function PUT(
         is_active: updateData.is_active !== undefined ? updateData.is_active : true
       }
     }
+
+    // Log data transformation
+    logDataFlow(
+      'proxy_put_transform',
+      correlationId,
+      'certification_proxy',
+      'Transforming update data for backend',
+      {
+        profileId: id,
+        metadata_fields: Object.keys(assessment_template._metadata),
+        prompt_fields_separate: {
+          assessment_prompt: !!updateData.assessment_prompt,
+          presentation_prompt: !!updateData.presentation_prompt,
+          gap_analysis_prompt: !!updateData.gap_analysis_prompt
+        }
+      }
+    )
 
     // Create profile data for backend, only including fields that are actually present
     const backendData: Record<string, unknown> = {}
@@ -158,17 +247,7 @@ export async function PUT(
     setIfDefined('gap_analysis_prompt', updateData.gap_analysis_prompt)
     setIfDefined('resource_binding_enabled', updateData.resource_binding_enabled)
 
-    // Preserve assessment template metadata only when we have content to update
-    const chromaPrompts = Object.fromEntries(
-      Object.entries({
-        assessment_prompt: updateData.assessment_prompt,
-        presentation_prompt: updateData.presentation_prompt,
-        gap_analysis_prompt: updateData.gap_analysis_prompt,
-        bundle_version: updateData.bundle_version,
-        resource_binding_enabled: updateData.resource_binding_enabled
-      }).filter(([, value]) => value !== undefined && value !== '')
-    )
-
+    // Only include metadata in assessment_template (prompts are now in separate database columns)
     const metadataFields = Object.fromEntries(
       Object.entries({
         provider: updateData.provider,
@@ -183,12 +262,29 @@ export async function PUT(
       }).filter(([, value]) => value !== undefined)
     )
 
-    if (Object.keys(chromaPrompts).length > 0 || Object.keys(metadataFields).length > 0) {
+    if (Object.keys(metadataFields).length > 0) {
       backendData.assessment_template = {
-        _chromadb_prompts: Object.keys(chromaPrompts).length > 0 ? chromaPrompts : undefined,
-        _metadata: Object.keys(metadataFields).length > 0 ? metadataFields : undefined
+        _metadata: metadataFields
       }
     }
+
+    // Log final backend data preparation
+    logDataFlow(
+      'proxy_put_backend_prep',
+      correlationId,
+      'certification_proxy',
+      'Prepared data for backend API call',
+      {
+        profileId: id,
+        backendDataKeys: Object.keys(backendData),
+        promptFieldsSeparate: {
+          assessment_prompt_included: 'assessment_prompt' in backendData,
+          presentation_prompt_included: 'presentation_prompt' in backendData,
+          gap_analysis_prompt_included: 'gap_analysis_prompt' in backendData
+        },
+        hasAssessmentTemplate: !!backendData.assessment_template
+      }
+    )
 
     console.log('Sending to backend:', JSON.stringify(backendData, null, 2))
 

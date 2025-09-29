@@ -30,7 +30,9 @@ class DocumentProcessor:
         self.supported_types = {
             'application/pdf': self._extract_pdf_text,
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document': self._extract_docx_text,
-            'text/plain': self._extract_txt_text
+            'text/plain': self._extract_txt_text,
+            'text/markdown': self._extract_txt_text,  # Treat markdown as plain text
+            'text/x-markdown': self._extract_txt_text  # Alternative markdown MIME type
         }
 
     async def process_certification_document(

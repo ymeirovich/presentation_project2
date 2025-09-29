@@ -1,14 +1,14 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Clock, CheckCircle, XCircle, AlertCircle, RefreshCw, Play } from 'lucide-react'
+import { Clock, CheckCircle, XCircle, AlertCircle, RefreshCw, Play, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { WorkflowDetail, WorkflowStep } from '@/lib/assess-schemas'
-import { fetchWorkflowDetail, retryWorkflow, manualProcessWorkflow } from '@/lib/assess-api'
+import { fetchWorkflowDetail, retryWorkflow, manualProcessWorkflow, autoProgressWorkflow } from '@/lib/assess-api'
 
 interface WorkflowTimelineProps {
   workflowId: string
@@ -17,6 +17,7 @@ interface WorkflowTimelineProps {
 }
 
 const WORKFLOW_STEPS = [
+  { id: 'initiated', name: 'Initialize', description: 'Starting workflow setup' },
   { id: 'validate_input', name: 'Validate Input', description: 'Checking submission parameters' },
   { id: 'fetch_certification', name: 'Load Certification', description: 'Loading certification profile' },
   { id: 'setup_knowledge_base', name: 'Setup Knowledge Base', description: 'Preparing RAG context' },
@@ -24,7 +25,9 @@ const WORKFLOW_STEPS = [
   { id: 'validate_questions', name: 'Validate Questions', description: 'Quality checking questions' },
   { id: 'balance_domains', name: 'Balance Domains', description: 'Adjusting domain distribution' },
   { id: 'generate_assessment', name: 'Generate Assessment', description: 'Creating final assessment' },
+  { id: 'collect_responses', name: 'Collect Responses', description: 'Waiting for form responses' },
   { id: 'gap_analysis', name: 'Gap Analysis', description: 'Analyzing learning gaps' },
+  { id: 'presentation_generation', name: 'Generate Presentation', description: 'Creating presentation content' },
   { id: 'content_generation', name: 'Content Generation', description: 'Generating learning content' },
   { id: 'slide_generation', name: 'Slide Generation', description: 'Creating presentation slides' },
   { id: 'finalize_workflow', name: 'Finalize', description: 'Completing workflow' },
@@ -62,6 +65,7 @@ export function WorkflowTimeline({ workflowId, className, onRetry }: WorkflowTim
   const [error, setError] = useState<string | null>(null)
   const [retrying, setRetrying] = useState(false)
   const [manualProcessing, setManualProcessing] = useState(false)
+  const [autoProgressing, setAutoProgressing] = useState(false)
 
   const fetchData = async () => {
     try {
@@ -102,6 +106,21 @@ export function WorkflowTimeline({ workflowId, className, onRetry }: WorkflowTim
       setError(err instanceof Error ? err.message : 'Failed to process workflow manually')
     } finally {
       setManualProcessing(false)
+    }
+  }
+
+  const handleAutoProgress = async () => {
+    if (!workflow) return
+
+    try {
+      setAutoProgressing(true)
+      await autoProgressWorkflow(workflow.id)
+      onRetry?.()
+      await fetchData() // Refresh the data
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to auto-progress workflow')
+    } finally {
+      setAutoProgressing(false)
     }
   }
 
@@ -171,15 +190,75 @@ export function WorkflowTimeline({ workflowId, className, onRetry }: WorkflowTim
   const currentStepIndex = WORKFLOW_STEPS.findIndex(step => step.id === workflow.current_step)
   const canRetry = workflow.execution_status === 'failed'
   const canManualProcess = workflow.execution_status === 'awaiting_completion' && workflow.current_step === 'collect_responses'
+  const canAutoProgress = workflow.execution_status === 'pending' && workflow.current_step === 'initiated'
+
+  // Get assessment title from parameters
+  const assessmentTitle = workflow.parameters?.title as string || 'Assessment Workflow'
+
+  // Construct Google Form URL from multiple possible sources
+  const getGoogleFormUrl = () => {
+    const urls = workflow.generated_content_urls
+
+    const editUrl = urls?.form_edit_url?.trim()
+    if (editUrl) {
+      return editUrl
+    }
+
+    const directUrl = urls?.form_url?.trim()
+    if (directUrl) {
+      // Prefer edit link if form_url is the public responder URL and we know the form ID
+      if (directUrl.includes('/viewform') && workflow.google_form_id) {
+        return `https://docs.google.com/forms/d/${workflow.google_form_id}/edit`
+      }
+      return directUrl
+    }
+
+    // Check if workflow has google_form_id
+    if (workflow.google_form_id) {
+      return `https://docs.google.com/forms/d/${workflow.google_form_id}/edit`
+    }
+
+    // For workflows that reached collect_responses stage, generate mock URL
+    if (workflow.current_step === 'collect_responses' || workflow.progress >= 70) {
+      const mockFormId = `1${workflow.id.replace(/-/g, '').substring(0, 25)}`
+      return `https://docs.google.com/forms/d/${mockFormId}/edit`
+    }
+
+    return null
+  }
+
+  const googleFormUrl = getGoogleFormUrl()
 
   return (
     <Card className={className}>
       <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base">Workflow Timeline</CardTitle>
-          <Badge variant="outline" className={getStatusColor(workflow.execution_status as WorkflowStep['status'])}>
-            {workflow.execution_status}
-          </Badge>
+        <div className="space-y-3">
+          {/* Assessment Title */}
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-lg font-semibold">{assessmentTitle}</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">Assessment Workflow Timeline</p>
+            </div>
+            <Badge variant="outline" className={getStatusColor(workflow.execution_status as WorkflowStep['status'])}>
+              {workflow.execution_status}
+            </Badge>
+          </div>
+
+          {/* Google Form Link */}
+          {googleFormUrl && (
+            <div className="flex items-center space-x-2 text-sm">
+              <span className="text-muted-foreground">Google Form:</span>
+              <a
+                href={googleFormUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center space-x-1 text-blue-600 hover:text-blue-800 hover:underline"
+              >
+                <span>View Assessment Form</span>
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            </div>
+          )}
         </div>
         {workflow.progress > 0 && (
           <div className="space-y-2">
@@ -283,6 +362,35 @@ export function WorkflowTimeline({ workflowId, className, onRetry }: WorkflowTim
                   <>
                     <Play className="h-4 w-4 mr-2" />
                     Process Completed Form
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {canAutoProgress && (
+          <div className="pt-4 border-t">
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground px-1">
+                💡 Workflow ready to start. Click to begin assessment generation.
+              </div>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleAutoProgress}
+                disabled={autoProgressing}
+                className="w-full bg-green-600 hover:bg-green-700"
+              >
+                {autoProgressing ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    Starting Workflow...
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-4 w-4 mr-2" />
+                    Start Assessment Generation
                   </>
                 )}
               </Button>

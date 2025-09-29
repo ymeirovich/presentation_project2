@@ -1,7 +1,7 @@
 """Pydantic schemas for async workflows."""
 
 from datetime import datetime
-from typing import Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from uuid import UUID
 
 from pydantic import BaseModel, Field, validator, field_validator
@@ -14,8 +14,13 @@ class WorkflowBase(BaseModel):
     assessment_id: Optional[UUID] = Field(None, description="Associated assessment ID")
     workflow_type: str = Field(..., description="Type of workflow")
     parameters: Dict = Field(default_factory=dict, description="Workflow parameters")
+    google_form_id: Optional[str] = Field(None, description="Google Form identifier")
     google_sheet_url: Optional[str] = Field(None, description="Google Sheet URL for async resume")
     presentation_url: Optional[str] = Field(None, description="Generated presentation URL")
+    generated_content_urls: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description="Generated asset URLs (e.g. Google Form links)",
+    )
     progress: int = Field(default=0, ge=0, le=100, description="Completion progress percentage")
     error_message: Optional[str] = Field(None, description="Error message if workflow failed")
 
@@ -76,13 +81,23 @@ class WorkflowResponse(WorkflowBase):
         """Ensure we always emit a string for the current step."""
         if value is None:
             return 'initiated'
-        return str(value)
+        # Handle various types safely
+        if isinstance(value, (str, int, float)):
+            return str(value)
+        return 'initiated'
 
     @field_validator('execution_status', mode='before')
     @classmethod
     def _normalize_execution_status(cls, value, info):
         """Map legacy status values into the normalized set expected by the UI."""
-        normalized = str(value) if value is not None else None
+        if value is None:
+            return 'pending'
+
+        # Handle various types safely
+        if isinstance(value, (str, int, float)):
+            normalized = str(value)
+        else:
+            normalized = 'pending'
 
         if not normalized or normalized.lower() == 'initiated':
             normalized = 'pending'
@@ -107,17 +122,34 @@ class WorkflowResponse(WorkflowBase):
     @classmethod
     def _ensure_status(cls, value):
         """Keep status aligned with execution_status conventions."""
-        if value is None or str(value).lower() == 'initiated':
+        if value is None:
             return 'pending'
-        return str(value)
+
+        # Handle various types safely
+        if isinstance(value, (str, int, float)):
+            str_value = str(value)
+            if str_value.lower() == 'initiated':
+                return 'pending'
+            return str_value
+
+        return 'pending'
 
     @field_validator('resume_token', mode='before')
     @classmethod
     def _coerce_resume_token(cls, value):
         """Ensure resume_token serializes as a string when populated."""
         if value is None:
-            return value
-        return str(value)
+            return None
+
+        # Handle UUID objects and other types safely
+        if hasattr(value, '__str__'):
+            return str(value)
+
+        # Handle various types safely
+        if isinstance(value, (str, int, float)):
+            return str(value)
+
+        return None
 
 
 class WorkflowResumeRequest(BaseModel):

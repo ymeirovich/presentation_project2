@@ -10,13 +10,18 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 # Environment variable for cache control with development mode support
 def _get_cache_setting():
-    # Option C: Auto-disable cache in development mode
-    dev_mode = os.getenv("NODE_ENV") == "development" or os.getenv("PRESGEN_DEV_MODE", "false").lower() == "true"
+    # Auto-disable cache in development mode
+    node_env = os.getenv("NODE_ENV")
+    presgen_dev_mode = os.getenv("PRESGEN_DEV_MODE", "false").lower()
+    presgen_use_cache = os.getenv("PRESGEN_USE_CACHE", "true").lower()
+
+    # Development mode disables cache
+    dev_mode = node_env == "development" or presgen_dev_mode == "true"
     if dev_mode:
         return False
 
-    # Otherwise use explicit setting or default to true for production
-    return os.getenv("PRESGEN_USE_CACHE", "true").lower() == "true"
+    # Production mode uses explicit cache setting
+    return presgen_use_cache == "true"
 
 PRESGEN_USE_CACHE = _get_cache_setting()
 
@@ -25,6 +30,10 @@ from src.common.cache import get as cache_get, set as cache_set, llm_key, imagen
 from src.common.jsonlog import jlog
 
 log = logging.getLogger("orchestrator")
+
+# Log cache setting at startup
+print(f"[CACHE INIT] PresGen cache setting: {PRESGEN_USE_CACHE}")
+log.info(f"Cache setting initialized: use_cache={PRESGEN_USE_CACHE}")
 
 
 def _truncate_script(script: str, max_len: int) -> str:
@@ -603,6 +612,16 @@ def orchestrate_mixed(
     client_request_id: str | None = None,
     use_cache: bool = PRESGEN_USE_CACHE,
 ) -> dict:
+    # Log orchestrator function entry with cache setting
+    jlog(
+        log,
+        logging.INFO,
+        event="orchestrator_entry",
+        use_cache_param=use_cache,
+        presgen_use_cache_global=PRESGEN_USE_CACHE,
+        client_request_id=client_request_id,
+    )
+
     pres_id: Optional[str] = None
     deck_url: Optional[str] = None
     total_created = 0
@@ -737,6 +756,17 @@ def orchestrate_mixed(
                     "share_image_public": True,
                     "use_cache": use_cache,  # NEW: Pass through use_cache parameter
                 }
+
+                # Log cache decision for debugging
+                jlog(
+                    log,
+                    logging.INFO,
+                    event="slide_create_cache_decision",
+                    client_request_id=per_slide_id,
+                    use_cache=use_cache,
+                    presgen_use_cache_global=PRESGEN_USE_CACHE,
+                    function_param=use_cache,
+                )
                 if dq.get("chart_png_path"):
                     params["image_local_path"] = dq["chart_png_path"]
 

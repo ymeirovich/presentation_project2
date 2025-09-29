@@ -11,7 +11,7 @@ import { BloomTaxonomyChart } from './BloomTaxonomyChart'
 import { DomainPerformanceChart } from './DomainPerformanceChart'
 import { RemediationAssetsTable } from './RemediationAssetsTable'
 import { GapAnalysisResult } from '@/lib/assess-schemas'
-import { fetchGapAnalysis } from '@/lib/assess-api'
+import { fetchGapAnalysis, exportGapAnalysisToSheets } from '@/lib/assess-api'
 import { toast } from 'sonner'
 
 interface GapAnalysisDashboardProps {
@@ -159,9 +159,24 @@ export function GapAnalysisDashboard({
   const handleExportToSheets = async () => {
     try {
       setExportingToSheets(true)
-      // This would call the backend API to export to Google Sheets
-      // For now, just show a success message
-      toast.success('Gap analysis exported to Google Sheets successfully!')
+      const exportResult = await exportGapAnalysisToSheets(workflowId)
+
+      if (exportResult.spreadsheet_url) {
+        window.open(exportResult.spreadsheet_url, '_blank')
+      }
+
+      if (exportResult.success) {
+        toast.success('Gap analysis exported to Google Sheets successfully!')
+      } else if (exportResult.mock_response) {
+        toast.warning(exportResult.message || 'Google Sheets export is running in mock mode. See instructions for enabling Sheets integration.')
+      } else {
+        toast.error(exportResult.message || 'Google Sheets export did not complete successfully')
+      }
+
+      if (exportResult.instructions && exportResult.instructions.length > 0) {
+        console.info('Google Sheets export instructions:', exportResult.instructions.join('\n'))
+      }
+
       onExportToSheets?.()
     } catch (error) {
       console.error('Failed to export to Google Sheets:', error)

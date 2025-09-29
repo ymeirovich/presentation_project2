@@ -4,6 +4,9 @@ import { DataGenerateRequestSchema } from '@/lib/schemas'
 // Backend API URL
 const BACKEND_API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080'
 
+// Cache setting - disable in development mode
+const USE_CACHE = process.env.PRESGEN_DEV_MODE !== 'true' && process.env.PRESGEN_USE_CACHE !== 'false'
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
@@ -41,7 +44,7 @@ export async function POST(request: NextRequest) {
       include_images: data.include_images,
       speaker_notes: data.speaker_notes,
       template_style: data.template_style,
-      use_cache: true,
+      use_cache: USE_CACHE,
       request_id: generateRequestId(),
     }
 

@@ -168,6 +168,38 @@ out/
 - Verify Parquet file creation from Excel uploads
 - Review pattern matching vs LLM fallback in `src/mcp/tools/data.py`
 
+## MANDATORY TESTING REQUIREMENTS
+
+### CRITICAL: These rules MUST ALWAYS be followed
+
+1. **All current features require test coverage**
+   - Before modifying any existing feature, ensure tests exist
+   - If tests don't exist, create them first before making changes
+   - Test coverage must capture current behavior before modification
+
+2. **All new features require test plans**
+   - New features MUST have test plans created before implementation
+   - Test plans MUST be integrated into main test suite or chained to run with main suite
+   - No feature implementation without corresponding test coverage
+
+3. **Feature completion validation**
+   - At completion of any feature, ALL test plans MUST be run
+   - All tests MUST pass before feature is considered complete
+   - No commits or deployments without passing tests
+
+4. **Test-First Development Process**
+   - Write tests that capture current behavior (for existing features)
+   - Write tests that define expected behavior (for new features)
+   - Implement/modify feature to make tests pass
+   - Run full test suite to ensure no regressions
+
+### Enhanced Testing Commands
+- **Run all tests**: `python3 -m pytest tests/ -v`
+- **Run with coverage**: `python3 -m pytest tests/ --cov=src --cov-report=html`
+- **Run specific test suite**: `python3 -m pytest tests/test_[feature].py -v`
+- **Run integration tests**: `python3 -m pytest tests/test_integration.py -v`
+- **Run prompt system tests**: `python3 -m pytest tests/test_prompt_system.py -v`
+
 ## Testing Strategy
 
 ### Unit Tests (Fast)
@@ -175,7 +207,7 @@ out/
 - No external API dependencies
 
 ### Integration Tests (Requires GCP)
-- Full orchestration: `tests/test_orchestrator_live.py` 
+- Full orchestration: `tests/test_orchestrator_live.py`
 - Batch processing: `tests/test_batch_live.py`
 - Set `RUN_SMOKE=1` environment variable
 

@@ -38,10 +38,11 @@ Verify that workflow orchestrator continues existing workflows instead of creati
    POST /api/v1/google-forms/create
    {
      "certificationId": "test-cert-id",
-     "title": "Test Assessment - Continuation Check",
+      "title": "MLEA 3",
      "summaryMarkdown": "Testing workflow continuation functionality"
    }
-   ```
+
+
 
 2. **Record Initial Workflow ID**
    - Note the `workflow_id` from response
@@ -65,6 +66,13 @@ Verify that workflow orchestrator continues existing workflows instead of creati
    WHERE user_id = 'test_user@example.com'
    ORDER BY created_at DESC;
    ```
+sqlite3 presentation_project/sales-agent-labs/presgen-assess/test_database.db <<'SQL'
+.headers on
+.mode column
+SELECT id, user_id, execution_status, current_step, created_at
+FROM workflow_executions
+ORDER BY created_at DESC;
+SQL
 
 #### Expected Results
 - ✅ Same workflow ID returned on retry
