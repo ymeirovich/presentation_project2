@@ -19,6 +19,7 @@ from src.services.assessment_forms_mapper import AssessmentFormsMapper
 from src.services.form_response_processor import FormResponseProcessor
 from src.services.response_ingestion_service import ResponseIngestionService
 from src.services.ai_question_generator import AIQuestionGenerator  # Sprint 1
+from src.services.gap_analysis_enhanced import EnhancedGapAnalysisService  # Sprint 1
 from src.service.database import get_db_session as get_async_session
 from src.common.enhanced_logging import (
     get_enhanced_logger,
@@ -43,6 +44,7 @@ class WorkflowOrchestrator:
         self.response_processor = FormResponseProcessor()
         self.response_ingestion = ResponseIngestionService()
         self.ai_question_generator = AIQuestionGenerator()  # Sprint 1
+        self.gap_analysis_service = EnhancedGapAnalysisService()  # Sprint 1
 
     async def execute_assessment_to_form_workflow(
         self,
@@ -508,6 +510,21 @@ class WorkflowOrchestrator:
                 # Update workflow with results
                 await self._store_analysis_results(workflow_id, scoring_results)
 
+                # Sprint 1: Perform Gap Analysis with Database Persistence
+                if is_feature_enabled("enable_gap_dashboard_enhancements"):
+                    gap_analysis_result = await self._perform_gap_analysis(
+                        workflow_id=workflow_id,
+                        workflow=workflow,
+                        responses=responses,
+                        scoring_results=scoring_results
+                    )
+
+                    if gap_analysis_result["success"]:
+                        self.logger.info("Gap analysis completed and persisted", extra={
+                            "workflow_id": str(workflow_id),
+                            "gap_analysis_id": gap_analysis_result.get("gap_analysis_id")
+                        })
+
                 # Transition to next phase
                 await self._update_workflow_status(
                     workflow_id,
@@ -623,3 +640,102 @@ class WorkflowOrchestrator:
                 "workflows": workflow_list,
                 "total_count": len(workflow_list)
             }
+    async def _perform_gap_analysis(
+        self,
+        workflow_id: UUID,
+        workflow: WorkflowExecution,
+        responses: List[Dict[str, Any]],
+        scoring_results: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Perform enhanced gap analysis with database persistence.
+        
+        Sprint 1: Integrates EnhancedGapAnalysisService into workflow.
+        """
+        try:
+            # Get certification profile
+            async with get_async_session() as session:
+                cert_result = await session.execute(
+                    select(CertificationProfile)
+                    .where(CertificationProfile.id == workflow.certification_profile_id)
+                )
+                cert_profile = cert_result.scalar_one_or_none()
+                
+                if not cert_profile:
+                    self.logger.error(f"Certification profile not found: {workflow.certification_profile_id}")
+                    return {"success": False, "error": "Certification profile not found"}
+                
+                # Convert to dict for service
+                cert_profile_dict = {
+                    "id": str(cert_profile.id),
+                    "name": cert_profile.name,
+                    "description": cert_profile.description
+                }
+            
+            # Format responses for gap analysis
+            assessment_responses = self._format_responses_for_gap_analysis(
+                responses,
+                workflow.assessment_data
+            )
+            
+            # Perform gap analysis and persist
+            gap_result = await self.gap_analysis_service.analyze_and_persist(
+                workflow_id=workflow_id,
+                assessment_responses=assessment_responses,
+                certification_profile=cert_profile_dict
+            )
+            
+            if not gap_result["success"]:
+                return gap_result
+            
+            # Generate content outlines (placeholder for Sprint 2 full RAG)
+            skill_gaps = gap_result.get("skill_gaps", [])
+            if skill_gaps:
+                content_outline_ids = await self.gap_analysis_service.generate_content_outlines(
+                    gap_analysis_id=UUID(gap_result["gap_analysis_id"]),
+                    workflow_id=workflow_id,
+                    skill_gaps=skill_gaps,
+                    certification_profile=cert_profile_dict
+                )
+                
+                # Generate course recommendations
+                course_ids = await self.gap_analysis_service.generate_course_recommendations(
+                    gap_analysis_id=UUID(gap_result["gap_analysis_id"]),
+                    workflow_id=workflow_id,
+                    skill_gaps=skill_gaps,
+                    certification_profile=cert_profile_dict
+                )
+                
+                gap_result["content_outline_count"] = len(content_outline_ids)
+                gap_result["recommended_course_count"] = len(course_ids)
+            
+            return gap_result
+            
+        except Exception as e:
+            self.logger.error(f"Gap analysis failed: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
+    
+    def _format_responses_for_gap_analysis(
+        self,
+        responses: List[Dict[str, Any]],
+        assessment_data: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """Format workflow responses for gap analysis service."""
+        formatted_responses = []
+        questions = assessment_data.get("questions", [])
+        question_map = {q.get("id"): q for q in questions}
+        
+        for response in responses:
+            question_id = response.get("question_id")
+            question = question_map.get(question_id, {})
+            
+            formatted_responses.append({
+                "question_id": question_id,
+                "user_answer": response.get("answer"),
+                "correct_answer": question.get("correct_answer"),
+                "is_correct": response.get("answer") == question.get("correct_answer"),
+                "domain": question.get("domain", "General"),
+                "skill_id": question.get("skill_id", "unknown"),
+                "confidence": response.get("confidence", 3.0)
+            })
+        
+        return formatted_responses
