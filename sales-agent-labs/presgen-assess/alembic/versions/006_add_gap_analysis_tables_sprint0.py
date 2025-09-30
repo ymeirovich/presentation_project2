@@ -1,7 +1,7 @@
 """add_gap_analysis_tables_sprint0
 
 Revision ID: 006_gap_analysis
-Revises: 005_add_chromadb_integration_fields
+Revises: 005_chromadb_integration
 Create Date: 2025-09-30
 
 Sprint 0 Deliverable: Database schema for Gap Analysis persistence.
@@ -12,7 +12,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = '006_gap_analysis'
-down_revision = '005_add_chromadb_integration_fields'
+down_revision = '005_chromadb_integration'
 branch_labels = None
 depends_on = None
 

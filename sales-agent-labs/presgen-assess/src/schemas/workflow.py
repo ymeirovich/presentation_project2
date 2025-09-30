@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 from uuid import UUID
 
-from pydantic import BaseModel, Field, validator, field_validator
+from pydantic import BaseModel, Field, validator, field_validator, computed_field
 
 
 class WorkflowBase(BaseModel):
@@ -74,6 +74,22 @@ class WorkflowResponse(WorkflowBase):
 
     class Config:
         from_attributes = True
+
+    @computed_field
+    @property
+    def generation_method(self) -> Optional[str]:
+        """Extract generation_method from parameters."""
+        if isinstance(self.parameters, dict):
+            return self.parameters.get('generation_method')
+        return None
+
+    @computed_field
+    @property
+    def question_count(self) -> Optional[int]:
+        """Extract question_count from parameters."""
+        if isinstance(self.parameters, dict):
+            return self.parameters.get('question_count')
+        return None
 
     @field_validator('current_step', mode='before')
     @classmethod

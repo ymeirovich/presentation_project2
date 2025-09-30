@@ -9,6 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from src.common.logging_config import get_workflow_logger, get_api_logger, get_assessment_logger
 from src.common.config import settings
@@ -419,10 +420,13 @@ async def create_workflow(
                 if ai_result.get('success') and ai_result.get('assessment_data', {}).get('questions'):
                     # Use AI-generated questions
                     assessment_data = ai_result['assessment_data']
-                    logger.info(f"✅ Using AI-generated questions | count={len(assessment_data.get('questions', []))}")
+                    generation_method = "ai_generated"
+                    question_count = len(assessment_data.get('questions', []))
+                    logger.info(f"✅ Using AI-generated questions | count={question_count}")
                 else:
                     # Fallback to mock questions if AI generation fails
                     logger.warning(f"⚠️ AI question generation failed, using fallback mock questions: {ai_result.get('error', 'Unknown error')}")
+                    fallback_count = min(5, workflow.parameters.get('question_count', 24) // 5)
                     assessment_data = {
                         "questions": [
                             {
@@ -431,7 +435,7 @@ async def create_workflow(
                                 "question_type": "multiple_choice",
                                 "options": ["A) Option 1", "B) Option 2", "C) Option 3", "D) Option 4"],
                                 "correct_answer": "A"
-                            } for i in range(min(5, workflow.parameters.get('question_count', 24) // 5))
+                            } for i in range(fallback_count)
                         ],
                         "metadata": {
                             "certification_name": workflow.parameters.get('title', 'Assessment'),
@@ -440,6 +444,22 @@ async def create_workflow(
                             "domain_distribution": workflow.parameters.get('domain_distribution', {})
                         }
                     }
+                    generation_method = "fallback"
+                    question_count = fallback_count
+
+                # Store generation metadata in workflow parameters
+                if not workflow.parameters:
+                    workflow.parameters = {}
+                workflow.parameters['generation_method'] = generation_method
+                workflow.parameters['question_count'] = question_count
+
+                # Flag the JSON column as modified so SQLAlchemy detects the change
+                flag_modified(workflow, 'parameters')
+
+                await db.commit()
+                await db.refresh(workflow)
+
+                logger.info(f"✅ Stored generation metadata | method={generation_method} | count={question_count}")
 
                 form_settings = FormSettings(
                     collect_email=True,
@@ -461,6 +481,9 @@ async def create_workflow(
 
             except Exception as e:
                 logger.error(f"❌ Auto-orchestration error for workflow {workflow.id}: {e}")
+
+            # Refresh workflow to get latest parameters with generation metadata
+            await db.refresh(workflow)
 
         return WorkflowResponse.model_validate(workflow)
 

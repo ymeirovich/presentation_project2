@@ -2,8 +2,9 @@
 ## AI Question Generation + Gap Analysis Dashboard Enhancement
 
 **Sprint Duration**: Weeks 1-2
-**Test Plan Version**: 1.0
-**Date**: 2025-09-30
+**Test Plan Version**: 1.1
+**Date**: 2025-10-01
+**Last Updated**: 2025-10-01
 
 ---
 
@@ -18,17 +19,33 @@ Test all Sprint 1 deliverables BEFORE implementation:
 
 ---
 
+## 📊 Sprint 1 Status Summary
+
+**Overall Progress**: 20% (1/5 major features complete)
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| AI Question Generation | ✅ **COMPLETE** | Generates questions, stores metadata |
+| Gap Analysis Persistence | ❌ **BLOCKED** | Tables empty, no persistence logic |
+| Content Outlines (RAG) | ❌ **BLOCKED** | Depends on gap analysis persistence |
+| Recommended Courses | ❌ **BLOCKED** | Depends on gap analysis persistence |
+| Dashboard API Endpoints | ⚠️ **PARTIAL** | Endpoints exist, but no data to serve |
+
+**Critical Blocker**: Gap analysis results not persisted to database tables. See implementation plan in `SPRINT_1_COMPLETION_PLAN.md`.
+
+---
+
 ## 📋 Test Suite Overview
 
 | Test ID | Feature | Priority | Status |
 |---------|---------|----------|--------|
-| S1-T1 | AI Question Generation Integration | High | Not Started |
-| S1-T2 | Gap Analysis Database Persistence | High | Not Started |
-| S1-T3 | Text Summary Generation | Medium | Not Started |
-| S1-T4 | Gap Analysis Dashboard UI - Tabs | High | Not Started |
-| S1-T5 | Content Outline RAG Retrieval | Medium | Not Started |
-| S1-T6 | Recommended Courses Generation | Medium | Not Started |
-| S1-T7 | Enhanced Logging Validation | Medium | Not Started |
+| S1-T1 | AI Question Generation Integration | High | ✅ **PASSED** |
+| S1-T2 | Gap Analysis Database Persistence | High | ❌ **FAILED** |
+| S1-T3 | Text Summary Generation | Medium | ⏸️ **BLOCKED** |
+| S1-T4 | Gap Analysis Dashboard UI - Tabs | High | ⏸️ **BLOCKED** |
+| S1-T5 | Content Outline RAG Retrieval | Medium | ❌ **NOT IMPLEMENTED** |
+| S1-T6 | Recommended Courses Generation | Medium | ❌ **NOT IMPLEMENTED** |
+| S1-T7 | Enhanced Logging Validation | Medium | ⏸️ **PENDING** |
 
 ---
 
@@ -55,25 +72,23 @@ uvicorn src.service.app:app --port 8081
 **Test Steps**:
 1. Create workflow with AI generation enabled:
 ```bash
-curl -X POST http://localhost:8081/api/v1/workflows/create \
-  -H "Content-Type: application/json" \
-  -d '{
+curl -X POST http://localhost:8081/api/v1/workflows/ -H "Content-Type: application/json" -d '{
     "certification_profile_id": "550e8400-e29b-41d4-a716-446655440000",
     "user_id": "test_user@example.com",
-    "use_ai_generation": true,
-    "assessment_data": {
+    "workflow_type": "assessment_generation",
+    "parameters": {
       "difficulty": "intermediate",
       "question_count": 24,
       "domain_distribution": {
         "Security and Compliance": 8,
         "Networking": 8,
         "Compute": 8
-      },
-      "metadata": {}
+      }
     }
   }'
-```
 
+```
+{"user_id":"test_user@example.com","certification_profile_id":"550e8400-e29b-41d4-a716-446655440000","assessment_id":null,"workflow_type":"assessment_generation","parameters":{"difficulty":"intermediate","question_count":5,"domain_distribution":{"Security and Compliance":2,"Networking":2,"Compute":1},"generation_method":"ai_generated"},"google_form_id":"1_AgQTkaHaMzWxiMPgrE-Hh6jJPxoXd_PIRMw9nleoN4","google_sheet_url":null,"presentation_url":null,"generated_content_urls":{"form_url":"https://docs.google.com/forms/d/e/1FAIpQLScPxnxuwYn-tCJZ7Eq4viMMZ2xpJj9Uq2LIslrzt5_Uz6Y5zw/viewform","form_edit_url":"","form_title":"Generic Certification Assessment"},"progress":0,"error_message":null,"id":"19952bd0-9cfe-44bc-9460-c4f521caca89","status":"pending","current_step":"collect_responses","execution_status":"awaiting_completion","resume_token":"85b93932-a75e-4841-be22-77d6487aaa3c","created_at":"2025-09-30T20:14:04","updated_at":"2025-09-30T20:14:45.539489","generation_method":"ai_generated","question_count":5}% 
 2. Check response for AI generation metadata:
 ```json
 {
@@ -91,7 +106,12 @@ curl -X POST http://localhost:8081/api/v1/workflows/create \
 ```bash
 # Query workflow_executions table
 sqlite3 test_database.db "SELECT id, assessment_data FROM workflow_executions WHERE id='<workflow_id>';"
+
+sqlite3 test_database.db "SELECT id, user_id, workflow_type, parameters, assessment_data IS NULL as is_null FROM workflow_executions WHERE id='19952bd09cfe44bc9460c4f521caca89';"
 ```
+cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/presgen-assess && sqlite3 test_database.db "SELECT parameters FROM workflow_executions WHERE id='19952bd09cfe44bc9460c4f521caca89';"
+
+{"difficulty": "intermediate", "question_count": 5, "domain_distribution": {"Security and Compliance": 2, "Networking": 2, "Compute": 1}, "generation_method": "ai_generated"}
 
 4. Check assessment_data JSON contains:
    - `metadata.generation_method` = "ai_generated"
@@ -208,11 +228,15 @@ export ENABLE_GAP_DASHBOARD_ENHANCEMENTS=true
 uvicorn src.service.app:app --port 8081
 ```
 
+cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/presgen-assess && sqlite3 test_database.db "SELECT id, user_id, workflow_type, json_extract(parameters, '$.generation_method') as generation_method, json_extract(parameters, '$.question_count') as question_count FROM workflow_executions WHERE id='19952bd09cfe44bc9460c4f521caca89';"
+
+19952bd09cfe44bc9460c4f521caca89|test_user@example.com|assessment_generation|ai_generated|5
+
 **Test Steps**:
 1. Complete a workflow and submit form responses
 2. Trigger gap analysis:
 ```bash
-curl -X POST http://localhost:8081/api/v1/workflows/{workflow_id}/gap-analysis \
+curl -X POST http://localhost:8081/api/v1/workflows/19952bd0-9cfe-44bc-9460-c4f521caca89/manual-gap-analysis \
   -H "Content-Type: application/json" \
   -d '{
     "assessment_responses": [
@@ -226,12 +250,16 @@ curl -X POST http://localhost:8081/api/v1/workflows/{workflow_id}/gap-analysis \
     ]
   }'
 ```
+{"success":true,"message":"Gap analysis completed manually","workflow_id":"19952bd0-9cfe-44bc-9460-c4f521caca89","status":"processing","current_step":"presentation_generation","progress":85,"gap_analysis_results":{"success":true,"assessment_id":"19952bd0-9cfe-44bc-9460-c4f521caca89_gap_analysis","student_identifier":"test_user@example.com","overall_readiness_score":0.68,"confidence_analysis":{"avg_confidence":3.2,"calibration_score":0.75,"overconfidence_domains":["Modeling"],"underconfidence_domains":["Data Engineering"]},"identified_gaps":[{"domain":"Modeling","gap_severity":"high","current_score":58,"target_score":80,"improvement_needed":22},{"domain":"Data Engineering","gap_severity":"medium","current_score":65,"target_score":80,"improvement_needed":15}],"priority_learning_areas":["Model Selection and Evaluation","Feature Engineering","Data Pipeline Architecture","ML Model Deployment"],"remediation_plan":{"total_study_hours":24,"focus_areas":["Modeling","Data Engineering"],"recommended_resources":["AWS ML Exam Guide","Hands-on Labs"]},"timestamp":"2025-09-28T10:30:00Z"},"next_steps":["Presentation content generation","Slide creation","Avatar generation (if enabled)","Finalization"],"mock_data_used":true,"note":"Gap analysis completed with sample learning gap data"}%     
 
 3. Verify database records created:
 ```bash
 # Check gap_analysis_results table
 sqlite3 test_database.db "SELECT id, workflow_id, overall_score, skill_gaps FROM gap_analysis_results WHERE workflow_id='<workflow_id>';"
 
+curl -X POST http://localhost:8081/api/v1/workflows/19952bd0-9cfe-44bc-9460-c4f521caca89/manual-gap-analysis
+
+{"success":true,"message":"Gap analysis completed manually","workflow_id":"19952bd0-9cfe-44bc-9460-c4f521caca89","status":"processing","current_step":"presentation_generation","progress":85,"gap_analysis_results":{"success":true,"assessment_id":"19952bd0-9cfe-44bc-9460-c4f521caca89_gap_analysis","student_identifier":"test_user@example.com","overall_readiness_score":0.68,"confidence_analysis":{"avg_confidence":3.2,"calibration_score":0.75,"overconfidence_domains":["Modeling"],"underconfidence_domains":["Data Engineering"]},"identified_gaps":[{"domain":"Modeling","gap_severity":"high","current_score":58,"target_score":80,"improvement_needed":22},{"domain":"Data Engineering","gap_severity":"medium","current_score":65,"target_score":80,"improvement_needed":15}],"priority_learning_areas":["Model Selection and Evaluation","Feature Engineering","Data Pipeline Architecture","ML Model Deployment"],"remediation_plan":{"total_study_hours":24,"focus_areas":["Modeling","Data Engineering"],"recommended_resources":["AWS ML Exam Guide","Hands-on Labs"]},"timestamp":"2025-09-28T10:30:00Z"},"next_steps":["Presentation content generation","Slide creation","Avatar generation (if enabled)","Finalization"],"mock_data_used":true,"note":"Gap analysis completed with sample learning gap data"}%                                                                                                      
 # Check content_outlines table
 sqlite3 test_database.db "SELECT id, gap_analysis_id, skill_name, content_items FROM content_outlines WHERE workflow_id='<workflow_id>';"
 
@@ -252,6 +280,12 @@ SELECT
   (SELECT COUNT(*) FROM gap_analysis_results WHERE workflow_id='<workflow_id>') as gap_results,
   (SELECT COUNT(*) FROM content_outlines WHERE workflow_id='<workflow_id>') as outlines,
   (SELECT COUNT(*) FROM recommended_courses WHERE workflow_id='<workflow_id>') as courses;
+
+  (.venv) yitzchak@MacBookPro presgen-assess % sqlite3 test_database.db "SELECT 
+  (SELECT COUNT(*) FROM gap_analysis_results WHERE workflow_id='19952bd09cfe44bc9460c4f521caca89') as gap_results,
+  (SELECT COUNT(*) FROM content_outlines WHERE workflow_id='19952bd09cfe44bc9460c4f521caca89') as outlines, 
+  (SELECT COUNT(*) FROM recommended_courses WHERE workflow_id='19952bd09cfe44bc9460c4f521caca89') as courses;"
+0|0|0
 
 -- Verify foreign key relationships
 SELECT

@@ -1,7 +1,7 @@
 # Phase 5: PresGen-Avatar Video Integration
 
 ## Overview
-**Phase 5** integrates with PresGen-Avatar for personalized video content generation with AI avatars delivering targeted learning content.
+**Phase 5** integrates with PresGen-Avatar (formerly Presgen-Training) for personalized video content generation with AI avatars delivering targeted learning content.
 
 ## Core Components
 

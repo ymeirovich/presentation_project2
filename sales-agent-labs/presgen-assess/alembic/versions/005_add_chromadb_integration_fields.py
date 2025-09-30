@@ -1,7 +1,7 @@
 """Add ChromaDB integration fields to certification profiles
 
 Revision ID: 005_chromadb_integration
-Revises: 004_previous_migration
+Revises: 8a37fe1f7ca9
 Create Date: 2025-09-24 12:00:00.000000
 
 """
@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import UUID
 
 # revision identifiers, used by Alembic.
 revision = '005_chromadb_integration'
-down_revision = '004_previous_migration'  # Replace with actual previous revision
+down_revision = '8a37fe1f7ca9'
 branch_labels = None
 depends_on = None
 

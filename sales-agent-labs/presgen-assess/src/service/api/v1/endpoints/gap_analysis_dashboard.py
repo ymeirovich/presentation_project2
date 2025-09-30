@@ -12,8 +12,8 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from src.database.session import get_db
-from src.database.models import (
+from src.service.database import get_db
+from src.models.gap_analysis import (
     GapAnalysisResult as GapAnalysisResultModel,
     ContentOutline as ContentOutlineModel,
     RecommendedCourse as RecommendedCourseModel

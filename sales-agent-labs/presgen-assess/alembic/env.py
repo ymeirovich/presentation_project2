@@ -40,11 +40,18 @@ target_metadata = Base.metadata
 # ... etc.
 
 def get_url():
-    """Get database URL from environment or config."""
+    """Get database URL from environment or config, converting async URLs to sync."""
     url = os.getenv("DATABASE_URL")
+    if not url:
+        url = config.get_main_option("sqlalchemy.url")
+
+    # Convert async database URLs to sync for Alembic
     if url:
-        return url
-    return config.get_main_option("sqlalchemy.url")
+        # Replace async drivers with sync equivalents
+        url = url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
+        url = url.replace("sqlite+aiosqlite://", "sqlite://")
+
+    return url
 
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode.
