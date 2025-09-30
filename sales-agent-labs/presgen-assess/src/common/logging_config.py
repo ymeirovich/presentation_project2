@@ -269,3 +269,24 @@ def get_assessment_logger() -> logging.Logger:
     if ASSESSMENT_LOGGER is None:
         ASSESSMENT_LOGGER = setup_file_logging("assessments")
     return ASSESSMENT_LOGGER
+
+
+# Sprint 0+: Integration with structured logger
+def get_gap_analysis_logger() -> logging.Logger:
+    """Get the gap analysis service logger (Sprint 1)."""
+    return setup_file_logging("gap_analysis")
+
+
+def get_sheets_export_logger() -> logging.Logger:
+    """Get the sheets export service logger (Sprint 2)."""
+    return setup_file_logging("sheets_export")
+
+
+def get_presgen_core_logger() -> logging.Logger:
+    """Get the PresGen-Core integration logger (Sprint 3)."""
+    return setup_file_logging("presgen_core")
+
+
+def get_presgen_avatar_logger() -> logging.Logger:
+    """Get the PresGen-Avatar integration logger (Sprint 4)."""
+    return setup_file_logging("presgen_avatar")

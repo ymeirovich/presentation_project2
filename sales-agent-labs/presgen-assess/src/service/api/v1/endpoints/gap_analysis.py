@@ -69,8 +69,23 @@ async def analyze_assessment_results(request: GapAnalysisRequest) -> GapAnalysis
     Performs comprehensive analysis of assessment performance,
     confidence patterns, and skill levels to identify learning gaps
     and provide personalized remediation recommendations.
+
+    Sprint 0: Added explicit validation and error handling for request parsing.
     """
     try:
+        # Sprint 0: Validate request data structure
+        if not request.assessment_results:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="assessment_results is required and cannot be empty"
+            )
+
+        if not request.certification_profile:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="certification_profile is required and cannot be empty"
+            )
+
         logger.info(f"🔄 Analyzing assessment results for gap identification")
 
         result = await gap_engine.analyze_assessment_results(
@@ -80,32 +95,52 @@ async def analyze_assessment_results(request: GapAnalysisRequest) -> GapAnalysis
         )
 
         if not result.get("success", False):
+            error_detail = result.get('error', 'Unknown error')
+            logger.error(f"Gap analysis engine returned failure: {error_detail}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Gap analysis failed: {result.get('error', 'Unknown error')}"
+                detail=f"Gap analysis failed: {error_detail}"
             )
 
         logger.info(f"✅ Gap analysis completed - {len(result.get('identified_gaps', []))} gaps identified")
 
-        # Convert to response model
-        skill_assessments = [
-            SkillAssessmentResponse(**skill) for skill in result.get("skill_assessments", [])
-        ]
+        # Sprint 0: Convert to response model with explicit error handling
+        try:
+            skill_assessments = [
+                SkillAssessmentResponse(**skill) for skill in result.get("skill_assessments", [])
+            ]
+        except Exception as skill_error:
+            logger.error(f"Failed to parse skill assessments: {skill_error}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Invalid skill assessment format: {str(skill_error)}"
+            )
 
-        return GapAnalysisResponse(
-            success=result["success"],
-            assessment_id=result["assessment_id"],
-            student_identifier=result["student_identifier"],
-            overall_readiness_score=result["overall_readiness_score"],
-            confidence_analysis=result["confidence_analysis"],
-            identified_gaps=result["identified_gaps"],
-            skill_assessments=skill_assessments,
-            priority_learning_areas=result["priority_learning_areas"],
-            remediation_plan=result["remediation_plan"]
-        )
+        # Sprint 0: Validate all required response fields before returning
+        try:
+            return GapAnalysisResponse(
+                success=result["success"],
+                assessment_id=result["assessment_id"],
+                student_identifier=result["student_identifier"],
+                overall_readiness_score=result["overall_readiness_score"],
+                confidence_analysis=result["confidence_analysis"],
+                identified_gaps=result["identified_gaps"],
+                skill_assessments=skill_assessments,
+                priority_learning_areas=result["priority_learning_areas"],
+                remediation_plan=result["remediation_plan"]
+            )
+        except KeyError as key_error:
+            logger.error(f"Missing required field in gap analysis result: {key_error}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Gap analysis result missing required field: {str(key_error)}"
+            )
 
+    except HTTPException:
+        # Re-raise HTTP exceptions without wrapping
+        raise
     except Exception as e:
-        logger.error(f"❌ Gap analysis failed: {e}")
+        logger.error(f"❌ Gap analysis failed with unexpected error: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to analyze assessment results: {str(e)}"

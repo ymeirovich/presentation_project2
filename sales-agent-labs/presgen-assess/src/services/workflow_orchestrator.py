@@ -18,38 +18,61 @@ from src.services.google_forms_service import GoogleFormsService
 from src.services.assessment_forms_mapper import AssessmentFormsMapper
 from src.services.form_response_processor import FormResponseProcessor
 from src.services.response_ingestion_service import ResponseIngestionService
+from src.services.ai_question_generator import AIQuestionGenerator  # Sprint 1
 from src.service.database import get_db_session as get_async_session
 from src.common.enhanced_logging import (
     get_enhanced_logger,
     log_workflow_stage_start,
     log_form_question_generation
 )
+from src.common.feature_flags import is_feature_enabled  # Sprint 0
+from src.common.structured_logger import StructuredLogger  # Sprint 0
 
 
 class WorkflowOrchestrator:
-    """Orchestrates end-to-end assessment workflow execution."""
+    """Orchestrates end-to-end assessment workflow execution.
+
+    Sprint 1: Added AI question generation integration.
+    """
 
     def __init__(self):
         self.logger = get_enhanced_logger(__name__)
+        self.structured_logger = StructuredLogger("workflow_orchestrator")  # Sprint 0
         self.google_forms_service = GoogleFormsService()
         self.assessment_mapper = AssessmentFormsMapper()
         self.response_processor = FormResponseProcessor()
         self.response_ingestion = ResponseIngestionService()
+        self.ai_question_generator = AIQuestionGenerator()  # Sprint 1
 
     async def execute_assessment_to_form_workflow(
         self,
         certification_profile_id: UUID,
         user_id: str,
         assessment_data: Dict[str, Any],
-        form_settings: Optional[Dict] = None
+        form_settings: Optional[Dict] = None,
+        use_ai_generation: bool = True  # Sprint 1: NEW parameter
     ) -> Dict[str, Any]:
-        """Execute the complete assessment-to-form workflow."""
+        """Execute the complete assessment-to-form workflow.
+
+        Sprint 1: Added AI question generation support via use_ai_generation parameter.
+
+        Args:
+            certification_profile_id: UUID of certification profile
+            user_id: User identifier
+            assessment_data: Assessment data (questions or generation params)
+            form_settings: Optional form configuration
+            use_ai_generation: If True and feature enabled, use AI to generate questions
+
+        Returns:
+            Dict with workflow results including generation_method
+        """
         correlation_id = f"workflow_{certification_profile_id}"
 
         self.logger.info("Starting assessment-to-form workflow", extra={
             "certification_profile_id": str(certification_profile_id),
             "user_id": user_id,
             "correlation_id": correlation_id,
+            "use_ai_generation": use_ai_generation,
             "question_count": len(assessment_data.get("questions", []))
         })
 
@@ -70,6 +93,78 @@ class WorkflowOrchestrator:
                 user_id=user_id,
                 assessment_data=assessment_data
             )
+
+            # Sprint 1: STEP 1 - AI Question Generation (if enabled)
+            generation_method = "manual"
+            if use_ai_generation and is_feature_enabled("enable_ai_question_generation"):
+                self.structured_logger.log_ai_generation_start(
+                    workflow_id=str(workflow.id),
+                    certification_profile_id=str(certification_profile_id),
+                    question_count=assessment_data.get("question_count", 24),
+                    difficulty=assessment_data.get("difficulty", "intermediate")
+                )
+
+                try:
+                    start_time = asyncio.get_event_loop().time()
+
+                    # Generate questions using AI
+                    generation_result = await self.ai_question_generator.generate_contextual_assessment(
+                        certification_profile_id=certification_profile_id,
+                        user_profile=user_id,
+                        difficulty_level=assessment_data.get("difficulty", "intermediate"),
+                        domain_distribution=assessment_data.get("domain_distribution", {}),
+                        question_count=assessment_data.get("question_count", 24)
+                    )
+
+                    generation_time_ms = (asyncio.get_event_loop().time() - start_time) * 1000
+
+                    if not generation_result.get("success", False):
+                        # AI generation failed, log and fall back to manual questions
+                        error_msg = generation_result.get("error", "Unknown error")
+                        self.structured_logger.log_ai_generation_error(
+                            workflow_id=str(workflow.id),
+                            error=error_msg,
+                            fallback_used=True
+                        )
+                        self.logger.warning(f"AI generation failed, using manual questions: {error_msg}")
+                    else:
+                        # AI generation succeeded
+                        questions = generation_result["assessment_data"]["questions"]
+                        quality_scores = generation_result["assessment_data"]["metadata"].get("quality_scores", {})
+
+                        # Update assessment_data with generated questions
+                        if "metadata" not in assessment_data:
+                            assessment_data["metadata"] = {}
+
+                        assessment_data["questions"] = questions
+                        assessment_data["metadata"]["generation_method"] = "ai_generated"
+                        assessment_data["metadata"]["quality_scores"] = quality_scores
+                        generation_method = "ai_generated"
+
+                        avg_quality = quality_scores.get("overall", 0.0)
+                        self.structured_logger.log_ai_generation_complete(
+                            workflow_id=str(workflow.id),
+                            questions_generated=len(questions),
+                            quality_score=avg_quality,
+                            generation_time_ms=generation_time_ms
+                        )
+
+                        self.logger.info(f"AI generated {len(questions)} questions with quality {avg_quality:.2f}")
+
+                except Exception as e:
+                    self.structured_logger.log_ai_generation_error(
+                        workflow_id=str(workflow.id),
+                        error=str(e),
+                        fallback_used=True
+                    )
+                    self.logger.error(f"AI generation exception: {e}", exc_info=True)
+                    # Continue with manual questions from assessment_data
+
+            else:
+                self.logger.info(f"Using manual questions (AI generation {'disabled' if not is_feature_enabled('enable_ai_question_generation') else 'not requested'})")
+                if "metadata" not in assessment_data:
+                    assessment_data["metadata"] = {}
+                assessment_data["metadata"]["generation_method"] = "manual"
 
             # Phase 1: Generate Google Form
             form_result = await self._create_google_form_phase(
@@ -93,6 +188,8 @@ class WorkflowOrchestrator:
                 "workflow_id": str(workflow.id),
                 "form_id": form_result["form_id"],
                 "form_url": form_result["form_url"],
+                "generation_method": generation_method,  # Sprint 1: NEW field
+                "question_count": len(assessment_data.get("questions", [])),  # Sprint 1: NEW field
                 "status": WorkflowStatus.AWAITING_COMPLETION,
                 "message": "Assessment form created and deployed. Awaiting responses."
             }

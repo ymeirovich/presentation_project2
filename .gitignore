@@ -206,3 +206,8 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+#GCP Credentials
+presgen-service-*.json
+token*
+oauth_slides_client*.json
