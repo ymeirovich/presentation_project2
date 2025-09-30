@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { TrendingUp, TrendingDown, AlertTriangle, CheckCircle, BarChart3, PieChart, Download, Share, Brain, Target, BookOpen, Zap, Award } from 'lucide-react'
+import { TrendingUp, TrendingDown, AlertTriangle, CheckCircle, BarChart3, PieChart, Download, Share, Brain, Target, BookOpen, Zap, Award, FileText, GraduationCap, Play } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -10,8 +10,14 @@ import { Progress } from '@/components/ui/progress'
 import { BloomTaxonomyChart } from './BloomTaxonomyChart'
 import { DomainPerformanceChart } from './DomainPerformanceChart'
 import { RemediationAssetsTable } from './RemediationAssetsTable'
-import { GapAnalysisResult } from '@/lib/assess-schemas'
-import { fetchGapAnalysis, exportGapAnalysisToSheets } from '@/lib/assess-api'
+import { GapAnalysisResult, ContentOutlineItem, RecommendedCourse } from '@/lib/assess-schemas'
+import {
+  fetchGapAnalysis,
+  exportGapAnalysisToSheets,
+  fetchContentOutlines,
+  fetchRecommendedCourses,
+  triggerCourseGeneration
+} from '@/lib/assess-api'
 import { toast } from 'sonner'
 
 interface GapAnalysisDashboardProps {
@@ -28,9 +34,14 @@ export function GapAnalysisDashboard({
   onExportToSheets
 }: GapAnalysisDashboardProps) {
   const [gapAnalysis, setGapAnalysis] = useState<GapAnalysisResult | null>(null)
+  const [contentOutlines, setContentOutlines] = useState<ContentOutlineItem[]>([])
+  const [recommendedCourses, setRecommendedCourses] = useState<RecommendedCourse[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadingContent, setLoadingContent] = useState(false)
+  const [loadingCourses, setLoadingCourses] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [exportingToSheets, setExportingToSheets] = useState(false)
+  const [generatingCourses, setGeneratingCourses] = useState<Set<string>>(new Set())
 
   const fetchData = async () => {
     try {
@@ -41,6 +52,64 @@ export function GapAnalysisDashboard({
       setError(err instanceof Error ? err.message : 'Failed to fetch gap analysis')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchContentOutlinesData = async () => {
+    if (contentOutlines.length > 0) return // Already loaded
+    try {
+      setLoadingContent(true)
+      const data = await fetchContentOutlines(workflowId)
+      setContentOutlines(data)
+    } catch (err) {
+      console.error('Failed to fetch content outlines:', err)
+      toast.error('Failed to load content outlines')
+    } finally {
+      setLoadingContent(false)
+    }
+  }
+
+  const fetchRecommendedCoursesData = async () => {
+    if (recommendedCourses.length > 0) return // Already loaded
+    try {
+      setLoadingCourses(true)
+      const data = await fetchRecommendedCourses(workflowId)
+      setRecommendedCourses(data)
+    } catch (err) {
+      console.error('Failed to fetch recommended courses:', err)
+      toast.error('Failed to load recommended courses')
+    } finally {
+      setLoadingCourses(false)
+    }
+  }
+
+  const handleGenerateCourse = async (courseId: string) => {
+    try {
+      setGeneratingCourses(prev => new Set(prev).add(courseId))
+      const result = await triggerCourseGeneration(courseId)
+
+      if (result.success) {
+        toast.success(`Course generation started: ${result.message}`)
+        // Update the course status in state
+        setRecommendedCourses(prev =>
+          prev.map(course =>
+            course.skill_id === courseId
+              ? { ...course, generation_status: 'in_progress' }
+              : course
+          )
+        )
+      } else {
+        toast.error('Failed to start course generation')
+      }
+    } catch (err) {
+      console.error('Failed to trigger course generation:', err)
+      toast.error('Failed to start course generation')
+    } finally {
+      setGeneratingCourses(prev => {
+        const next = new Set(prev)
+        next.delete(courseId)
+        return next
+      })
     }
   }
 
@@ -445,10 +514,16 @@ export function GapAnalysisDashboard({
 
       {/* Charts and Analysis */}
       <Tabs defaultValue="performance" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="performance">Domain Performance</TabsTrigger>
           <TabsTrigger value="bloom">Bloom's Taxonomy</TabsTrigger>
           <TabsTrigger value="enhanced">5-Metric Analysis</TabsTrigger>
+          <TabsTrigger value="content-outline" onClick={fetchContentOutlinesData}>
+            Content Outline
+          </TabsTrigger>
+          <TabsTrigger value="courses" onClick={fetchRecommendedCoursesData}>
+            Recommended Courses
+          </TabsTrigger>
           <TabsTrigger value="assets">Study Plan</TabsTrigger>
         </TabsList>
 
@@ -578,6 +653,217 @@ export function GapAnalysisDashboard({
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="content-outline" className="space-y-4">
+          {loadingContent ? (
+            <Card>
+              <CardContent className="py-8">
+                <div className="flex items-center justify-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+                  <p className="ml-3 text-sm text-muted-foreground">Loading content outlines...</p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : contentOutlines.length === 0 ? (
+            <Card>
+              <CardContent className="py-8">
+                <div className="text-center text-muted-foreground">
+                  <FileText className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                  <p>No content outlines available yet</p>
+                  <p className="text-sm mt-1">Content will be generated based on your skill gaps</p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            contentOutlines.map((outline) => (
+              <Card key={outline.skill_id}>
+                <CardHeader>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-blue-600" />
+                        {outline.skill_name}
+                      </CardTitle>
+                      <p className="text-sm text-muted-foreground mt-1">{outline.exam_domain}</p>
+                    </div>
+                    <Badge variant="secondary" className="ml-2">
+                      RAG Score: {(outline.rag_retrieval_score * 100).toFixed(0)}%
+                    </Badge>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="text-sm font-medium mb-2 flex items-center gap-2">
+                        <BookOpen className="h-4 w-4" />
+                        Exam Guide Section
+                      </h4>
+                      <p className="text-sm text-gray-600 bg-gray-50 p-3 rounded">
+                        {outline.exam_guide_section}
+                      </p>
+                    </div>
+
+                    {outline.content_items && outline.content_items.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-medium mb-2">Learning Resources</h4>
+                        <div className="space-y-2">
+                          {outline.content_items.map((item: any, idx: number) => (
+                            <div key={idx} className="border-l-2 border-blue-600 pl-3 py-2">
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1">
+                                  <p className="text-sm font-medium">{item.topic}</p>
+                                  <p className="text-xs text-muted-foreground mt-1">
+                                    Source: {item.source}
+                                    {item.page_ref && ` • ${item.page_ref}`}
+                                  </p>
+                                  {item.summary && (
+                                    <p className="text-sm text-gray-600 mt-2">{item.summary}</p>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          )}
+        </TabsContent>
+
+        <TabsContent value="courses" className="space-y-4">
+          {loadingCourses ? (
+            <Card>
+              <CardContent className="py-8">
+                <div className="flex items-center justify-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
+                  <p className="ml-3 text-sm text-muted-foreground">Loading recommended courses...</p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : recommendedCourses.length === 0 ? (
+            <Card>
+              <CardContent className="py-8">
+                <div className="text-center text-muted-foreground">
+                  <GraduationCap className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                  <p>No course recommendations available yet</p>
+                  <p className="text-sm mt-1">Courses will be generated based on your skill gaps</p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            recommendedCourses.map((course) => (
+              <Card key={course.skill_id} className={course.generation_status === 'in_progress' ? 'border-blue-500' : ''}>
+                <CardHeader>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <CardTitle className="text-base flex items-center gap-2">
+                        <GraduationCap className="h-4 w-4 text-purple-600" />
+                        {course.course_title}
+                      </CardTitle>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {course.skill_name} • {course.exam_domain}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2 ml-2">
+                      <Badge
+                        variant={course.priority >= 7 ? 'destructive' : course.priority >= 4 ? 'default' : 'secondary'}
+                      >
+                        Priority: {course.priority}/10
+                      </Badge>
+                      <Badge variant="outline" className="capitalize">
+                        {course.difficulty_level}
+                      </Badge>
+                    </div>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <p className="text-sm text-gray-700">{course.course_description}</p>
+
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                      <div className="flex items-center gap-1">
+                        <Target className="h-4 w-4" />
+                        <span>{course.estimated_duration_minutes} minutes</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Award className="h-4 w-4" />
+                        <span className="capitalize">{course.difficulty_level}</span>
+                      </div>
+                    </div>
+
+                    {course.learning_objectives && course.learning_objectives.length > 0 && (
+                      <div>
+                        <h4 className="text-sm font-medium mb-2">Learning Objectives</h4>
+                        <ul className="space-y-1">
+                          {course.learning_objectives.map((objective, idx) => (
+                            <li key={idx} className="text-sm text-gray-600 flex items-start">
+                              <CheckCircle className="h-4 w-4 text-green-600 mr-2 mt-0.5 flex-shrink-0" />
+                              <span>{objective}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between pt-3 border-t">
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant={
+                            course.generation_status === 'completed'
+                              ? 'default'
+                              : course.generation_status === 'in_progress'
+                              ? 'secondary'
+                              : 'outline'
+                          }
+                        >
+                          {course.generation_status === 'completed' && 'Generated'}
+                          {course.generation_status === 'in_progress' && 'Generating...'}
+                          {course.generation_status === 'pending' && 'Not Generated'}
+                          {course.generation_status === 'failed' && 'Failed'}
+                        </Badge>
+                      </div>
+
+                      <Button
+                        size="sm"
+                        onClick={() => handleGenerateCourse(course.skill_id)}
+                        disabled={
+                          course.generation_status === 'completed' ||
+                          course.generation_status === 'in_progress' ||
+                          generatingCourses.has(course.skill_id)
+                        }
+                      >
+                        {generatingCourses.has(course.skill_id) ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                            Generating...
+                          </>
+                        ) : course.generation_status === 'completed' ? (
+                          <>
+                            <CheckCircle className="h-4 w-4 mr-2" />
+                            View Course
+                          </>
+                        ) : course.generation_status === 'in_progress' ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2" />
+                            In Progress
+                          </>
+                        ) : (
+                          <>
+                            <Play className="h-4 w-4 mr-2" />
+                            Generate Course
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))
+          )}
         </TabsContent>
 
         <TabsContent value="assets">
