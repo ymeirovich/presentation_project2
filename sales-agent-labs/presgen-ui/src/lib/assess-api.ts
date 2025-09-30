@@ -19,6 +19,14 @@ import {
   LearningGapSchema,
   WorkflowOrchestrationStatusSchema,
   WorkflowOrchestrationStatus,
+  Sprint1GapAnalysisResult,
+  Sprint1GapAnalysisResultSchema,
+  ContentOutlineItem,
+  ContentOutlineItemSchema,
+  RecommendedCourse,
+  RecommendedCourseSchema,
+  GapAnalysisSummary,
+  GapAnalysisSummarySchema,
 } from '@/lib/assess-schemas'
 
 // Use Next.js API routes as proxy to PresGen-Assess backend
@@ -278,4 +286,59 @@ export async function fetchRemediationAssets(workflowId: string): Promise<Learni
 
   const schema = z.array(LearningGapSchema)
   return parseResponse<LearningGap[]>(response, schema)
+}
+
+// Sprint 1: Gap Analysis Dashboard API Functions
+
+export async function fetchSprint1GapAnalysis(workflowId: string): Promise<Sprint1GapAnalysisResult> {
+  const response = await fetch(buildUrl(`/gap-analysis-dashboard/workflow/${workflowId}`), {
+    headers: getHeaders(),
+    cache: 'no-store',
+  })
+
+  return parseResponse<Sprint1GapAnalysisResult>(response, Sprint1GapAnalysisResultSchema)
+}
+
+export async function fetchContentOutlines(workflowId: string): Promise<ContentOutlineItem[]> {
+  const response = await fetch(buildUrl(`/gap-analysis-dashboard/workflow/${workflowId}/content-outlines`), {
+    headers: getHeaders(),
+    cache: 'no-store',
+  })
+
+  const schema = z.array(ContentOutlineItemSchema)
+  return parseResponse<ContentOutlineItem[]>(response, schema)
+}
+
+export async function fetchRecommendedCourses(workflowId: string): Promise<RecommendedCourse[]> {
+  const response = await fetch(buildUrl(`/gap-analysis-dashboard/workflow/${workflowId}/recommended-courses`), {
+    headers: getHeaders(),
+    cache: 'no-store',
+  })
+
+  const schema = z.array(RecommendedCourseSchema)
+  return parseResponse<RecommendedCourse[]>(response, schema)
+}
+
+export async function fetchGapAnalysisSummary(workflowId: string): Promise<GapAnalysisSummary> {
+  const response = await fetch(buildUrl(`/gap-analysis-dashboard/workflow/${workflowId}/summary`), {
+    headers: getHeaders(),
+    cache: 'no-store',
+  })
+
+  return parseResponse<GapAnalysisSummary>(response, GapAnalysisSummarySchema)
+}
+
+export async function triggerCourseGeneration(courseId: string): Promise<any> {
+  const response = await fetch(buildUrl(`/gap-analysis-dashboard/courses/${courseId}/generate`), {
+    method: 'POST',
+    headers: getHeaders('application/json'),
+  })
+
+  return parseResponse(response, z.object({
+    success: z.boolean(),
+    course_id: z.string().uuid(),
+    status: z.string(),
+    message: z.string(),
+    estimated_duration_minutes: z.number().int(),
+  }))
 }

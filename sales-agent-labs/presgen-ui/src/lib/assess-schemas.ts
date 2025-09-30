@@ -248,3 +248,74 @@ export const GAP_SEVERITY_COLORS = {
   high: '#f44336',
   critical: '#d32f2f',
 } as const
+
+// Sprint 1: Enhanced Gap Analysis Schemas
+
+export const SkillGapSchema = z.object({
+  skill_id: z.string(),
+  skill_name: z.string(),
+  exam_domain: z.string(),
+  exam_subsection: z.string().nullable().optional(),
+  severity: z.number().int().min(0).max(10),
+  confidence_delta: z.number(),
+  question_ids: z.array(z.string()),
+})
+
+export const Sprint1GapAnalysisResultSchema = z.object({
+  workflow_id: z.string().uuid(),
+  overall_score: z.number().min(0).max(100),
+  total_questions: z.number().int(),
+  correct_answers: z.number().int(),
+  incorrect_answers: z.number().int(),
+  skill_gaps: z.array(SkillGapSchema),
+  performance_by_domain: z.record(z.string(), z.number()),
+  text_summary: z.string(),
+  charts_data: z.any().nullable().optional(),
+  generated_at: z.string(),
+})
+
+export const ContentOutlineItemSchema = z.object({
+  skill_id: z.string(),
+  skill_name: z.string(),
+  exam_domain: z.string(),
+  exam_guide_section: z.string(),
+  content_items: z.array(z.any()),
+  rag_retrieval_score: z.number().min(0).max(1),
+})
+
+export const RecommendedCourseSchema = z.object({
+  skill_id: z.string(),
+  skill_name: z.string(),
+  exam_domain: z.string(),
+  exam_subsection: z.string().nullable().optional(),
+  course_title: z.string(),
+  course_description: z.string(),
+  estimated_duration_minutes: z.number().int(),
+  difficulty_level: z.enum(['beginner', 'intermediate', 'advanced']),
+  learning_objectives: z.array(z.string()),
+  content_outline: z.any(),
+  generation_status: z.string(),
+  priority: z.number().int(),
+})
+
+export const GapAnalysisSummarySchema = z.object({
+  workflow_id: z.string().uuid(),
+  overall_score: z.number().min(0).max(100),
+  total_questions: z.number().int(),
+  correct_answers: z.number().int(),
+  incorrect_answers: z.number().int(),
+  text_summary: z.string(),
+  performance_by_domain: z.record(z.string(), z.number()),
+  top_skill_gaps: z.array(SkillGapSchema),
+  total_skill_gaps: z.number().int(),
+  content_outlines_count: z.number().int(),
+  recommended_courses_count: z.number().int(),
+  charts_data: z.any(),
+  generated_at: z.string(),
+})
+
+export type SkillGap = z.infer<typeof SkillGapSchema>
+export type Sprint1GapAnalysisResult = z.infer<typeof Sprint1GapAnalysisResultSchema>
+export type ContentOutlineItem = z.infer<typeof ContentOutlineItemSchema>
+export type RecommendedCourse = z.infer<typeof RecommendedCourseSchema>
+export type GapAnalysisSummary = z.infer<typeof GapAnalysisSummarySchema>

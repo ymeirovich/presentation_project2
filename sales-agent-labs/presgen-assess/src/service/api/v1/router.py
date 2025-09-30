@@ -12,6 +12,7 @@ from src.service.api.v1.endpoints import (
     llm,
     engine,
     gap_analysis,
+    gap_analysis_dashboard,
     presentations,
     auth,
     monitoring,
@@ -81,6 +82,13 @@ api_router.include_router(
     gap_analysis.router,
     prefix="/gap-analysis",
     tags=["gap-analysis", "ai-services"]
+)
+
+# Sprint 1: Gap Analysis Dashboard
+api_router.include_router(
+    gap_analysis_dashboard.router,
+    prefix="/gap-analysis-dashboard",
+    tags=["gap-analysis-dashboard", "sprint-1"]
 )
 
 api_router.include_router(
