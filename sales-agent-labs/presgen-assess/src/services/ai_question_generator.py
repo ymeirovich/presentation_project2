@@ -71,9 +71,14 @@ class GeneratedQuestion:
         self.source_references = source_references or []
         self.quality_metrics = quality_metrics or QuestionQualityMetrics()
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary format for API responses."""
-        return {
+    def to_dict(self, include_explanation: bool = False) -> Dict[str, Any]:
+        """Convert to dictionary format for API responses.
+
+        Args:
+            include_explanation: If True, includes explanation (for Gap Analysis).
+                                If False, excludes explanation (for assessments).
+        """
+        result = {
             "id": self.question_id,
             "question_text": self.question_text,
             "question_type": self.question_type,
@@ -81,10 +86,15 @@ class GeneratedQuestion:
             "correct_answer": self.correct_answer,
             "domain": self.domain,
             "difficulty": self.difficulty,
-            "explanation": self.explanation,
             "source_references": self.source_references,
             "quality_score": self.quality_metrics.overall_score
         }
+
+        # Only include explanation if explicitly requested (e.g., for Gap Analysis)
+        if include_explanation:
+            result["explanation"] = self.explanation
+
+        return result
 
 
 class AIQuestionGenerator:
@@ -330,19 +340,63 @@ class AIQuestionGenerator:
 
         questions = []
         domain_knowledge = cert_resources.get("knowledge_domains", {}).get(domain, "")
+        generated_question_texts = set()  # Track question text for deduplication
 
         for i in range(question_count):
-            question = await self._generate_single_question(
-                domain=domain,
-                question_number=i + 1,
-                difficulty_level=difficulty_level,
-                domain_knowledge=domain_knowledge,
-                cert_resources=cert_resources,
-                correlation_id=correlation_id
-            )
-            questions.append(question)
+            # Try up to 3 times to generate a unique question
+            for attempt in range(3):
+                question = await self._generate_single_question(
+                    domain=domain,
+                    question_number=i + 1,
+                    difficulty_level=difficulty_level,
+                    domain_knowledge=domain_knowledge,
+                    cert_resources=cert_resources,
+                    correlation_id=correlation_id,
+                    existing_questions=list(generated_question_texts)
+                )
+
+                # Check if question is unique (not too similar to existing ones)
+                if not self._is_duplicate_question(question.question_text, generated_question_texts):
+                    generated_question_texts.add(question.question_text)
+                    questions.append(question)
+                    break
+                else:
+                    logger.warning(
+                        "Duplicate question detected, retrying | domain=%s attempt=%d correlation_id=%s",
+                        domain, attempt + 1, correlation_id
+                    )
+                    if attempt == 2:  # Last attempt
+                        # Accept the question anyway to avoid infinite loops
+                        generated_question_texts.add(question.question_text)
+                        questions.append(question)
 
         return questions
+
+    def _is_duplicate_question(self, new_question: str, existing_questions: set) -> bool:
+        """Check if a question is too similar to existing questions.
+
+        Uses simple similarity check based on shared key phrases.
+        """
+        if not existing_questions:
+            return False
+
+        # Normalize the new question for comparison
+        new_words = set(new_question.lower().split())
+
+        for existing_question in existing_questions:
+            existing_words = set(existing_question.lower().split())
+
+            # Calculate Jaccard similarity
+            intersection = new_words.intersection(existing_words)
+            union = new_words.union(existing_words)
+
+            if len(union) > 0:
+                similarity = len(intersection) / len(union)
+                # If more than 70% similar, consider it a duplicate
+                if similarity > 0.7:
+                    return True
+
+        return False
 
     async def _generate_single_question(
         self,
@@ -351,7 +405,8 @@ class AIQuestionGenerator:
         difficulty_level: str,
         domain_knowledge: str,
         cert_resources: Dict[str, Any],
-        correlation_id: str
+        correlation_id: str,
+        existing_questions: List[str] = None
     ) -> GeneratedQuestion:
         """Generate a single contextual question using knowledge base."""
 
@@ -398,7 +453,8 @@ class AIQuestionGenerator:
                 difficulty_level=difficulty_level,
                 context_chunks=domain_context,
                 cert_name=cert_name,
-                correlation_id=correlation_id
+                correlation_id=correlation_id,
+                existing_questions=existing_questions or []
             )
 
             # Create question with quality metrics
@@ -498,7 +554,8 @@ class AIQuestionGenerator:
         difficulty_level: str,
         context_chunks: List[Dict],
         cert_name: str,
-        correlation_id: str
+        correlation_id: str,
+        existing_questions: List[str] = None
     ) -> Dict[str, Any]:
         """Generate question using LLM with knowledge base context."""
 
@@ -508,11 +565,18 @@ class AIQuestionGenerator:
             for chunk in context_chunks
         ])
 
+        # Add existing questions to avoid duplicates
+        existing_questions_text = ""
+        if existing_questions:
+            existing_questions_text = "\n\nEXISTING QUESTIONS TO AVOID (generate something different):\n" + "\n".join(
+                f"- {q}" for q in existing_questions[-5:]  # Show last 5 to avoid duplicates
+            )
+
         # Create prompt for LLM to generate question
         prompt = f"""Based on the following certification content, generate a {difficulty_level} level multiple choice question for the {domain} domain of {cert_name}.
 
 Context from certification materials:
-{context_text}
+{context_text}{existing_questions_text}
 
 Requirements:
 1. Create a question that tests understanding of concepts from the provided context
@@ -520,6 +584,7 @@ Requirements:
 3. Indicate the correct answer
 4. Provide a detailed explanation
 5. Include source references from the context
+6. IMPORTANT: The question must be unique and focus on a DIFFERENT concept or scenario than the existing questions shown above
 
 Format your response as JSON:
 {{

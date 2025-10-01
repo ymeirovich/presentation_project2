@@ -242,6 +242,8 @@ async def get_recommended_courses(
         # Convert to response schemas
         courses = [
             RecommendedCourse(
+                id=course.id,
+                workflow_id=course.workflow_id,
                 skill_id=course.skill_id,
                 skill_name=course.skill_name,
                 exam_domain=course.exam_domain,
@@ -268,6 +270,117 @@ async def get_recommended_courses(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve recommended courses: {str(e)}"
+        )
+
+
+@router.get(
+    "/workflow/{workflow_id}/answers",
+    status_code=status.HTTP_200_OK
+)
+async def get_assessment_answers(
+    workflow_id: UUID,
+    db: AsyncSession = Depends(get_db)
+) -> Dict:
+    """
+    Retrieve assessment answers with explanations for correct/incorrect responses.
+
+    Returns detailed answer information including:
+    - Question text
+    - User's answer
+    - Correct answer
+    - Explanation for the correct answer
+    - Whether the user was correct
+    - Domain and difficulty level
+
+    This endpoint powers the Answers tab on the Gap Analysis Dashboard.
+
+    Args:
+        workflow_id: UUID of the workflow execution
+        db: Database session
+
+    Returns:
+        Dict: Contains lists of correct and incorrect answers with explanations
+
+    Raises:
+        404: Workflow or assessment data not found
+        500: Database error
+    """
+    try:
+        logger.info(f"Fetching assessment answers for workflow: {workflow_id}")
+
+        # Get workflow with assessment data
+        from src.models.workflow import WorkflowExecution
+
+        result = await db.execute(
+            select(WorkflowExecution).where(WorkflowExecution.id == workflow_id)
+        )
+        workflow = result.scalar_one_or_none()
+
+        if not workflow:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Workflow {workflow_id} not found"
+            )
+
+        # Extract questions and responses from workflow
+        assessment_data = workflow.assessment_data or {}
+        questions = assessment_data.get("questions", [])
+        responses = workflow.collected_responses or []
+
+        # Create a map of question_id to question data
+        question_map = {q.get("id"): q for q in questions}
+
+        # Process responses and categorize as correct/incorrect
+        correct_answers = []
+        incorrect_answers = []
+
+        for response in responses:
+            question_id = response.get("question_id")
+            question = question_map.get(question_id, {})
+
+            if not question:
+                continue
+
+            user_answer = response.get("answer")
+            correct_answer = question.get("correct_answer")
+            is_correct = user_answer == correct_answer
+
+            answer_detail = {
+                "question_id": question_id,
+                "question_text": question.get("question_text", ""),
+                "user_answer": user_answer,
+                "correct_answer": correct_answer,
+                "explanation": question.get("explanation", "No explanation available."),
+                "domain": question.get("domain", "General"),
+                "difficulty": question.get("difficulty", "intermediate"),
+                "options": question.get("options", []),
+                "is_correct": is_correct
+            }
+
+            if is_correct:
+                correct_answers.append(answer_detail)
+            else:
+                incorrect_answers.append(answer_detail)
+
+        logger.info(f"✅ Retrieved {len(correct_answers)} correct and {len(incorrect_answers)} incorrect answers")
+
+        return {
+            "workflow_id": str(workflow_id),
+            "total_questions": len(questions),
+            "correct_count": len(correct_answers),
+            "incorrect_count": len(incorrect_answers),
+            "correct_answers": correct_answers,
+            "incorrect_answers": incorrect_answers,
+            "score_percentage": round((len(correct_answers) / len(questions) * 100), 2) if questions else 0
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to retrieve assessment answers: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve assessment answers: {str(e)}"
         )
 
 
@@ -464,6 +577,7 @@ async def gap_analysis_dashboard_health() -> Dict:
             "GET /workflow/{workflow_id}",
             "GET /workflow/{workflow_id}/content-outlines",
             "GET /workflow/{workflow_id}/recommended-courses",
+            "GET /workflow/{workflow_id}/answers",
             "GET /workflow/{workflow_id}/summary",
             "POST /courses/{course_id}/generate"
         ]

@@ -794,5 +794,87 @@ POST /api/v1/workflows/{id}/manual-presentation
 - `src/logs/api.log`: Now tracking all API requests
 - `src/logs/assessments.log`: Now tracking AI question generation
 
+---
+
+### 🎯 **Sprint 1: Gap Analysis Dashboard & Workflow Completion** (Oct 1, 2025)
+
+**Major Enhancement**: Workflow completion, question quality improvements, and dashboard features
+
+#### 🔧 **Assessment Question Quality Fixes**
+- ✅ **Duplicate Question Prevention**:
+  - Implemented Jaccard similarity detection (70% threshold)
+  - Added retry logic (3 attempts) for unique question generation
+  - Enhanced LLM prompt to show last 5 questions and require diversity
+- ✅ **Explanation Display Fix**:
+  - Modified `GeneratedQuestion.to_dict()` with `include_explanation` parameter
+  - Explanations now hidden from assessments by default
+  - Explanations only shown in Gap Analysis answers tab
+
+**Files Modified:**
+- `src/services/ai_question_generator.py`: Added deduplication and explanation control
+
+#### 📊 **Workflow Timeline & Progress Updates**
+- ✅ **100% Completion at Gap Analysis**:
+  - Workflow now completes at Gap Analysis (was continuing to presentation)
+  - Progress: Gap analysis start (90%) → Gap analysis complete (100%)
+  - Status: `execution_status = "completed"`, `current_step = "gap_analysis_complete"`
+- ✅ **Removed Presentation Timeline Cards**:
+  - Removed: Generate Presentation, Content Generation, Slide Generation, Finalize
+  - Added: "Workflow Complete" step with dashboard instructions
+- ✅ **Fixed Stuck Workflow**: Updated workflow 8e46398d-c292-4439-a045-31dfeb49d7ef
+
+**Files Modified:**
+- `src/service/api/v1/endpoints/workflows.py`: Updated progress calculation and return values
+- `src/services/workflow_orchestrator.py`: Modified completion logic
+- `presgen-ui/src/components/assess/WorkflowTimeline.tsx`: Removed presentation steps
+
+#### 🎨 **Gap Analysis Dashboard Enhancements**
+- ✅ **Answers Tab with Explanations**:
+  - New endpoint: `GET /gap-analysis-dashboard/workflow/{workflow_id}/answers`
+  - Returns correct/incorrect answers with explanations, domains, difficulty
+  - Segregated by correctness for easy review
+- ✅ **Presentation Generation from Dashboard**:
+  - User-initiated course generation (not automatic in workflow)
+  - "Generate Presentation" buttons on recommended courses
+  - Endpoint: `POST /gap-analysis-dashboard/courses/{course_id}/generate`
+
+**Files Modified:**
+- `src/service/api/v1/endpoints/gap_analysis_dashboard.py`: Added answers endpoint
+- `src/schemas/gap_analysis.py`: Added `id` and `workflow_id` to RecommendedCourse
+
+#### 🐛 **Critical Bug Fixes**
+- ✅ **NextJS Async Params Fix**:
+  - Updated route handler to await params (NextJS 15 requirement)
+  - Fixed: `params: Promise<{ course_id: string }>`
+- ✅ **Course Generation ID Fix**:
+  - Changed from `skill_id` ("security") to database `id` (UUID)
+  - Updated frontend schema and component to use `course.id`
+
+**Files Modified:**
+- `presgen-ui/src/app/api/presgen-assess/gap-analysis-dashboard/courses/[course_id]/generate/route.ts`
+- `presgen-ui/src/lib/assess-schemas.ts`: Added `id` and `workflow_id` fields
+- `presgen-ui/src/components/assess/GapAnalysisDashboard.tsx`: Updated to use `course.id`
+
+#### 📈 **Impact Summary**
+- **Question Quality**: Eliminated duplicate questions, proper explanation placement
+- **User Experience**: Clear workflow completion at 100%, no confusing presentation steps
+- **Dashboard Features**: Comprehensive answers review, user-controlled presentation generation
+- **Production Readiness**: Fixed critical bugs, improved API consistency
+
+**API Endpoints Added:**
+```
+GET  /api/v1/gap-analysis-dashboard/workflow/{workflow_id}/answers
+POST /api/v1/workflows/{workflow_id}/manual-gap-analysis
+```
+
+**Workflow Changes:**
+```
+Old Flow: Assessment (70%) → Gap Analysis (75%) → Presentation (85%) → Finalize (100%)
+New Flow: Assessment (70%) → Gap Analysis (90%) → Gap Analysis Complete (100%)
+         └─> Presentation generation now user-initiated from Dashboard
+```
+
+---
+
 **Next Phase**: Production deployment, integration testing, and user onboarding
 **Maintainer**: Claude Code Assistant

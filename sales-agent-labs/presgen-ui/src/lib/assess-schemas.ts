@@ -284,6 +284,8 @@ export const ContentOutlineItemSchema = z.object({
 })
 
 export const RecommendedCourseSchema = z.object({
+  id: z.string().uuid(),
+  workflow_id: z.string().uuid(),
   skill_id: z.string(),
   skill_name: z.string(),
   exam_domain: z.string(),

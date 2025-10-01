@@ -27,10 +27,7 @@ const WORKFLOW_STEPS = [
   { id: 'generate_assessment', name: 'Generate Assessment', description: 'Creating final assessment' },
   { id: 'collect_responses', name: 'Collect Responses', description: 'Waiting for form responses' },
   { id: 'gap_analysis', name: 'Gap Analysis', description: 'Analyzing learning gaps' },
-  { id: 'presentation_generation', name: 'Generate Presentation', description: 'Creating presentation content' },
-  { id: 'content_generation', name: 'Content Generation', description: 'Generating learning content' },
-  { id: 'slide_generation', name: 'Slide Generation', description: 'Creating presentation slides' },
-  { id: 'finalize_workflow', name: 'Finalize', description: 'Completing workflow' },
+  { id: 'gap_analysis_complete', name: 'Workflow Complete', description: 'Gap Analysis completed - presentations available on Dashboard' },
 ]
 
 function getStatusIcon(status: WorkflowStep['status'], isActive: boolean) {

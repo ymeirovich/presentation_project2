@@ -4,10 +4,10 @@ const ASSESS_API_URL = process.env.NEXT_PUBLIC_ASSESS_API_URL || 'http://localho
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { course_id: string } }
+  { params }: { params: Promise<{ course_id: string }> }
 ) {
   try {
-    const { course_id } = params
+    const { course_id } = await params
     const backendUrl = `${ASSESS_API_URL}/api/v1/gap-analysis-dashboard/courses/${course_id}/generate`
 
     console.log('Proxying POST Trigger Course Generation for course:', course_id, 'to:', backendUrl)

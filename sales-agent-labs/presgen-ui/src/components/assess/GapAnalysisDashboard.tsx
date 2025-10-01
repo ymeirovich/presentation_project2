@@ -93,7 +93,7 @@ export function GapAnalysisDashboard({
         // Update the course status in state
         setRecommendedCourses(prev =>
           prev.map(course =>
-            course.skill_id === courseId
+            course.id === courseId
               ? { ...course, generation_status: 'in_progress' }
               : course
           )
@@ -829,14 +829,14 @@ export function GapAnalysisDashboard({
 
                       <Button
                         size="sm"
-                        onClick={() => handleGenerateCourse(course.skill_id)}
+                        onClick={() => handleGenerateCourse(course.id)}
                         disabled={
                           course.generation_status === 'completed' ||
                           course.generation_status === 'in_progress' ||
-                          generatingCourses.has(course.skill_id)
+                          generatingCourses.has(course.id)
                         }
                       >
-                        {generatingCourses.has(course.skill_id) ? (
+                        {generatingCourses.has(course.id) ? (
                           <>
                             <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
                             Generating...

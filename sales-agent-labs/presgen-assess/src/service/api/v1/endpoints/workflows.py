@@ -1036,7 +1036,7 @@ async def manual_process_completed_form(
         # Update workflow status manually
         workflow.current_step = "gap_analysis"
         workflow.execution_status = "processing"
-        workflow.progress = 75
+        workflow.progress = 90
 
         # Commit the changes
         await db.commit()
@@ -1144,10 +1144,10 @@ async def manual_gap_analysis_completion(
                 certification_profile=cert_profile
             )
 
-        # Update workflow to presentation stage
-        workflow.current_step = "presentation_generation"
-        workflow.execution_status = "processing"
-        workflow.progress = 85
+        # Update workflow to completed (Gap Analysis is now the final step)
+        workflow.current_step = "gap_analysis_complete"
+        workflow.execution_status = "completed"
+        workflow.progress = 100
 
         await db.commit()
         await db.refresh(workflow)
@@ -1156,21 +1156,20 @@ async def manual_gap_analysis_completion(
 
         return {
             "success": True,
-            "message": "Gap analysis completed and persisted to database",
+            "message": "Gap analysis completed - workflow is now complete at 100%",
             "workflow_id": str(workflow_id),
             "gap_analysis_id": gap_result["gap_analysis_id"],
-            "status": "processing",
-            "current_step": "presentation_generation",
-            "progress": 85,
+            "status": "completed",
+            "current_step": "gap_analysis_complete",
+            "progress": 100,
             "gap_analysis_results": gap_result,
             "next_steps": [
-                "Presentation content generation",
-                "Slide creation",
-                "Avatar generation (if enabled)",
-                "Finalization"
+                "View Gap Analysis Dashboard",
+                "Generate presentations from Dashboard (user-initiated)",
+                "Generate courses from Recommended Courses (user-initiated)"
             ],
             "mock_data_used": True,
-            "note": "Gap analysis completed with sample learning gap data"
+            "note": "Workflow complete. Presentation generation is now available on the Gap Analysis Dashboard."
         }
 
     except HTTPException:

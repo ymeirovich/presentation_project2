@@ -101,6 +101,8 @@ class ContentOutlineItem(BaseModel):
 
 class RecommendedCourse(BaseModel):
     """Course recommendation for skill gap."""
+    id: UUID = Field(..., description="Course database ID")
+    workflow_id: UUID = Field(..., description="Associated workflow ID")
     skill_id: str
     skill_name: str
     exam_domain: str

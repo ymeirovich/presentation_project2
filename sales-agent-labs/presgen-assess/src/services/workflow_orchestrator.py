@@ -525,12 +525,21 @@ class WorkflowOrchestrator:
                             "gap_analysis_id": gap_analysis_result.get("gap_analysis_id")
                         })
 
-                # Transition to next phase
+                # Workflow completes at Gap Analysis (100%)
                 await self._update_workflow_status(
                     workflow_id,
-                    WorkflowStatus.TRAINING_PLAN_GENERATED,
-                    "generate_training_plan"
+                    WorkflowStatus.COMPLETED,
+                    "gap_analysis_complete"
                 )
+
+                # Update progress to 100%
+                async with get_async_session() as session:
+                    await session.execute(
+                        update(WorkflowExecution)
+                        .where(WorkflowExecution.id == workflow_id)
+                        .values(progress=100)
+                    )
+                    await session.commit()
 
                 return {
                     "success": True,
