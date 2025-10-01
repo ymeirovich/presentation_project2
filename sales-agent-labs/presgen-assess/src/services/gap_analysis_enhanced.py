@@ -126,6 +126,7 @@ class EnhancedGapAnalysisService:
                 "gap_analysis_id": str(gap_analysis_id),
                 "workflow_id": str(workflow_id),
                 "overall_score": gap_analysis.get("overall_readiness_score", 0.0),
+                "skill_gaps": skill_gaps,
                 "skill_gaps_count": len(skill_gaps),
                 "text_summary": text_summary,
                 "processing_time_ms": processing_time_ms
@@ -175,7 +176,7 @@ class EnhancedGapAnalysisService:
                 skill_id=skill_gap.get("skill_id"),
                 skill_name=skill_gap.get("skill_name"),
                 exam_domain=skill_gap.get("exam_domain"),
-                exam_guide_section=skill_gap.get("exam_subsection", "General"),
+                exam_guide_section=skill_gap.get("exam_subsection") or "General",
                 content_items=content_items,
                 rag_retrieval_score=0.75  # Placeholder score
             )
@@ -455,7 +456,7 @@ Your strongest areas are:
                     "exam_domain": skill.get("domain", "General"),
                     "exam_subsection": skill.get("subsection"),
                     "severity": min(max(severity, 0), 10),
-                    "confidence_delta": skill.get("confidence_calibration", "unknown"),
+                    "confidence_delta": skill.get("confidence_calibration", 0.0) if isinstance(skill.get("confidence_calibration"), (int, float)) else 0.0,
                     "question_ids": []
                 })
 

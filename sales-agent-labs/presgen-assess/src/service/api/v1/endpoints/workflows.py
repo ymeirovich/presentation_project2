@@ -1074,9 +1074,9 @@ async def manual_gap_analysis_completion(
     workflow_id: UUID,
     db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
-    """Manually complete gap analysis and advance to presentation stage."""
+    """Manually complete gap analysis WITH database persistence."""
     try:
-        logger.info(f"🎯 Manual gap analysis completion | workflow_id={workflow_id}")
+        logger.info(f"🎯 Manual gap analysis with persistence | workflow_id={workflow_id}")
 
         # Get workflow details
         stmt = select(WorkflowExecution).where(WorkflowExecution.id == workflow_id)
@@ -1089,67 +1089,80 @@ async def manual_gap_analysis_completion(
                 detail="Workflow not found"
             )
 
-        # Create mock gap analysis results
-        mock_gap_analysis = {
-            "success": True,
-            "assessment_id": f"{workflow.id}_gap_analysis",
-            "student_identifier": workflow.user_id,
-            "overall_readiness_score": 0.68,
-            "confidence_analysis": {
-                "avg_confidence": 3.2,
-                "calibration_score": 0.75,
-                "overconfidence_domains": ["Modeling"],
-                "underconfidence_domains": ["Data Engineering"]
-            },
-            "identified_gaps": [
-                {
-                    "domain": "Modeling",
-                    "gap_severity": "high",
-                    "current_score": 58,
-                    "target_score": 80,
-                    "improvement_needed": 22
-                },
-                {
-                    "domain": "Data Engineering",
-                    "gap_severity": "medium",
-                    "current_score": 65,
-                    "target_score": 80,
-                    "improvement_needed": 15
-                }
-            ],
-            "priority_learning_areas": [
-                "Model Selection and Evaluation",
-                "Feature Engineering",
-                "Data Pipeline Architecture",
-                "ML Model Deployment"
-            ],
-            "remediation_plan": {
-                "total_study_hours": 24,
-                "focus_areas": ["Modeling", "Data Engineering"],
-                "recommended_resources": ["AWS ML Exam Guide", "Hands-on Labs"]
-            },
-            "timestamp": "2025-09-28T10:30:00Z"
+        # Generate mock assessment responses for testing
+        mock_responses = [
+            {
+                "question_id": f"q{i}",
+                "domain": ["Security", "Networking", "Compute"][i % 3],
+                "skill_id": f"skill_{i}",
+                "skill_name": ["IAM Policies", "VPC Configuration", "EC2 Instances", "S3 Storage", "Lambda Functions"][i % 5],
+                "exam_domain": ["Security and Compliance", "Networking", "Compute"][i % 3],
+                "exam_subsection": "Core Concepts",
+                "user_answer": "A",
+                "correct_answer": "B" if i % 2 == 0 else "A",
+                "is_correct": i % 2 != 0,
+                "confidence": 3
+            }
+            for i in range(5)
+        ]
+
+        # Prepare certification profile
+        cert_profile = {
+            "id": str(workflow.certification_profile_id),
+            "name": "AWS Solutions Architect",
+            "collection_name": "aws_sa_certification"
         }
+
+        # Use EnhancedGapAnalysisService for database persistence
+        from src.services.gap_analysis_enhanced import EnhancedGapAnalysisService
+
+        gap_service = EnhancedGapAnalysisService()
+
+        # Perform gap analysis and persist to database
+        gap_result = await gap_service.analyze_and_persist(
+            workflow_id=workflow_id,
+            assessment_responses=mock_responses,
+            certification_profile=cert_profile
+        )
+
+        # Generate content outlines
+        skill_gaps = gap_result.get("skill_gaps", [])
+        if skill_gaps:
+            await gap_service.generate_content_outlines(
+                gap_analysis_id=UUID(gap_result["gap_analysis_id"]),
+                workflow_id=workflow_id,
+                skill_gaps=skill_gaps,
+                certification_profile=cert_profile
+            )
+
+        # Generate recommended courses
+        if skill_gaps:
+            await gap_service.generate_course_recommendations(
+                gap_analysis_id=UUID(gap_result["gap_analysis_id"]),
+                workflow_id=workflow_id,
+                skill_gaps=skill_gaps,
+                certification_profile=cert_profile
+            )
 
         # Update workflow to presentation stage
         workflow.current_step = "presentation_generation"
         workflow.execution_status = "processing"
         workflow.progress = 85
 
-        # Commit the changes
         await db.commit()
         await db.refresh(workflow)
 
-        logger.info(f"✅ Manual gap analysis completed | workflow_id={workflow_id}")
+        logger.info(f"✅ Gap analysis persisted | gap_analysis_id={gap_result['gap_analysis_id']}")
 
         return {
             "success": True,
-            "message": "Gap analysis completed manually",
+            "message": "Gap analysis completed and persisted to database",
             "workflow_id": str(workflow_id),
+            "gap_analysis_id": gap_result["gap_analysis_id"],
             "status": "processing",
             "current_step": "presentation_generation",
             "progress": 85,
-            "gap_analysis_results": mock_gap_analysis,
+            "gap_analysis_results": gap_result,
             "next_steps": [
                 "Presentation content generation",
                 "Slide creation",

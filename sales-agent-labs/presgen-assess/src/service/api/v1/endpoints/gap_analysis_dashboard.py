@@ -62,11 +62,12 @@ async def get_gap_analysis_by_workflow(
     try:
         logger.info(f"Fetching gap analysis for workflow: {workflow_id}")
 
-        # Query database for gap analysis result
+        # Query database for gap analysis result (most recent)
         result = await db.execute(
-            select(GapAnalysisResultModel).where(
-                GapAnalysisResultModel.workflow_id == workflow_id
-            )
+            select(GapAnalysisResultModel)
+            .where(GapAnalysisResultModel.workflow_id == workflow_id)
+            .order_by(GapAnalysisResultModel.created_at.desc())
+            .limit(1)
         )
         gap_analysis_db = result.scalar_one_or_none()
 
@@ -133,11 +134,12 @@ async def get_content_outlines(
     try:
         logger.info(f"Fetching content outlines for workflow: {workflow_id}")
 
-        # First verify gap analysis exists
+        # First verify gap analysis exists (get most recent)
         gap_result = await db.execute(
-            select(GapAnalysisResultModel).where(
-                GapAnalysisResultModel.workflow_id == workflow_id
-            )
+            select(GapAnalysisResultModel)
+            .where(GapAnalysisResultModel.workflow_id == workflow_id)
+            .order_by(GapAnalysisResultModel.created_at.desc())
+            .limit(1)
         )
         gap_analysis = gap_result.scalar_one_or_none()
 
@@ -214,11 +216,12 @@ async def get_recommended_courses(
     try:
         logger.info(f"Fetching recommended courses for workflow: {workflow_id}")
 
-        # First verify gap analysis exists
+        # First verify gap analysis exists (get most recent)
         gap_result = await db.execute(
-            select(GapAnalysisResultModel).where(
-                GapAnalysisResultModel.workflow_id == workflow_id
-            )
+            select(GapAnalysisResultModel)
+            .where(GapAnalysisResultModel.workflow_id == workflow_id)
+            .order_by(GapAnalysisResultModel.created_at.desc())
+            .limit(1)
         )
         gap_analysis = gap_result.scalar_one_or_none()
 
