@@ -36,16 +36,29 @@ class GoogleSheetsService:
                 logger.warning(f"⚠️ Google Sheets service initialization failed: {e}")
 
     def _initialize_service(self):
-        """Initialize Google Sheets API service."""
+        """Initialize Google Sheets API service with service account."""
         try:
+            logger.info(f"🔐 Initializing Google Sheets service with service account: {self.credentials_path}")
+
+            # Load service account credentials
             credentials = Credentials.from_service_account_file(
                 self.credentials_path,
                 scopes=self.scopes
             )
-            self.service = build('sheets', 'v4', credentials=credentials)
-            logger.info("✅ Google Sheets service initialized successfully")
+
+            logger.info(f"✅ Service account credentials loaded successfully")
+            logger.debug(f"📋 Scopes: {', '.join(self.scopes)}")
+
+            # Build Sheets API service
+            self.service = build('sheets', 'v4', credentials=credentials, cache_discovery=False)
+
+            logger.info("✅ Google Sheets API service initialized successfully")
+
+        except FileNotFoundError as e:
+            logger.error(f"❌ Service account file not found: {self.credentials_path}")
+            raise
         except Exception as e:
-            logger.error(f"❌ Failed to initialize Google Sheets service: {e}")
+            logger.error(f"❌ Failed to initialize Google Sheets service: {e}", exc_info=True)
             raise
 
     async def export_skill_gap_analysis(
@@ -54,39 +67,56 @@ class GoogleSheetsService:
         spreadsheet_title: Optional[str] = None,
         share_with_email: Optional[str] = None
     ) -> Dict:
-        """Export skill gap analysis to Google Sheets."""
+        """Export skill gap analysis to Google Sheets with 4-tab format."""
+        export_start_time = datetime.now()
+        logger.info("📊 Starting Google Sheets export | title=%s share_email=%s", spreadsheet_title, share_with_email)
+
         try:
             if not GOOGLE_SHEETS_AVAILABLE:
+                logger.warning("⚠️ Google Sheets libraries not available")
                 return self._create_mock_export_response("Google Sheets libraries not available")
 
             if not self.service:
+                logger.error("❌ Google Sheets service not initialized")
                 return self._create_mock_export_response("Google Sheets service not initialized")
 
             # Create or get spreadsheet
             spreadsheet_title = spreadsheet_title or f"Skill_Gap_Analysis_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            logger.info(f"📝 Creating spreadsheet: {spreadsheet_title}")
+
             spreadsheet = await self._create_spreadsheet(spreadsheet_title)
 
             if not spreadsheet:
+                logger.error("❌ Spreadsheet creation returned None")
                 return self._create_mock_export_response("Failed to create spreadsheet")
 
             spreadsheet_id = spreadsheet['spreadsheetId']
             spreadsheet_url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}"
+            logger.info(f"✅ Spreadsheet created | id={spreadsheet_id} url={spreadsheet_url}")
 
             # Prepare export data
             export_data = gap_analysis_data.get("google_sheets_export_data", {})
+            logger.info(f"📋 Export data prepared | sections={len(export_data.get('sections', {}))} charts={len(export_data.get('charts', []))}")
 
             # Create skill gap analysis tab
+            logger.info("📄 Creating Tab 1: Skill Gap Analysis")
             tab_result = await self._create_skill_gap_tab(spreadsheet_id, export_data)
+            logger.info(f"✅ Tab 1 created | success={tab_result.get('success')} updates={tab_result.get('updates', 0)}")
 
             # Create visualizations tab
+            logger.info("📊 Creating Tab 2: Charts and Visualizations")
             charts_result = await self._create_charts_tab(spreadsheet_id, export_data)
+            logger.info(f"✅ Tab 2 created | success={charts_result.get('success')} charts={charts_result.get('charts_created', 0)}")
 
             # Share spreadsheet if email provided
             sharing_result = None
             if share_with_email:
+                logger.info(f"🔗 Sharing spreadsheet with {share_with_email}")
                 sharing_result = await self._share_spreadsheet(spreadsheet_id, share_with_email)
+                logger.info(f"✅ Sharing completed | success={sharing_result.get('success')}")
 
-            logger.info(f"✅ Successfully exported skill gap analysis to Google Sheets: {spreadsheet_url}")
+            export_duration = (datetime.now() - export_start_time).total_seconds()
+            logger.info(f"✅ Successfully exported skill gap analysis to Google Sheets | duration={export_duration:.2f}s url={spreadsheet_url}")
 
             return {
                 "success": True,
@@ -110,6 +140,7 @@ class GoogleSheetsService:
     async def _create_spreadsheet(self, title: str) -> Optional[Dict]:
         """Create a new Google Spreadsheet."""
         try:
+            logger.debug(f"🔨 Creating spreadsheet with title: {title}")
             spreadsheet_body = {
                 'properties': {
                     'title': title
@@ -120,18 +151,22 @@ class GoogleSheetsService:
                 body=spreadsheet_body
             ).execute()
 
+            logger.debug(f"✅ Spreadsheet created successfully | id={spreadsheet.get('spreadsheetId')}")
             return spreadsheet
 
         except HttpError as e:
-            logger.error(f"❌ Failed to create spreadsheet: {e}")
+            logger.error(f"❌ Failed to create spreadsheet: {e}", exc_info=True)
             return None
 
     async def _create_skill_gap_tab(self, spreadsheet_id: str, export_data: Dict) -> Dict:
         """Create and populate the skill gap analysis tab."""
         try:
+            logger.debug(f"📝 Preparing skill gap tab data | spreadsheet_id={spreadsheet_id}")
+
             # Prepare all data for batch update
             updates = []
             sections = export_data.get("sections", {})
+            logger.debug(f"📊 Processing {len(sections)} sections")
 
             current_row = 1
 
@@ -202,6 +237,7 @@ class GoogleSheetsService:
 
             # Batch update all data
             if updates:
+                logger.debug(f"📤 Sending batch update | total_updates={len(updates)}")
                 body = {
                     'valueInputOption': 'RAW',
                     'data': [
@@ -216,19 +252,24 @@ class GoogleSheetsService:
                     spreadsheetId=spreadsheet_id,
                     body=body
                 ).execute()
+                logger.debug(f"✅ Batch update completed | updated_ranges={result.get('totalUpdatedRows', 0)}")
 
                 # Apply formatting
+                logger.debug("🎨 Applying formatting to skill gap tab")
                 await self._apply_formatting(spreadsheet_id, 0)  # Sheet ID 0 for first sheet
+                logger.debug("✅ Formatting applied")
 
                 return {"success": True, "updates": len(updates)}
 
         except Exception as e:
-            logger.error(f"❌ Failed to create skill gap tab: {e}")
+            logger.error(f"❌ Failed to create skill gap tab: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
     async def _create_charts_tab(self, spreadsheet_id: str, export_data: Dict) -> Dict:
         """Create a tab with charts and visualizations."""
         try:
+            logger.debug(f"📊 Creating charts tab | spreadsheet_id={spreadsheet_id}")
+
             # Add new sheet for charts
             requests = [{
                 'addSheet': {
@@ -249,9 +290,11 @@ class GoogleSheetsService:
             ).execute()
 
             new_sheet_id = response['replies'][0]['addSheet']['properties']['sheetId']
+            logger.debug(f"✅ Charts sheet created | sheet_id={new_sheet_id}")
 
             # Add chart data and descriptions
             charts = export_data.get("charts", [])
+            logger.debug(f"📊 Processing {len(charts)} charts")
             updates = []
             current_row = 1
 
@@ -264,6 +307,7 @@ class GoogleSheetsService:
 
             # Add chart descriptions and data
             for i, chart in enumerate(charts):
+                logger.debug(f"📊 Processing chart {i+1}/{len(charts)} | type={chart.get('type', 'unknown')}")
                 chart_title = chart.get("title", f"Chart {i+1}")
                 chart_type = chart.get("type", "unknown")
                 chart_data = chart.get("data", {})
@@ -294,6 +338,7 @@ class GoogleSheetsService:
 
             # Batch update chart data
             if updates:
+                logger.debug(f"📤 Sending chart batch update | total_updates={len(updates)}")
                 body = {
                     'valueInputOption': 'RAW',
                     'data': [
@@ -308,19 +353,23 @@ class GoogleSheetsService:
                     spreadsheetId=spreadsheet_id,
                     body=body
                 ).execute()
+                logger.debug(f"✅ Chart batch update completed | updated_ranges={result.get('totalUpdatedRows', 0)}")
 
                 # Apply formatting to charts sheet
+                logger.debug("🎨 Applying formatting to charts tab")
                 await self._apply_formatting(spreadsheet_id, new_sheet_id)
+                logger.debug("✅ Charts tab formatting applied")
 
                 return {"success": True, "charts_created": len(charts)}
 
         except Exception as e:
-            logger.error(f"❌ Failed to create charts tab: {e}")
+            logger.error(f"❌ Failed to create charts tab: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
     async def _apply_formatting(self, spreadsheet_id: str, sheet_id: int) -> Dict:
         """Apply formatting to the spreadsheet."""
         try:
+            logger.debug(f"🎨 Applying formatting | sheet_id={sheet_id}")
             requests = [
                 # Header formatting
                 {
@@ -359,17 +408,20 @@ class GoogleSheetsService:
                 body=batch_update_request
             ).execute()
 
+            logger.debug(f"✅ Formatting applied successfully | replies={len(response.get('replies', []))}")
             return {"success": True, "formatting_applied": True}
 
         except Exception as e:
-            logger.error(f"❌ Failed to apply formatting: {e}")
+            logger.error(f"❌ Failed to apply formatting: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
     async def _share_spreadsheet(self, spreadsheet_id: str, email: str) -> Dict:
         """Share spreadsheet with specified email."""
         try:
+            logger.debug(f"🔗 Attempting to share spreadsheet with {email}")
             # This would require Drive API integration
             # For now, return a placeholder response
+            logger.warning("⚠️ Sharing functionality requires Drive API integration - returning placeholder")
             return {
                 "success": True,
                 "shared_with": email,
@@ -378,7 +430,7 @@ class GoogleSheetsService:
             }
 
         except Exception as e:
-            logger.error(f"❌ Failed to share spreadsheet: {e}")
+            logger.error(f"❌ Failed to share spreadsheet: {e}", exc_info=True)
             return {"success": False, "error": str(e)}
 
     def _count_data_points(self, export_data: Dict) -> int:
@@ -438,27 +490,34 @@ class EnhancedGapAnalysisExporter:
         """Export comprehensive gap analysis with enhanced formatting."""
 
         export_options = export_options or {}
+        logger.info(f"📊 Starting comprehensive analysis export | options={export_options}")
 
         try:
             # Enhanced data preparation
+            logger.info("🔄 Preparing enhanced export data")
             enhanced_export_data = self._prepare_enhanced_export_data(gap_analysis_result)
+            logger.info(f"✅ Export data prepared | sections={len(enhanced_export_data.get('sections', {}))} charts={len(enhanced_export_data.get('charts', []))}")
 
             # Update gap analysis with enhanced export data
             gap_analysis_result["google_sheets_export_data"] = enhanced_export_data
 
             # Export to Google Sheets
+            logger.info("📤 Exporting to Google Sheets")
             sheets_result = await self.sheets_service.export_skill_gap_analysis(
                 gap_analysis_data=gap_analysis_result,
                 spreadsheet_title=export_options.get("title"),
                 share_with_email=export_options.get("share_email")
             )
+            logger.info(f"✅ Google Sheets export completed | success={sheets_result.get('success')}")
 
             # Generate additional export formats
+            logger.info("📝 Generating additional export formats")
             additional_exports = self._generate_additional_exports(
                 gap_analysis_result, export_options
             )
+            logger.info(f"✅ Additional exports generated | formats={list(additional_exports.keys())}")
 
-            return {
+            result = {
                 "google_sheets_export": sheets_result,
                 "additional_exports": additional_exports,
                 "comprehensive_analysis": {
@@ -470,8 +529,11 @@ class EnhancedGapAnalysisExporter:
                 "export_timestamp": datetime.now().isoformat()
             }
 
+            logger.info(f"✅ Comprehensive analysis export completed successfully | metrics={result['comprehensive_analysis']['metrics_analyzed']} charts={result['comprehensive_analysis']['visualization_charts']}")
+            return result
+
         except Exception as e:
-            logger.error(f"❌ Comprehensive export failed: {e}")
+            logger.error(f"❌ Comprehensive export failed: {e}", exc_info=True)
             return {
                 "success": False,
                 "error": str(e),
