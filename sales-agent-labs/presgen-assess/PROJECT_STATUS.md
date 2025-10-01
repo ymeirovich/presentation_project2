@@ -876,5 +876,61 @@ New Flow: Assessment (70%) → Gap Analysis (90%) → Gap Analysis Complete (100
 
 ---
 
-**Next Phase**: Production deployment, integration testing, and user onboarding
+### 🚀 **PresGen-Video: Google Slides Service Account Authentication** (Oct 1, 2025)
+
+**Issue Fixed**: Google Slides API authentication for video generation
+
+**Changes:**
+- Added service account authentication to `src/agent/slides_google.py`
+- Service account is now primary authentication method (OAuth as fallback)
+- Updated `_load_credentials()` to try service account first
+- Fixed `_slides_service()` with better error handling and logging
+- Created `/presgen-video/.env` with Google credentials configuration
+
+**Files Modified:**
+- `src/agent/slides_google.py`: Added `ServiceAccountCredentials` import and service account auth logic
+- `presgen-video/.env`: Created with `GOOGLE_APPLICATION_CREDENTIALS` and `GOOGLE_USER_TOKEN_PATH`
+
+**Service Account Details:**
+- Email: `presgen-service-account-test@presgen.iam.gserviceaccount.com`
+- Project: `presgen`
+- Scopes: `presentations`, `drive.file`, `script.projects`
+
+**Note:** Google Slides presentations must be shared with the service account email for API access.
+
+---
+
+### 📋 **Sprint 2 Planning: Google Sheets Export** (Oct 1, 2025)
+
+**Sprint 1 Completion Status**: ✅ **COMPLETE**
+
+**Verified Working:**
+- Gap Analysis persistence (8 records in database)
+- Recommended Courses generation (15 courses)
+- Content Outlines generation (15 outlines)
+- Dashboard endpoints all functional
+- Answers tab with explanations working
+
+**Sprint 2 Objectives:**
+1. Update existing Export to Google Sheets button
+2. Implement 4-tab export format:
+   - Tab 1: Answers (correct/incorrect with explanations)
+   - Tab 2: Gap Analysis (scores, charts, text summary)
+   - Tab 3: Content Outline (RAG-retrieved content)
+   - Tab 4: Recommended Courses (grouped by domain)
+3. Service account authentication (already implemented)
+4. Format courses by domain with skill lists
+5. Add text summary to Gap Analysis tab
+
+**Infrastructure Ready:**
+- `GoogleSheetsService` with service account auth ✅
+- `EnhancedGapAnalysisExporter` class ✅
+- Export endpoint: `POST /workflows/{id}/gap-analysis/export-to-sheets` ✅
+- UI export button in Dashboard ✅
+
+**Next Steps:** Implement 4-tab format and test end-to-end export
+
+---
+
+**Next Phase**: Complete Sprint 2 (Google Sheets Export), then Sprint 3 (PresGen-Core Integration)
 **Maintainer**: Claude Code Assistant

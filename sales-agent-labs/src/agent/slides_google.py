@@ -5,6 +5,7 @@ from typing import Dict, Any, List, Optional
 import uuid, time, os, inspect, sys
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.oauth2.credentials import Credentials
+from google.oauth2.service_account import Credentials as ServiceAccountCredentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from .notes_apps_script import set_speaker_notes_via_script
@@ -39,6 +40,21 @@ def _load_credentials() -> Credentials:
 
     SCOPES = [SLIDES_SCOPE, DRIVE_SCOPE, SCRIPT_SCOPE]
 
+    # Try service account first (no OAuth consent needed)
+    service_account_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    if service_account_path and pathlib.Path(service_account_path).exists():
+        try:
+            log.info(f"Attempting service account authentication: {service_account_path}")
+            creds = ServiceAccountCredentials.from_service_account_file(
+                service_account_path,
+                scopes=SCOPES
+            )
+            log.info("✅ Successfully authenticated with service account")
+            return creds
+        except Exception as e:
+            log.warning(f"Service account authentication failed: {e}. Falling back to OAuth.")
+
+    # Fallback to OAuth flow
     force_consent = os.getenv("FORCE_OAUTH_CONSENT") == "1"
 
     creds = None
@@ -74,7 +90,19 @@ def _load_credentials() -> Credentials:
 
 
 def _slides_service(creds: Credentials):
-    return build("slides", "v1", credentials=creds, cache_discovery=False)
+    if creds is None:
+        log.error("❌ Cannot create slides service: credentials are None")
+        raise ValueError("Credentials cannot be None")
+    try:
+        service = build("slides", "v1", credentials=creds, cache_discovery=False)
+        if service is None:
+            log.error("❌ build() returned None for slides service")
+            raise ValueError("Failed to build slides service")
+        log.debug("✅ Successfully created slides service")
+        return service
+    except Exception as e:
+        log.error(f"❌ Failed to create slides service: {e}")
+        raise
 
 
 def _drive_service(creds: Credentials):
