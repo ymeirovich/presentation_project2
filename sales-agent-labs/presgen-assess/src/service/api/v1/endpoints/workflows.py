@@ -1350,44 +1350,57 @@ async def export_gap_analysis_to_google_sheets(
             ContentOutline as ContentOutlineModel,
             RecommendedCourse as RecommendedCourseModel
         )
-        from src.models.question import GeneratedQuestion, UserResponse
+        from src.models.workflow import WorkflowExecution
 
-        # Tab 1: Answers - Get questions with user responses
+        # Get workflow to access assessment_data
+        workflow_stmt = select(WorkflowExecution).where(WorkflowExecution.id == workflow_id)
+        workflow_result = await db.execute(workflow_stmt)
+        workflow = workflow_result.scalar_one_or_none()
+
+        if not workflow:
+            raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
+
+        # Tab 1: Answers - Get questions from assessment_data JSON
         logger.debug("📝 Fetching answers data (Tab 1)")
-        questions_stmt = (
-            select(GeneratedQuestion, UserResponse)
-            .outerjoin(UserResponse, GeneratedQuestion.id == UserResponse.question_id)
-            .where(GeneratedQuestion.workflow_id == workflow_id)
-        )
-        questions_result = await db.execute(questions_stmt)
-        questions_with_responses = questions_result.all()
 
         answers_data = {
             "correct_answers": [],
             "incorrect_answers": [],
-            "total_questions": len(questions_with_responses),
+            "total_questions": 0,
             "correct_count": 0,
             "incorrect_count": 0
         }
 
-        for question, response in questions_with_responses:
-            if response and response.selected_answer:
-                is_correct = response.selected_answer == question.correct_answer
-                answer_item = {
-                    "question_text": question.question_text,
-                    "user_answer": response.selected_answer,
-                    "correct_answer": question.correct_answer,
-                    "explanation": question.explanation,
-                    "domain": question.domain,
-                    "difficulty": question.difficulty
-                }
+        # Extract questions from assessment_data if available
+        if workflow.assessment_data and "questions" in workflow.assessment_data:
+            questions = workflow.assessment_data.get("questions", [])
+            answers_data["total_questions"] = len(questions)
 
-                if is_correct:
-                    answers_data["correct_answers"].append(answer_item)
-                    answers_data["correct_count"] += 1
-                else:
-                    answers_data["incorrect_answers"].append(answer_item)
-                    answers_data["incorrect_count"] += 1
+            # If we have form responses, match them with questions
+            form_responses = workflow.assessment_data.get("responses", {})
+
+            for question in questions:
+                question_id = question.get("id")
+                user_answer = form_responses.get(question_id) if form_responses else None
+                correct_answer = question.get("correct_answer")
+
+                if user_answer:
+                    is_correct = user_answer == correct_answer
+                    answer_item = {
+                        "question_text": question.get("text", ""),
+                        "user_answer": user_answer,
+                        "correct_answer": correct_answer,
+                        "explanation": question.get("explanation", ""),
+                        "domain": question.get("domain", ""),
+                        "difficulty": question.get("difficulty", "")
+                    }
+
+                    if is_correct:
+                        answers_data["correct_answers"].append(answer_item)
+                        answers_data["correct_count"] += 1
+                    else:
+                        answers_data["incorrect_answers"].append(answer_item)
+                        answers_data["incorrect_count"] += 1
 
         # Tab 2: Gap Analysis - Get gap analysis summary
         logger.debug("📊 Fetching gap analysis data (Tab 2)")
@@ -1425,8 +1438,9 @@ async def export_gap_analysis_to_google_sheets(
                 "skill_id": outline.skill_id,
                 "skill_name": outline.skill_name,
                 "exam_domain": outline.exam_domain,
-                "outline_text": outline.outline_text,
-                "source_references": outline.source_references
+                "exam_guide_section": outline.exam_guide_section,
+                "content_items": outline.content_items,
+                "rag_retrieval_score": outline.rag_retrieval_score
             }
             for outline in outlines_db
         ]
@@ -1444,10 +1458,16 @@ async def export_gap_analysis_to_google_sheets(
                 "skill_id": course.skill_id,
                 "skill_name": course.skill_name,
                 "exam_domain": course.exam_domain,
-                "rationale": course.rationale,
+                "course_title": course.course_title,
+                "course_description": course.course_description,
                 "learning_objectives": course.learning_objectives,
-                "estimated_duration_hours": course.estimated_duration_hours,
-                "priority_level": course.priority_level
+                "estimated_duration_minutes": course.estimated_duration_minutes,
+                "difficulty_level": course.difficulty_level,
+                "generation_status": course.generation_status,
+                "video_url": course.video_url,
+                "presentation_url": course.presentation_url,
+                "download_url": course.download_url,
+                "priority": course.priority
             }
             for course in courses_db
         ]
@@ -1461,7 +1481,7 @@ async def export_gap_analysis_to_google_sheets(
             "recommended_courses": recommended_courses
         }
 
-        logger.info(f"✅ Data fetched | answers={len(questions_with_responses)} outlines={len(content_outlines)} courses={len(recommended_courses)}")
+        logger.info(f"✅ Data fetched | answers={answers_data['total_questions']} outlines={len(content_outlines)} courses={len(recommended_courses)}")
 
         # Choose authentication method based on configuration
         if settings.use_oauth_for_sheets:
@@ -1507,7 +1527,7 @@ async def export_gap_analysis_to_google_sheets(
             "export_summary": google_export.get("export_summary")
             or export_result.get("comprehensive_analysis"),
             "additional_exports": additional_exports,
-            "instructions": google_export.get("instructions")
+            "instructions": google_export.get("instructions") or []
         }
 
         if not response_payload["success"]:
@@ -1522,6 +1542,37 @@ async def export_gap_analysis_to_google_sheets(
             workflow_id,
             response_payload["success"]
         )
+
+        # Save export record to database if successful
+        if response_payload["success"] and response_payload.get("spreadsheet_id"):
+            try:
+                from uuid import uuid4
+                import json
+
+                export_record_sql = """
+                    INSERT INTO google_sheets_exports
+                    (id, workflow_id, sheet_id, sheet_url, tabs, exported_at, export_status)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """
+
+                tabs_json = json.dumps(["Answers", "Gap Analysis", "Content Outline", "Presentation"])
+
+                await db.execute(
+                    text(export_record_sql),
+                    (
+                        str(uuid4()),
+                        str(workflow_id).replace("-", ""),
+                        response_payload["spreadsheet_id"],
+                        response_payload["spreadsheet_url"],
+                        tabs_json,
+                        response_payload["export_timestamp"],
+                        "completed"
+                    )
+                )
+                await db.commit()
+                logger.info(f"💾 Export record saved to database | workflow_id={workflow_id}")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to save export record to database: {e}")
 
         return response_payload
 
