@@ -112,11 +112,18 @@ grep "use_mock = True" src/service/presgen_core_client.py
 ### 3. Start Development Server
 
 ```bash
-# Start FastAPI server
-uvicorn src.service.main:app --reload --port 8000
+# Start FastAPI server (from presgen-assess directory)
+cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/presgen-assess
+source venv/bin/activate
+uvicorn src.service.app:app --reload --port 8000
 
-# Verify health check
+# In a new terminal, verify health check
 curl http://localhost:8000/health
+```
+
+**Expected Output**:
+```json
+{"status":"healthy","service":"presgen-assess"}
 ```
 
 ### 4. Prepare Test Workflow
@@ -129,13 +136,23 @@ You'll need an existing workflow with:
 
 **Get Test Workflow ID**:
 ```bash
-sqlite3 test_database.db "SELECT id, assessment_title FROM workflow_executions ORDER BY created_at DESC LIMIT 1;"
+sqlite3 test_database.db "SELECT id, status, created_at FROM workflow_executions ORDER BY created_at DESC LIMIT 1;"
+```
+
+**Example Output**:
+```
+8e46398dc2924439a04531dfeb49d7ef|completed|2025-10-01 11:28:38
 ```
 
 **Get Test Course ID**:
 ```bash
 # Replace {workflow_id} with your test workflow ID
 sqlite3 test_database.db "SELECT id, skill_name FROM recommended_courses WHERE workflow_id = '{workflow_id}' LIMIT 1;"
+```
+
+**Example Output**:
+```
+0f524bb9d7f343d6867c9597b2f91804|Security
 ```
 
 ---
