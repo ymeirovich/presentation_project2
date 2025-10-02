@@ -96,17 +96,27 @@ class GoogleSheetsService:
 
             # Prepare export data
             export_data = gap_analysis_data.get("google_sheets_export_data", {})
-            logger.info(f"📋 Export data prepared | sections={len(export_data.get('sections', {}))} charts={len(export_data.get('charts', []))}")
+            tabs = export_data.get("tabs", [])
+            logger.info(f"📋 Export data prepared | tabs={len(tabs)}")
 
-            # Create skill gap analysis tab
-            logger.info("📄 Creating Tab 1: Skill Gap Analysis")
-            tab_result = await self._create_skill_gap_tab(spreadsheet_id, export_data)
-            logger.info(f"✅ Tab 1 created | success={tab_result.get('success')} updates={tab_result.get('updates', 0)}")
+            # Create 4 tabs
+            tabs_created = []
+            for i, tab in enumerate(tabs, 1):
+                tab_name = tab.get("tab_name", f"Tab{i}")
+                logger.info(f"📄 Creating Tab {i}: {tab_name}")
 
-            # Create visualizations tab
-            logger.info("📊 Creating Tab 2: Charts and Visualizations")
-            charts_result = await self._create_charts_tab(spreadsheet_id, export_data)
-            logger.info(f"✅ Tab 2 created | success={charts_result.get('success')} charts={charts_result.get('charts_created', 0)}")
+                tab_result = await self._create_tab_from_data(
+                    spreadsheet_id=spreadsheet_id,
+                    tab_name=tab_name,
+                    tab_data=tab,
+                    is_first_tab=(i == 1)
+                )
+
+                if tab_result.get("success"):
+                    tabs_created.append(tab_name)
+                    logger.info(f"✅ Tab {i} ({tab_name}) created successfully")
+                else:
+                    logger.warning(f"⚠️ Tab {i} ({tab_name}) creation failed: {tab_result.get('error')}")
 
             # Share spreadsheet if email provided
             sharing_result = None
@@ -123,19 +133,129 @@ class GoogleSheetsService:
                 "spreadsheet_id": spreadsheet_id,
                 "spreadsheet_url": spreadsheet_url,
                 "spreadsheet_title": spreadsheet_title,
-                "tabs_created": ["Skill_Gap_Analysis", "Charts_and_Visualizations"],
+                "tabs_created": tabs_created,
                 "export_timestamp": datetime.now().isoformat(),
                 "sharing_status": sharing_result,
                 "export_summary": {
-                    "skill_gap_sections": len(export_data.get("sections", {})),
-                    "charts_created": len(export_data.get("charts", [])),
-                    "data_points_exported": self._count_data_points(export_data)
+                    "tabs_count": len(tabs_created),
+                    "data_points_exported": sum(len(tab.get("data", [])) for tab in tabs)
                 }
             }
 
         except Exception as e:
             logger.error(f"❌ Failed to export to Google Sheets: {e}")
             return self._create_mock_export_response(f"Export failed: {str(e)}")
+
+    async def _create_tab_from_data(
+        self,
+        spreadsheet_id: str,
+        tab_name: str,
+        tab_data: Dict,
+        is_first_tab: bool = False
+    ) -> Dict:
+        """Create a tab from structured tab data."""
+        try:
+            logger.debug(f"📝 Creating tab: {tab_name} | is_first={is_first_tab}")
+
+            # Create new sheet (unless it's the first tab which already exists)
+            sheet_id = 0
+            if not is_first_tab:
+                requests = [{
+                    'addSheet': {
+                        'properties': {
+                            'title': tab_name,
+                            'gridProperties': {
+                                'rowCount': 1000,
+                                'columnCount': 20
+                            }
+                        }
+                    }
+                }]
+
+                batch_update_request = {'requests': requests}
+                response = self.service.spreadsheets().batchUpdate(
+                    spreadsheetId=spreadsheet_id,
+                    body=batch_update_request
+                ).execute()
+
+                sheet_id = response['replies'][0]['addSheet']['properties']['sheetId']
+                logger.debug(f"✅ New sheet created | sheet_id={sheet_id}")
+            else:
+                # Rename first sheet
+                requests = [{
+                    'updateSheetProperties': {
+                        'properties': {
+                            'sheetId': 0,
+                            'title': tab_name
+                        },
+                        'fields': 'title'
+                    }
+                }]
+
+                batch_update_request = {'requests': requests}
+                self.service.spreadsheets().batchUpdate(
+                    spreadsheetId=spreadsheet_id,
+                    body=batch_update_request
+                ).execute()
+                logger.debug(f"✅ First sheet renamed to: {tab_name}")
+
+            # Add title and data
+            updates = []
+            current_row = 1
+
+            # Add title
+            title = tab_data.get("title", tab_name)
+            updates.append({
+                'range': f'{tab_name}!A{current_row}',
+                'values': [[title]]
+            })
+            current_row += 1
+
+            # Add summary if exists
+            summary = tab_data.get("summary")
+            if summary:
+                current_row += 1
+                updates.append({
+                    'range': f'{tab_name}!A{current_row}',
+                    'values': [[summary]]
+                })
+                current_row += 2
+
+            # Add data rows
+            data_rows = tab_data.get("data", [])
+            if data_rows:
+                updates.append({
+                    'range': f'{tab_name}!A{current_row}',
+                    'values': data_rows
+                })
+
+            # Batch update all data
+            if updates:
+                logger.debug(f"📤 Sending batch update for {tab_name} | total_updates={len(updates)}")
+                body = {
+                    'valueInputOption': 'RAW',
+                    'data': [
+                        {
+                            'range': update['range'],
+                            'values': update['values']
+                        } for update in updates
+                    ]
+                }
+
+                result = self.service.spreadsheets().values().batchUpdate(
+                    spreadsheetId=spreadsheet_id,
+                    body=body
+                ).execute()
+                logger.debug(f"✅ Batch update completed for {tab_name}")
+
+                # Apply formatting
+                await self._apply_formatting(spreadsheet_id, sheet_id)
+
+            return {"success": True, "tab_name": tab_name, "updates": len(updates)}
+
+        except Exception as e:
+            logger.error(f"❌ Failed to create tab {tab_name}: {e}", exc_info=True)
+            return {"success": False, "error": str(e)}
 
     async def _create_spreadsheet(self, title: str) -> Optional[Dict]:
         """Create a new Google Spreadsheet."""
@@ -541,14 +661,39 @@ class EnhancedGapAnalysisExporter:
             }
 
     def _prepare_enhanced_export_data(self, gap_analysis_result: Dict) -> Dict:
-        """Prepare enhanced export data with all 5 metrics."""
+        """Prepare enhanced export data with 4-tab format for Sprint 2.
+
+        Tab 1: Answers - Correct/incorrect with explanations
+        Tab 2: Gap Analysis - Charts, scores, skill gaps + text summary
+        Tab 3: Content Outline - RAG-retrieved content
+        Tab 4: Recommended Courses - Categorized by Domain → Skills
+        """
+        logger.debug("📋 Preparing 4-tab export data structure")
 
         enhanced_skill_gap = gap_analysis_result.get("enhanced_skill_gap_analysis", {})
         domain_gaps = gap_analysis_result.get("identified_gaps", [])
         remediation_plan = gap_analysis_result.get("remediation_plan", {})
 
+        # Extract data for 4 tabs
+        answers_data = gap_analysis_result.get("answers", {})
+        gap_analysis_data = gap_analysis_result.get("gap_analysis_summary", {})
+        content_outlines = gap_analysis_result.get("content_outlines", [])
+        recommended_courses = gap_analysis_result.get("recommended_courses", [])
+
+        logger.debug(f"📋 Building 4 tabs | answers={answers_data.get('total_questions', 0)} gaps={len(gap_analysis_data.get('skill_gaps', []))} outlines={len(content_outlines)} courses={len(recommended_courses)}")
+
+        # Format 4 tabs
+        tabs = [
+            self._format_tab1_answers(answers_data),
+            self._format_tab2_gap_analysis(gap_analysis_data),
+            self._format_tab3_content_outlines(content_outlines),
+            self._format_tab4_recommended_courses(recommended_courses)
+        ]
+
         return {
-            "sheet_name": "Enhanced_Skill_Gap_Analysis",
+            "sheet_name": "PresGen_Gap_Analysis",
+            "tabs": tabs,
+            # Keep legacy sections for backward compatibility
             "sections": {
                 "executive_summary": {
                     "title": "🎯 Executive Summary",
@@ -944,3 +1089,159 @@ Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
         total_potential = sum(gap["gap_severity"] for gap in domain_gaps)
         return round(total_potential / len(domain_gaps) * 100, 1)
+
+    def _format_tab1_answers(self, answers_data: Dict) -> Dict:
+        """Format Tab 1: Answers with correct/incorrect and explanations."""
+        logger.debug("📝 Formatting Tab 1: Answers")
+
+        correct_answers = answers_data.get("correct_answers", [])
+        incorrect_answers = answers_data.get("incorrect_answers", [])
+
+        # Build data rows
+        data_rows = [["Question", "Your Answer", "Correct Answer", "Explanation", "Domain", "Difficulty", "Result"]]
+
+        # Add correct answers
+        for answer in correct_answers:
+            data_rows.append([
+                answer.get("question_text", ""),
+                answer.get("user_answer", ""),
+                answer.get("correct_answer", ""),
+                answer.get("explanation", ""),
+                answer.get("domain", ""),
+                answer.get("difficulty", ""),
+                "✓ Correct"
+            ])
+
+        # Add incorrect answers
+        for answer in incorrect_answers:
+            data_rows.append([
+                answer.get("question_text", ""),
+                answer.get("user_answer", ""),
+                answer.get("correct_answer", ""),
+                answer.get("explanation", ""),
+                answer.get("domain", ""),
+                answer.get("difficulty", ""),
+                "✗ Incorrect"
+            ])
+
+        return {
+            "tab_name": "Answers",
+            "title": "📝 Assessment Answers with Explanations",
+            "summary": f"Total: {answers_data.get('total_questions', 0)} | Correct: {answers_data.get('correct_count', 0)} | Incorrect: {answers_data.get('incorrect_count', 0)}",
+            "data": data_rows
+        }
+
+    def _format_tab2_gap_analysis(self, gap_data: Dict) -> Dict:
+        """Format Tab 2: Gap Analysis with scores, skill gaps, and text summary."""
+        logger.debug("📊 Formatting Tab 2: Gap Analysis")
+
+        data_rows = []
+
+        # Add summary section
+        data_rows.append(["📊 Gap Analysis Summary"])
+        data_rows.append([])
+        data_rows.append(["Overall Score", f"{gap_data.get('overall_score', 0)}%"])
+        data_rows.append(["Total Questions", str(gap_data.get('total_questions', 0))])
+        data_rows.append(["Correct Answers", str(gap_data.get('correct_answers', 0))])
+        data_rows.append([])
+
+        # Add text summary
+        text_summary = gap_data.get('text_summary', '')
+        if text_summary:
+            data_rows.append(["📖 Summary"])
+            data_rows.append([])
+            data_rows.append([text_summary])
+            data_rows.append([])
+
+        # Add skill gaps
+        skill_gaps = gap_data.get('skill_gaps', [])
+        if skill_gaps:
+            data_rows.append(["🔍 Identified Skill Gaps"])
+            data_rows.append([])
+            data_rows.append(["Skill", "Gap Severity", "Priority"])
+            for gap in skill_gaps:
+                data_rows.append([
+                    gap.get('skill_name', ''),
+                    gap.get('gap_severity', ''),
+                    gap.get('priority', '')
+                ])
+            data_rows.append([])
+
+        # Add performance by domain
+        performance = gap_data.get('performance_by_domain', [])
+        if performance:
+            data_rows.append(["📈 Performance by Domain"])
+            data_rows.append([])
+            data_rows.append(["Domain", "Score", "Questions", "Correct"])
+            for perf in performance:
+                data_rows.append([
+                    perf.get('domain', ''),
+                    f"{perf.get('score', 0)}%",
+                    str(perf.get('total_questions', 0)),
+                    str(perf.get('correct_count', 0))
+                ])
+
+        return {
+            "tab_name": "Gap Analysis",
+            "title": "📊 Gap Analysis with Summary",
+            "data": data_rows
+        }
+
+    def _format_tab3_content_outlines(self, outlines: List[Dict]) -> Dict:
+        """Format Tab 3: Content Outlines (RAG-retrieved content)."""
+        logger.debug("📚 Formatting Tab 3: Content Outlines")
+
+        data_rows = [["Skill", "Domain", "Content Outline", "Source References"]]
+
+        for outline in outlines:
+            data_rows.append([
+                outline.get("skill_name", ""),
+                outline.get("exam_domain", ""),
+                outline.get("outline_text", ""),
+                ", ".join(outline.get("source_references", []))
+            ])
+
+        return {
+            "tab_name": "Content Outlines",
+            "title": "📚 RAG-Retrieved Content Outlines",
+            "data": data_rows
+        }
+
+    def _format_tab4_recommended_courses(self, courses: List[Dict]) -> Dict:
+        """Format Tab 4: Recommended Courses categorized by Domain → Skills."""
+        logger.debug("🎓 Formatting Tab 4: Recommended Courses by Domain")
+
+        # Group courses by domain
+        courses_by_domain = {}
+        for course in courses:
+            domain = course.get("exam_domain", "Other")
+            if domain not in courses_by_domain:
+                courses_by_domain[domain] = []
+            courses_by_domain[domain].append(course)
+
+        # Build data rows with domain grouping
+        data_rows = []
+
+        for domain, domain_courses in sorted(courses_by_domain.items()):
+            # Domain header
+            data_rows.append([f"📖 {domain}"])
+            data_rows.append([])
+
+            # Add skills for this domain as bullet points
+            data_rows.append(["Skill", "Priority", "Duration (hrs)", "Rationale"])
+            for course in domain_courses:
+                skill_bullet = f"• {course.get('skill_name', '')}"
+                data_rows.append([
+                    skill_bullet,
+                    course.get("priority_level", ""),
+                    str(course.get("estimated_duration_hours", 0)),
+                    course.get("rationale", "")
+                ])
+
+            data_rows.append([])  # Spacing between domains
+
+        return {
+            "tab_name": "Recommended Courses",
+            "title": "🎓 Recommended Courses by Domain",
+            "data": data_rows
+        }

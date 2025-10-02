@@ -1333,7 +1333,7 @@ async def export_gap_analysis_to_google_sheets(
     payload: Dict[str, Optional[str]] = Body(default_factory=dict),
     db: AsyncSession = Depends(get_db)
 ) -> Dict[str, Any]:
-    """Export gap analysis results to Google Sheets (returns mock data if Sheets disabled)."""
+    """Export gap analysis results to Google Sheets with 4-tab format (Sprint 2)."""
     try:
         logger.info(
             "📤 Exporting gap analysis to Google Sheets | workflow_id=%s share_email=%s",
@@ -1341,7 +1341,127 @@ async def export_gap_analysis_to_google_sheets(
             payload.get("share_email")
         )
 
-        gap_analysis_data = await _build_gap_analysis_data(workflow_id, db)
+        # Fetch data for all 4 tabs from database
+        logger.info("📊 Fetching data for 4 tabs from database")
+
+        # Import models for querying
+        from src.models.gap_analysis import (
+            GapAnalysisResult as GapAnalysisResultModel,
+            ContentOutline as ContentOutlineModel,
+            RecommendedCourse as RecommendedCourseModel
+        )
+        from src.models.question import GeneratedQuestion, UserResponse
+
+        # Tab 1: Answers - Get questions with user responses
+        logger.debug("📝 Fetching answers data (Tab 1)")
+        questions_stmt = (
+            select(GeneratedQuestion, UserResponse)
+            .outerjoin(UserResponse, GeneratedQuestion.id == UserResponse.question_id)
+            .where(GeneratedQuestion.workflow_id == workflow_id)
+        )
+        questions_result = await db.execute(questions_stmt)
+        questions_with_responses = questions_result.all()
+
+        answers_data = {
+            "correct_answers": [],
+            "incorrect_answers": [],
+            "total_questions": len(questions_with_responses),
+            "correct_count": 0,
+            "incorrect_count": 0
+        }
+
+        for question, response in questions_with_responses:
+            if response and response.selected_answer:
+                is_correct = response.selected_answer == question.correct_answer
+                answer_item = {
+                    "question_text": question.question_text,
+                    "user_answer": response.selected_answer,
+                    "correct_answer": question.correct_answer,
+                    "explanation": question.explanation,
+                    "domain": question.domain,
+                    "difficulty": question.difficulty
+                }
+
+                if is_correct:
+                    answers_data["correct_answers"].append(answer_item)
+                    answers_data["correct_count"] += 1
+                else:
+                    answers_data["incorrect_answers"].append(answer_item)
+                    answers_data["incorrect_count"] += 1
+
+        # Tab 2: Gap Analysis - Get gap analysis summary
+        logger.debug("📊 Fetching gap analysis data (Tab 2)")
+        gap_stmt = (
+            select(GapAnalysisResultModel)
+            .where(GapAnalysisResultModel.workflow_id == workflow_id)
+            .order_by(GapAnalysisResultModel.created_at.desc())
+            .limit(1)
+        )
+        gap_result = await db.execute(gap_stmt)
+        gap_analysis_db = gap_result.scalar_one_or_none()
+
+        gap_analysis_summary = {}
+        if gap_analysis_db:
+            gap_analysis_summary = {
+                "overall_score": gap_analysis_db.overall_score,
+                "total_questions": gap_analysis_db.total_questions,
+                "correct_answers": gap_analysis_db.correct_answers,
+                "skill_gaps": gap_analysis_db.skill_gaps,
+                "performance_by_domain": gap_analysis_db.performance_by_domain,
+                "text_summary": gap_analysis_db.text_summary,
+                "charts_data": gap_analysis_db.charts_data
+            }
+
+        # Tab 3: Content Outlines
+        logger.debug("📚 Fetching content outlines (Tab 3)")
+        outlines_stmt = select(ContentOutlineModel).where(
+            ContentOutlineModel.workflow_id == workflow_id
+        )
+        outlines_result = await db.execute(outlines_stmt)
+        outlines_db = outlines_result.scalars().all()
+
+        content_outlines = [
+            {
+                "skill_id": outline.skill_id,
+                "skill_name": outline.skill_name,
+                "exam_domain": outline.exam_domain,
+                "outline_text": outline.outline_text,
+                "source_references": outline.source_references
+            }
+            for outline in outlines_db
+        ]
+
+        # Tab 4: Recommended Courses
+        logger.debug("🎓 Fetching recommended courses (Tab 4)")
+        courses_stmt = select(RecommendedCourseModel).where(
+            RecommendedCourseModel.workflow_id == workflow_id
+        )
+        courses_result = await db.execute(courses_stmt)
+        courses_db = courses_result.scalars().all()
+
+        recommended_courses = [
+            {
+                "skill_id": course.skill_id,
+                "skill_name": course.skill_name,
+                "exam_domain": course.exam_domain,
+                "rationale": course.rationale,
+                "learning_objectives": course.learning_objectives,
+                "estimated_duration_hours": course.estimated_duration_hours,
+                "priority_level": course.priority_level
+            }
+            for course in courses_db
+        ]
+
+        # Build comprehensive gap analysis data with all 4 tabs
+        gap_analysis_data = {
+            "workflow_id": str(workflow_id),
+            "answers": answers_data,
+            "gap_analysis_summary": gap_analysis_summary,
+            "content_outlines": content_outlines,
+            "recommended_courses": recommended_courses
+        }
+
+        logger.info(f"✅ Data fetched | answers={len(questions_with_responses)} outlines={len(content_outlines)} courses={len(recommended_courses)}")
 
         sheets_service = GoogleSheetsService(
             credentials_path=settings.google_application_credentials
