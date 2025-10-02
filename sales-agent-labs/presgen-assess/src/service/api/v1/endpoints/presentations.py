@@ -14,7 +14,7 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
-from src.service.database import get_db_session
+from src.service.database import get_db
 from src.schemas.presentation import (
     PresentationGenerationRequest,
     BatchPresentationGenerationRequest,
@@ -43,7 +43,7 @@ async def generate_single_presentation(
     workflow_id: UUID,
     course_id: UUID,
     request: PresentationGenerationRequest,
-    db: AsyncSession = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db)
 ) -> PresentationGenerationResponse:
     """
     Generate presentation for a single skill gap.
@@ -184,7 +184,7 @@ async def generate_single_presentation(
 async def generate_all_presentations(
     workflow_id: UUID,
     request: BatchPresentationGenerationRequest,
-    db: AsyncSession = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db)
 ) -> BatchPresentationGenerationResponse:
     """
     Generate presentations for ALL courses/skills in a workflow.
@@ -318,7 +318,7 @@ async def generate_all_presentations(
 async def get_presentation_status(
     workflow_id: UUID,
     presentation_id: UUID,
-    db: AsyncSession = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db)
 ) -> PresentationJobStatus:
     """
     Get status of a presentation generation job.
@@ -373,7 +373,7 @@ async def get_presentation_status(
 )
 async def list_presentations(
     workflow_id: UUID,
-    db: AsyncSession = Depends(get_db_session)
+    db: AsyncSession = Depends(get_db)
 ) -> PresentationListResponse:
     """
     List all presentations for a workflow with statistics.
