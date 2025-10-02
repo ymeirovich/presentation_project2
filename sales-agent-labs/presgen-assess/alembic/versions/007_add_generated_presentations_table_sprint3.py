@@ -50,8 +50,8 @@ def upgrade() -> None:
 
         # Generation metadata
         sa.Column('generation_status', sa.String(50), nullable=False, server_default='pending'),
-        sa.Column('generation_started_at', sa.DateTime(timezone=True), nullable=True),
-        sa.Column('generation_completed_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('generation_started_at', sa.DateTime(), nullable=True),
+        sa.Column('generation_completed_at', sa.DateTime(), nullable=True),
         sa.Column('generation_duration_ms', sa.Integer(), nullable=True),
         sa.Column('estimated_duration_minutes', sa.Integer(), nullable=True),  # 3-7 minutes
 
@@ -69,8 +69,8 @@ def upgrade() -> None:
         # Metadata
         sa.Column('file_size_mb', sa.Float(), nullable=True),
         sa.Column('thumbnail_url', sa.Text(), nullable=True),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), onupdate=sa.text('now()')),
+        sa.Column('created_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP')),
+        sa.Column('updated_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP')),
 
         # Foreign keys
         sa.ForeignKeyConstraint(['workflow_id'], ['workflow_executions.id'], ondelete='CASCADE'),
@@ -96,52 +96,21 @@ def upgrade() -> None:
     op.create_index('idx_presentations_job', 'generated_presentations', ['job_id'])
     op.create_index('idx_presentations_created', 'generated_presentations', ['created_at'])
 
+    # Note: SQLite doesn't support partial unique indexes like PostgreSQL
+    # The unique constraint for (workflow_id, skill_id, status='completed')
+    # will be enforced at the application level in the API
+
     # Create unique index for job_id (only non-null values)
-    op.create_index('idx_presentations_job_unique', 'generated_presentations', ['job_id'], unique=True, postgresql_where=sa.text('job_id IS NOT NULL'))
+    # SQLite will ignore NULL values in unique indexes by default
+    op.create_index('idx_presentations_job_unique', 'generated_presentations', ['job_id'], unique=True)
 
-    # Unique completed presentation per workflow/skill
-    op.create_index(
-        'idx_presentations_unique_skill_completed',
-        'generated_presentations',
-        ['workflow_id', 'skill_id'],
-        unique=True,
-        postgresql_where=sa.text("generation_status = 'completed'")
-    )
-
-    # Ensure touch_updated_at helper exists (no-op if already present)
-    op.execute(
-        """
-        CREATE OR REPLACE FUNCTION touch_updated_at()
-        RETURNS TRIGGER AS $$
-        BEGIN
-            NEW.updated_at = NOW();
-            RETURN NEW;
-        END;
-        $$ LANGUAGE plpgsql;
-        """
-    )
-
-    # Trigger to auto-update updated_at column
-    op.execute(
-        """
-        CREATE TRIGGER trg_generated_presentations_touch_updated_at
-        BEFORE UPDATE ON generated_presentations
-        FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
-        """
-    )
+    # SQLite doesn't support triggers with functions like PostgreSQL
+    # The updated_at field will be managed at the application level
+    # or via SQLAlchemy's onupdate parameter in the model
 
     # Update recommended_courses table to add presentation linking
-    op.add_column('recommended_courses', sa.Column('presentation_id', sa.String(36), nullable=True))
-    op.add_column('recommended_courses', sa.Column('presentation_url', sa.Text(), nullable=True))
-
-    op.create_foreign_key(
-        'fk_courses_presentation',
-        'recommended_courses',
-        'generated_presentations',
-        ['presentation_id'],
-        ['id'],
-        ondelete='SET NULL'
-    )
+    # Note: presentation_id and presentation_url columns already exist from previous migration
+    # Just create the index (foreign key constraint will be enforced at application level)
 
     op.create_index('idx_courses_presentation', 'recommended_courses', ['presentation_id'])
 
@@ -152,13 +121,11 @@ def downgrade() -> None:
     # Drop indexes on recommended_courses
     op.drop_index('idx_courses_presentation', table_name='recommended_courses')
 
-    # Drop foreign key and columns from recommended_courses
-    op.drop_constraint('fk_courses_presentation', 'recommended_courses', type_='foreignkey')
-    op.drop_column('recommended_courses', 'presentation_url')
-    op.drop_column('recommended_courses', 'presentation_id')
+    # Note: Not dropping presentation_id and presentation_url columns as they existed before this migration
+    # Not dropping foreign key as it wasn't created (SQLite limitation)
 
     # Drop indexes on generated_presentations
-    op.drop_index('idx_presentations_unique_skill_completed', table_name='generated_presentations')
+    # Note: idx_presentations_unique_skill_completed was not created (SQLite partial index limitation)
     op.drop_index('idx_presentations_created', table_name='generated_presentations')
     op.drop_index('idx_presentations_job_unique', table_name='generated_presentations')
     op.drop_index('idx_presentations_job', table_name='generated_presentations')
@@ -167,8 +134,7 @@ def downgrade() -> None:
     op.drop_index('idx_presentations_skill', table_name='generated_presentations')
     op.drop_index('idx_presentations_workflow', table_name='generated_presentations')
 
-    # Drop trigger (function retained for reuse by other tables if present)
-    op.execute("DROP TRIGGER IF EXISTS trg_generated_presentations_touch_updated_at ON generated_presentations;")
+    # No triggers to drop for SQLite (triggers not created in upgrade)
 
     # Drop table
     op.drop_table('generated_presentations')
