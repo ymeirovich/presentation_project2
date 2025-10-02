@@ -91,10 +91,11 @@ api_router.include_router(
     tags=["gap-analysis-dashboard", "sprint-1"]
 )
 
+# Sprint 3: PresGen-Core Integration - Per-Skill Presentation Generation
 api_router.include_router(
     presentations.router,
-    prefix="/presentations",
-    tags=["presentations", "ai-services"]
+    prefix="",  # No prefix - endpoints define their own paths under /workflows/
+    tags=["presentations", "presgen-core", "sprint-3"]
 )
 
 # Sprint 3: Monitoring and production readiness endpoints
