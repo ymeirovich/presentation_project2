@@ -2,9 +2,8 @@
 ## AI Question Generation + Gap Analysis Dashboard Enhancement
 
 **Sprint Duration**: Weeks 1-2
-**Test Plan Version**: 1.1
-**Date**: 2025-10-01
-**Last Updated**: 2025-10-01
+**Test Plan Version**: 1.0
+**Date**: 2025-09-30
 
 ---
 
@@ -19,33 +18,17 @@ Test all Sprint 1 deliverables BEFORE implementation:
 
 ---
 
-## 📊 Sprint 1 Status Summary
-
-**Overall Progress**: 20% (1/5 major features complete)
-
-| Component | Status | Notes |
-|-----------|--------|-------|
-| AI Question Generation | ✅ **COMPLETE** | Generates questions, stores metadata |
-| Gap Analysis Persistence | ❌ **BLOCKED** | Tables empty, no persistence logic |
-| Content Outlines (RAG) | ❌ **BLOCKED** | Depends on gap analysis persistence |
-| Recommended Courses | ❌ **BLOCKED** | Depends on gap analysis persistence |
-| Dashboard API Endpoints | ⚠️ **PARTIAL** | Endpoints exist, but no data to serve |
-
-**Critical Blocker**: Gap analysis results not persisted to database tables. See implementation plan in `SPRINT_1_COMPLETION_PLAN.md`.
-
----
-
 ## 📋 Test Suite Overview
 
 | Test ID | Feature | Priority | Status |
 |---------|---------|----------|--------|
-| S1-T1 | AI Question Generation Integration | High | ✅ **PASSED** |
-| S1-T2 | Gap Analysis Database Persistence | High | ❌ **FAILED** |
-| S1-T3 | Text Summary Generation | Medium | ⏸️ **BLOCKED** |
-| S1-T4 | Gap Analysis Dashboard UI - Tabs | High | ⏸️ **BLOCKED** |
-| S1-T5 | Content Outline RAG Retrieval | Medium | ❌ **NOT IMPLEMENTED** |
-| S1-T6 | Recommended Courses Generation | Medium | ❌ **NOT IMPLEMENTED** |
-| S1-T7 | Enhanced Logging Validation | Medium | ⏸️ **PENDING** |
+| S1-T1 | AI Question Generation Integration | High | Not Started |
+| S1-T2 | Gap Analysis Database Persistence | High | Not Started |
+| S1-T3 | Text Summary Generation | Medium | Not Started |
+| S1-T4 | Gap Analysis Dashboard UI - Tabs | High | Not Started |
+| S1-T5 | Content Outline RAG Retrieval | Medium | Not Started |
+| S1-T6 | Recommended Courses Generation | Medium | Not Started |
+| S1-T7 | Enhanced Logging Validation | Medium | Not Started |
 
 ---
 
@@ -105,7 +88,7 @@ curl -X POST http://localhost:8081/api/v1/workflows/ -H "Content-Type: applicati
 3. Verify workflow in database:
 ```bash
 # Query workflow_executions table
-sqlite3 test_database.db "SELECT id, assessment_data FROM workflow_executions WHERE id='<workflow_id>';"
+sqlite3 test_database.db "SELECT id, assessment_data FROM workflow_executions WHERE id='19952bd09cfe44bc9460c4f521caca89';"
 
 sqlite3 test_database.db "SELECT id, user_id, workflow_type, parameters, assessment_data IS NULL as is_null FROM workflow_executions WHERE id='19952bd09cfe44bc9460c4f521caca89';"
 ```
@@ -231,14 +214,15 @@ uvicorn src.service.app:app --port 8081
 cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/presgen-assess && sqlite3 test_database.db "SELECT id, user_id, workflow_type, json_extract(parameters, '$.generation_method') as generation_method, json_extract(parameters, '$.question_count') as question_count FROM workflow_executions WHERE id='19952bd09cfe44bc9460c4f521caca89';"
 
 19952bd09cfe44bc9460c4f521caca89|test_user@example.com|assessment_generation|ai_generated|5
+---
+(.venv) yitzchak@MacBookPro presgen-assess % cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/presgen-assess && sqlite3 test_database.db "SELECT id, user_id, workflow_type, json_extract(parameters, '$.generation_method') as generation_method, json_extract(parameters, '$.question_count') as question_count FROM workflow_executions WHERE id='19952bd09cfe44bc9460c4f521caca89';"
+19952bd09cfe44bc9460c4f521caca89|test_user@example.com|assessment_generation|ai_generated|5
 
 **Test Steps**:
 1. Complete a workflow and submit form responses
 2. Trigger gap analysis:
 ```bash
-curl -X POST http://localhost:8081/api/v1/workflows/19952bd0-9cfe-44bc-9460-c4f521caca89/manual-gap-analysis \
-  -H "Content-Type: application/json" \
-  -d '{
+curl -X POST http://localhost:8081/api/v1/workflows/19952bd0-9cfe-44bc-9460-c4f521caca89/manual-gap-analysis -H "Content-Type: application/json" -d '{
     "assessment_responses": [
       {
         "question_id": "q1",
@@ -249,22 +233,30 @@ curl -X POST http://localhost:8081/api/v1/workflows/19952bd0-9cfe-44bc-9460-c4f5
       }
     ]
   }'
+
+{"success":true,"message":"Gap analysis completed - workflow is now complete at 100%","workflow_id":"19952bd0-9cfe-44bc-9460-c4f521caca89","gap_analysis_id":"37ff8ce0-4164-40b5-92c4-29bb0c01b9b3","status":"completed","current_step":"gap_analysis_complete","progress":100,"gap_analysis_results":{"success":true,"gap_analysis_id":"37ff8ce0-4164-40b5-92c4-29bb0c01b9b3","workflow_id":"19952bd0-9cfe-44bc-9460-c4f521caca89","overall_score":27.0,"skill_gaps":[{"skill_id":"security","skill_name":"Security","exam_domain":"Security","exam_subsection":null,"severity":9,"confidence_delta":0.0,"question_ids":[]},{"skill_id":"networking","skill_name":"Networking","exam_domain":"Networking","exam_subsection":null,"severity":9,"confidence_delta":0.0,"question_ids":[]},{"skill_id":"compute","skill_name":"Compute","exam_domain":"Compute","exam_subsection":null,"severity":9,"confidence_delta":0.0,"question_ids":[]}],"skill_gaps_count":3,"text_summary":"You scored 27.0% overall on this AWS Solutions Architect assessment.\n\nYour strongest areas are:\n- Security (0.0%) - Above passing threshold\n- Networking (0.0%) - Above passing threshold\n\nAreas needing improvement:\n- Networking (0.0%) - Below recommended proficiency\n- Compute (0.0%) - Below recommended proficiency\n\nRecommended next steps:\n- Focus study time on areas with lowest scores\n- Review exam guide sections for identified gaps\n- Practice with targeted exercises\n","processing_time_ms":9.999999776482582},"next_steps":["View Gap Analysis Dashboard","Generate presentations from Dashboard (user-initiated)","Generate courses from Recommended Courses (user-initiated)"],"mock_data_used":true,"note":"Workflow complete. Presentation generation is now available on the Gap Analysis Dashboard."}%  
+
 ```
 {"success":true,"message":"Gap analysis completed manually","workflow_id":"19952bd0-9cfe-44bc-9460-c4f521caca89","status":"processing","current_step":"presentation_generation","progress":85,"gap_analysis_results":{"success":true,"assessment_id":"19952bd0-9cfe-44bc-9460-c4f521caca89_gap_analysis","student_identifier":"test_user@example.com","overall_readiness_score":0.68,"confidence_analysis":{"avg_confidence":3.2,"calibration_score":0.75,"overconfidence_domains":["Modeling"],"underconfidence_domains":["Data Engineering"]},"identified_gaps":[{"domain":"Modeling","gap_severity":"high","current_score":58,"target_score":80,"improvement_needed":22},{"domain":"Data Engineering","gap_severity":"medium","current_score":65,"target_score":80,"improvement_needed":15}],"priority_learning_areas":["Model Selection and Evaluation","Feature Engineering","Data Pipeline Architecture","ML Model Deployment"],"remediation_plan":{"total_study_hours":24,"focus_areas":["Modeling","Data Engineering"],"recommended_resources":["AWS ML Exam Guide","Hands-on Labs"]},"timestamp":"2025-09-28T10:30:00Z"},"next_steps":["Presentation content generation","Slide creation","Avatar generation (if enabled)","Finalization"],"mock_data_used":true,"note":"Gap analysis completed with sample learning gap data"}%     
 
 3. Verify database records created:
 ```bash
 # Check gap_analysis_results table
-sqlite3 test_database.db "SELECT id, workflow_id, overall_score, skill_gaps FROM gap_analysis_results WHERE workflow_id='<workflow_id>';"
+sqlite3 test_database.db "SELECT id, workflow_id, overall_score, skill_gaps FROM gap_analysis_results WHERE workflow_id='19952bd09cfe44bc9460c4f521caca89';"
 
 curl -X POST http://localhost:8081/api/v1/workflows/19952bd0-9cfe-44bc-9460-c4f521caca89/manual-gap-analysis
 
-{"success":true,"message":"Gap analysis completed manually","workflow_id":"19952bd0-9cfe-44bc-9460-c4f521caca89","status":"processing","current_step":"presentation_generation","progress":85,"gap_analysis_results":{"success":true,"assessment_id":"19952bd0-9cfe-44bc-9460-c4f521caca89_gap_analysis","student_identifier":"test_user@example.com","overall_readiness_score":0.68,"confidence_analysis":{"avg_confidence":3.2,"calibration_score":0.75,"overconfidence_domains":["Modeling"],"underconfidence_domains":["Data Engineering"]},"identified_gaps":[{"domain":"Modeling","gap_severity":"high","current_score":58,"target_score":80,"improvement_needed":22},{"domain":"Data Engineering","gap_severity":"medium","current_score":65,"target_score":80,"improvement_needed":15}],"priority_learning_areas":["Model Selection and Evaluation","Feature Engineering","Data Pipeline Architecture","ML Model Deployment"],"remediation_plan":{"total_study_hours":24,"focus_areas":["Modeling","Data Engineering"],"recommended_resources":["AWS ML Exam Guide","Hands-on Labs"]},"timestamp":"2025-09-28T10:30:00Z"},"next_steps":["Presentation content generation","Slide creation","Avatar generation (if enabled)","Finalization"],"mock_data_used":true,"note":"Gap analysis completed with sample learning gap data"}%                                                                                                      
+{"success":true,"message":"Gap analysis completed manually","workflow_id":"19952bd0-9cfe-44bc-9460-c4f521caca89","status":"processing","current_step":"presentation_generation","progress":85,"gap_analysis_results":{"success":true,"assessment_id":"19952bd0-9cfe-44bc-9460-c4f521caca89_gap_analysis","student_identifier":"test_user@example.com","overall_readiness_score":0.68,"confidence_analysis":{"avg_confidence":3.2,"calibration_score":0.75,"overconfidence_domains":["Modeling"],"underconfidence_domains":["Data Engineering"]},"identified_gaps":[{"domain":"Modeling","gap_severity":"high","current_score":58,"target_score":80,"improvement_needed":22},{"domain":"Data Engineering","gap_severity":"medium","current_score":65,"target_score":80,"improvement_needed":15}],"priority_learning_areas":["Model Selection and Evaluation","Feature Engineering","Data Pipeline Architecture","ML Model Deployment"],"remediation_plan":{"total_study_hours":24,"focus_areas":["Modeling","Data Engineering"],"recommended_resources":["AWS ML Exam Guide","Hands-on Labs"]},"timestamp":"2025-09-28T10:30:00Z"},"next_steps":["Presentation content generation","Slide creation","Avatar generation (if enabled)","Finalization"],"mock_data_used":true,"note":"Gap analysis completed with sample learning gap data"}%              
+
+---
+{"success":true,"message":"Gap analysis completed - workflow is now complete at 100%","workflow_id":"19952bd0-9cfe-44bc-9460-c4f521caca89","gap_analysis_id":"9360c073-466a-4a47-ac30-be6e5c4dd322","status":"completed","current_step":"gap_analysis_complete","progress":100,"gap_analysis_results":{"success":true,"gap_analysis_id":"9360c073-466a-4a47-ac30-be6e5c4dd322","workflow_id":"19952bd0-9cfe-44bc-9460-c4f521caca89","overall_score":27.0,"skill_gaps":[{"skill_id":"security","skill_name":"Security","exam_domain":"Security","exam_subsection":null,"severity":9,"confidence_delta":0.0,"question_ids":[]},{"skill_id":"networking","skill_name":"Networking","exam_domain":"Networking","exam_subsection":null,"severity":9,"confidence_delta":0.0,"question_ids":[]},{"skill_id":"compute","skill_name":"Compute","exam_domain":"Compute","exam_subsection":null,"severity":9,"confidence_delta":0.0,"question_ids":[]}],"skill_gaps_count":3,"text_summary":"You scored 27.0% overall on this AWS Solutions Architect assessment.\n\nYour strongest areas are:\n- Security (0.0%) - Above passing threshold\n- Networking (0.0%) - Above passing threshold\n\nAreas needing improvement:\n- Networking (0.0%) - Below recommended proficiency\n- Compute (0.0%) - Below recommended proficiency\n\nRecommended next steps:\n- Focus study time on areas with lowest scores\n- Review exam guide sections for identified gaps\n- Practice with targeted exercises\n","processing_time_ms":10.999999940395355},"next_steps":["View Gap Analysis Dashboard","Generate presentations from Dashboard (user-initiated)","Generate courses from Recommended Courses (user-initiated)"],"mock_data_used":true,"note":"Workflow complete. Presentation generation is now available on the Gap Analysis Dashboard."}zsh: no matches found: success:true,message:Gap analysis completed manually,workflow_id:19952bd0-9cfe-44bc-9460-c4f521caca89,status:processing,current_step:presentation_generation,progress:85,gap_analysis_results:success:true,next_steps:[Presentation content generation,Slide creation,Avatar generation (if enabled),Finalization],mock_data_used:true,note:Gap analysis completed with sample learning gap data
+
+---
 # Check content_outlines table
-sqlite3 test_database.db "SELECT id, gap_analysis_id, skill_name, content_items FROM content_outlines WHERE workflow_id='<workflow_id>';"
+sqlite3 test_database.db "SELECT id, gap_analysis_id, skill_name, content_items FROM content_outlines WHERE workflow_id='19952bd0-9cfe-44bc-9460-c4f521caca89';"
 
 # Check recommended_courses table
-sqlite3 test_database.db "SELECT id, gap_analysis_id, course_title, generation_status FROM recommended_courses WHERE workflow_id='<workflow_id>';"
+sqlite3 test_database.db "SELECT id, gap_analysis_id, course_title, generation_status FROM recommended_courses WHERE workflow_id='19952bd0-9cfe-44bc-9460-c4f521caca89';"
 ```
 
 **Expected Results**:
@@ -277,17 +269,18 @@ sqlite3 test_database.db "SELECT id, gap_analysis_id, course_title, generation_s
 ```sql
 -- Count records created
 SELECT
-  (SELECT COUNT(*) FROM gap_analysis_results WHERE workflow_id='<workflow_id>') as gap_results,
-  (SELECT COUNT(*) FROM content_outlines WHERE workflow_id='<workflow_id>') as outlines,
-  (SELECT COUNT(*) FROM recommended_courses WHERE workflow_id='<workflow_id>') as courses;
+  (SELECT COUNT(*) FROM gap_analysis_results WHERE workflow_id='19952bd09cfe44bc9460c4f521caca89') as gap_results,
+  (SELECT COUNT(*) FROM content_outlines WHERE workflow_id='19952bd09cfe44bc9460c4f521caca89') as outlines,
+  (SELECT COUNT(*) FROM recommended_courses WHERE workflow_id='19952bd09cfe44bc9460c4f521caca89') as courses;
 
   (.venv) yitzchak@MacBookPro presgen-assess % sqlite3 test_database.db "SELECT 
   (SELECT COUNT(*) FROM gap_analysis_results WHERE workflow_id='19952bd09cfe44bc9460c4f521caca89') as gap_results,
   (SELECT COUNT(*) FROM content_outlines WHERE workflow_id='19952bd09cfe44bc9460c4f521caca89') as outlines, 
   (SELECT COUNT(*) FROM recommended_courses WHERE workflow_id='19952bd09cfe44bc9460c4f521caca89') as courses;"
-0|0|0
+8|15|15
 
 -- Verify foreign key relationships
+sqlite3 test_database.db "
 SELECT
   gar.id as gap_analysis_id,
   gar.workflow_id,
@@ -296,8 +289,8 @@ SELECT
 FROM gap_analysis_results gar
 LEFT JOIN content_outlines co ON co.gap_analysis_id = gar.id
 LEFT JOIN recommended_courses rc ON rc.gap_analysis_id = gar.id
-WHERE gar.workflow_id = '<workflow_id>'
-GROUP BY gar.id;
+WHERE gar.workflow_id = '19952bd09cfe44bc9460c4f521caca89'
+GROUP BY gar.id;"
 ```
 
 **Pass Criteria**:
@@ -307,6 +300,13 @@ GROUP BY gar.id;
 - [ ] All foreign keys valid
 - [ ] Timestamps populated (created_at, updated_at)
 
+37ff8ce0416440b592c429bb0c01b9b3|19952bd09cfe44bc9460c4f521caca89|3|3
+3f0d7d15dcef480db4fb463628888c6f|19952bd09cfe44bc9460c4f521caca89|3|3
+53ec31971dde4cd08c8ef09a09fc4d44|19952bd09cfe44bc9460c4f521caca89|3|3
+6c13f981b56e4328a807bd0a0eb35821|19952bd09cfe44bc9460c4f521caca89|3|3
+9360c073466a4a47ac30be6e5c4dd322|19952bd09cfe44bc9460c4f521caca89|3|3
+a6b650206e1f48b1b90f9a134af56729|19952bd09cfe44bc9460c4f521caca89|0|0
+c95df23189374d9a83235a4cd1a10976|19952bd09cfe44bc9460c4f521caca89|0|0
 ---
 
 ### Test Case 2.2: Gap Analysis JSON Structure Validation
@@ -318,8 +318,17 @@ GROUP BY gar.id;
 
 ```bash
 # Get gap analysis result
-sqlite3 test_database.db "SELECT skill_gaps, performance_by_domain, severity_scores FROM gap_analysis_results WHERE workflow_id='<workflow_id>';"
+sqlite3 test_database.db "SELECT skill_gaps, performance_by_domain, severity_scores FROM gap_analysis_results WHERE workflow_id='19952bd09cfe44bc9460c4f521caca89';"
 ```
+(.venv) yitzchak@MacBookPro presgen-assess % sqlite3 test_database.db "SELECT skill_gaps, performance_by_domain, severity_scores FROM gap_analysis_results WHERE workflow_id='19952bd09cfe44bc9460c4f521caca89';"
+[{"skill_id": "security", "skill_name": "Security", "exam_domain": "Security", "exam_subsection": null, "severity": 9, "confidence_delta": "unknown", "question_ids": []}, {"skill_id": "networking", "skill_name": "Networking", "exam_domain": "Networking", "exam_subsection": null, "severity": 9, "confidence_delta": "unknown", "question_ids": []}, {"skill_id": "compute", "skill_name": "Compute", "exam_domain": "Compute", "exam_subsection": null, "severity": 9, "confidence_delta": "unknown", "question_ids": []}]|{}|{"security": 9, "networking": 9, "compute": 9}
+[{"skill_id": "security", "skill_name": "Security", "exam_domain": "Security", "exam_subsection": null, "severity": 9, "confidence_delta": "unknown", "question_ids": []}, {"skill_id": "networking", "skill_name": "Networking", "exam_domain": "Networking", "exam_subsection": null, "severity": 9, "confidence_delta": "unknown", "question_ids": []}, {"skill_id": "compute", "skill_name": "Compute", "exam_domain": "Compute", "exam_subsection": null, "severity": 9, "confidence_delta": "unknown", "question_ids": []}]|{}|{"security": 9, "networking": 9, "compute": 9}
+[{"skill_id": "security", "skill_name": "Security", "exam_domain": "Security", "exam_subsection": null, "severity": 9, "confidence_delta": "unknown", "question_ids": []}, {"skill_id": "networking", "skill_name": "Networking", "exam_domain": "Networking", "exam_subsection": null, "severity": 9, "confidence_delta": "unknown", "question_ids": []}, {"skill_id": "compute", "skill_name": "Compute", "exam_domain": "Compute", "exam_subsection": null, "severity": 9, "confidence_delta": "unknown", "question_ids": []}]|{}|{"security": 9, "networking": 9, "compute": 9}
+[{"skill_id": "security", "skill_name": "Security", "exam_domain": "Security", "exam_subsection": null, "severity": 9, "confidence_delta": "unknown", "question_ids": []}, {"skill_id": "networking", "skill_name": "Networking", "exam_domain": "Networking", "exam_subsection": null, "severity": 9, "confidence_delta": "unknown", "question_ids": []}, {"skill_id": "compute", "skill_name": "Compute", "exam_domain": "Compute", "exam_subsection": null, "severity": 9, "confidence_delta": "unknown", "question_ids": []}]|{}|{"security": 9, "networking": 9, "compute": 9}
+[{"skill_id": "security", "skill_name": "Security", "exam_domain": "Security", "exam_subsection": null, "severity": 9, "confidence_delta": "unknown", "question_ids": []}, {"skill_id": "networking", "skill_name": "Networking", "exam_domain": "Networking", "exam_subsection": null, "severity": 9, "confidence_delta": "unknown", "question_ids": []}, {"skill_id": "compute", "skill_name": "Compute", "exam_domain": "Compute", "exam_subsection": null, "severity": 9, "confidence_delta": "unknown", "question_ids": []}]|{}|{"security": 9, "networking": 9, "compute": 9}
+[{"skill_id": "security", "skill_name": "Security", "exam_domain": "Security", "exam_subsection": null, "severity": 9, "confidence_delta": 0.0, "question_ids": []}, {"skill_id": "networking", "skill_name": "Networking", "exam_domain": "Networking", "exam_subsection": null, "severity": 9, "confidence_delta": 0.0, "question_ids": []}, {"skill_id": "compute", "skill_name": "Compute", "exam_domain": "Compute", "exam_subsection": null, "severity": 9, "confidence_delta": 0.0, "question_ids": []}]|{}|{"security": 9, "networking": 9, "compute": 9}
+[{"skill_id": "security", "skill_name": "Security", "exam_domain": "Security", "exam_subsection": null, "severity": 9, "confidence_delta": 0.0, "question_ids": []}, {"skill_id": "networking", "skill_name": "Networking", "exam_domain": "Networking", "exam_subsection": null, "severity": 9, "confidence_delta": 0.0, "question_ids": []}, {"skill_id": "compute", "skill_name": "Compute", "exam_domain": "Compute", "exam_subsection": null, "severity": 9, "confidence_delta": 0.0, "question_ids": []}]|{}|{"security": 9, "networking": 9, "compute": 9}
+[{"skill_id": "security", "skill_name": "Security", "exam_domain": "Security", "exam_subsection": null, "severity": 9, "confidence_delta": 0.0, "question_ids": []}, {"skill_id": "networking", "skill_name": "Networking", "exam_domain": "Networking", "exam_subsection": null, "severity": 9, "confidence_delta": 0.0, "question_ids": []}, {"skill_id": "compute", "skill_name": "Compute", "exam_domain": "Compute", "exam_subsection": null, "severity": 9, "confidence_delta": 0.0, "question_ids": []}]|{}|{"security": 9, "networking": 9, "compute": 9}
 
 **Expected JSON Structure**:
 
@@ -373,9 +382,131 @@ sqlite3 test_database.db "SELECT skill_gaps, performance_by_domain, severity_sco
 1. Run gap analysis
 2. Query text_summary field:
 ```bash
-sqlite3 test_database.db "SELECT text_summary FROM gap_analysis_results WHERE workflow_id='<workflow_id>';"
+sqlite3 test_database.db "SELECT text_summary FROM gap_analysis_results WHERE workflow_id='19952bd09cfe44bc9460c4f521caca89';"
 ```
+---
+(.venv) yitzchak@MacBookPro presgen-assess % sqlite3 test_database.db "SELECT text_summary FROM gap_analysis_results WHERE workflow_id='19952bd09cfe44bc9460c4f521caca89';"
+You scored 27.0% overall on this AWS Solutions Architect assessment.
 
+Your strongest areas are:
+- Security (0.0%) - Above passing threshold
+- Networking (0.0%) - Above passing threshold
+
+Areas needing improvement:
+- Networking (0.0%) - Below recommended proficiency
+- Compute (0.0%) - Below recommended proficiency
+
+Recommended next steps:
+- Focus study time on areas with lowest scores
+- Review exam guide sections for identified gaps
+- Practice with targeted exercises
+
+You scored 27.0% overall on this AWS Solutions Architect assessment.
+
+Your strongest areas are:
+- Security (0.0%) - Above passing threshold
+- Networking (0.0%) - Above passing threshold
+
+Areas needing improvement:
+- Networking (0.0%) - Below recommended proficiency
+- Compute (0.0%) - Below recommended proficiency
+
+Recommended next steps:
+- Focus study time on areas with lowest scores
+- Review exam guide sections for identified gaps
+- Practice with targeted exercises
+
+You scored 27.0% overall on this AWS Solutions Architect assessment.
+
+Your strongest areas are:
+- Security (0.0%) - Above passing threshold
+- Networking (0.0%) - Above passing threshold
+
+Areas needing improvement:
+- Networking (0.0%) - Below recommended proficiency
+- Compute (0.0%) - Below recommended proficiency
+
+Recommended next steps:
+- Focus study time on areas with lowest scores
+- Review exam guide sections for identified gaps
+- Practice with targeted exercises
+
+You scored 27.0% overall on this AWS Solutions Architect assessment.
+
+Your strongest areas are:
+- Security (0.0%) - Above passing threshold
+- Networking (0.0%) - Above passing threshold
+
+Areas needing improvement:
+- Networking (0.0%) - Below recommended proficiency
+- Compute (0.0%) - Below recommended proficiency
+
+Recommended next steps:
+- Focus study time on areas with lowest scores
+- Review exam guide sections for identified gaps
+- Practice with targeted exercises
+
+You scored 27.0% overall on this AWS Solutions Architect assessment.
+
+Your strongest areas are:
+- Security (0.0%) - Above passing threshold
+- Networking (0.0%) - Above passing threshold
+
+Areas needing improvement:
+- Networking (0.0%) - Below recommended proficiency
+- Compute (0.0%) - Below recommended proficiency
+
+Recommended next steps:
+- Focus study time on areas with lowest scores
+- Review exam guide sections for identified gaps
+- Practice with targeted exercises
+
+You scored 27.0% overall on this AWS Solutions Architect assessment.
+
+Your strongest areas are:
+- Security (0.0%) - Above passing threshold
+- Networking (0.0%) - Above passing threshold
+
+Areas needing improvement:
+- Networking (0.0%) - Below recommended proficiency
+- Compute (0.0%) - Below recommended proficiency
+
+Recommended next steps:
+- Focus study time on areas with lowest scores
+- Review exam guide sections for identified gaps
+- Practice with targeted exercises
+
+You scored 27.0% overall on this AWS Solutions Architect assessment.
+
+Your strongest areas are:
+- Security (0.0%) - Above passing threshold
+- Networking (0.0%) - Above passing threshold
+
+Areas needing improvement:
+- Networking (0.0%) - Below recommended proficiency
+- Compute (0.0%) - Below recommended proficiency
+
+Recommended next steps:
+- Focus study time on areas with lowest scores
+- Review exam guide sections for identified gaps
+- Practice with targeted exercises
+
+You scored 27.0% overall on this AWS Solutions Architect assessment.
+
+Your strongest areas are:
+- Security (0.0%) - Above passing threshold
+- Networking (0.0%) - Above passing threshold
+
+Areas needing improvement:
+- Networking (0.0%) - Below recommended proficiency
+- Compute (0.0%) - Below recommended proficiency
+
+Recommended next steps:
+- Focus study time on areas with lowest scores
+- Review exam guide sections for identified gaps
+- Practice with targeted exercises
+
+---
 **Expected Text Summary Format**:
 ```
 You scored 72.5% overall on this assessment, answering 17 out of 24 questions correctly.
@@ -497,7 +628,25 @@ tail -f src/logs/workflows.log | grep "rag_retrieval"
 
 3. Query content_outlines table:
 ```bash
-sqlite3 test_database.db "SELECT skill_name, content_items, rag_retrieval_score FROM content_outlines WHERE workflow_id='<workflow_id>';"
+sqlite3 test_database.db "SELECT skill_name, content_items, rag_retrieval_score FROM content_outlines WHERE workflow_id='19952bd09cfe44bc9460c4f521caca89';"
+
+---
+(.venv) yitzchak@MacBookPro presgen-assess % sqlite3 test_database.db "SELECT skill_name, content_items, rag_retrieval_score FROM content_outlines WHERE workflow_id='19952bd09cfe44bc9460c4f521caca89';"
+Security|[{"topic": "Security Fundamentals", "source": "AWS Solutions Architect Study Guide", "page_ref": "Chapter TBD", "summary": "Core concepts and principles of Security in Security."}, {"topic": "Security Best Practices", "source": "Official Documentation", "page_ref": "Section TBD", "summary": "Industry best practices and common patterns for Security."}]|0.75
+Networking|[{"topic": "Networking Fundamentals", "source": "AWS Solutions Architect Study Guide", "page_ref": "Chapter TBD", "summary": "Core concepts and principles of Networking in Networking."}, {"topic": "Networking Best Practices", "source": "Official Documentation", "page_ref": "Section TBD", "summary": "Industry best practices and common patterns for Networking."}]|0.75
+Compute|[{"topic": "Compute Fundamentals", "source": "AWS Solutions Architect Study Guide", "page_ref": "Chapter TBD", "summary": "Core concepts and principles of Compute in Compute."}, {"topic": "Compute Best Practices", "source": "Official Documentation", "page_ref": "Section TBD", "summary": "Industry best practices and common patterns for Compute."}]|0.75
+Security|[{"topic": "Security Fundamentals", "source": "AWS Solutions Architect Study Guide", "page_ref": "Chapter TBD", "summary": "Core concepts and principles of Security in Security."}, {"topic": "Security Best Practices", "source": "Official Documentation", "page_ref": "Section TBD", "summary": "Industry best practices and common patterns for Security."}]|0.75
+Networking|[{"topic": "Networking Fundamentals", "source": "AWS Solutions Architect Study Guide", "page_ref": "Chapter TBD", "summary": "Core concepts and principles of Networking in Networking."}, {"topic": "Networking Best Practices", "source": "Official Documentation", "page_ref": "Section TBD", "summary": "Industry best practices and common patterns for Networking."}]|0.75
+Compute|[{"topic": "Compute Fundamentals", "source": "AWS Solutions Architect Study Guide", "page_ref": "Chapter TBD", "summary": "Core concepts and principles of Compute in Compute."}, {"topic": "Compute Best Practices", "source": "Official Documentation", "page_ref": "Section TBD", "summary": "Industry best practices and common patterns for Compute."}]|0.75
+Security|[{"topic": "Security Fundamentals", "source": "AWS Solutions Architect Study Guide", "page_ref": "Chapter TBD", "summary": "Core concepts and principles of Security in Security."}, {"topic": "Security Best Practices", "source": "Official Documentation", "page_ref": "Section TBD", "summary": "Industry best practices and common patterns for Security."}]|0.75
+Networking|[{"topic": "Networking Fundamentals", "source": "AWS Solutions Architect Study Guide", "page_ref": "Chapter TBD", "summary": "Core concepts and principles of Networking in Networking."}, {"topic": "Networking Best Practices", "source": "Official Documentation", "page_ref": "Section TBD", "summary": "Industry best practices and common patterns for Networking."}]|0.75
+Compute|[{"topic": "Compute Fundamentals", "source": "AWS Solutions Architect Study Guide", "page_ref": "Chapter TBD", "summary": "Core concepts and principles of Compute in Compute."}, {"topic": "Compute Best Practices", "source": "Official Documentation", "page_ref": "Section TBD", "summary": "Industry best practices and common patterns for Compute."}]|0.75
+Security|[{"topic": "Security Fundamentals", "source": "AWS Solutions Architect Study Guide", "page_ref": "Chapter TBD", "summary": "Core concepts and principles of Security in Security."}, {"topic": "Security Best Practices", "source": "Official Documentation", "page_ref": "Section TBD", "summary": "Industry best practices and common patterns for Security."}]|0.75
+Networking|[{"topic": "Networking Fundamentals", "source": "AWS Solutions Architect Study Guide", "page_ref": "Chapter TBD", "summary": "Core concepts and principles of Networking in Networking."}, {"topic": "Networking Best Practices", "source": "Official Documentation", "page_ref": "Section TBD", "summary": "Industry best practices and common patterns for Networking."}]|0.75
+Compute|[{"topic": "Compute Fundamentals", "source": "AWS Solutions Architect Study Guide", "page_ref": "Chapter TBD", "summary": "Core concepts and principles of Compute in Compute."}, {"topic": "Compute Best Practices", "source": "Official Documentation", "page_ref": "Section TBD", "summary": "Industry best practices and common patterns for Compute."}]|0.75
+Security|[{"topic": "Security Fundamentals", "source": "AWS Solutions Architect Study Guide", "page_ref": "Chapter TBD", "summary": "Core concepts and principles of Security in Security."}, {"topic": "Security Best Practices", "source": "Official Documentation", "page_ref": "Section TBD", "summary": "Industry best practices and common patterns for Security."}]|0.75
+Networking|[{"topic": "Networking Fundamentals", "source": "AWS Solutions Architect Study Guide", "page_ref": "Chapter TBD", "summary": "Core concepts and principles of Networking in Networking."}, {"topic": "Networking Best Practices", "source": "Official Documentation", "page_ref": "Section TBD", "summary": "Industry best practices and common patterns for Networking."}]|0.75
+Compute|[{"topic": "Compute Fundamentals", "source": "AWS Solutions Architect Study Guide", "page_ref": "Chapter TBD", "summary": "Core concepts and principles of Compute in Compute."}, {"topic": "Compute Best Practices", "source": "Official Documentation", "page_ref": "Section TBD", "summary": "Industry best practices and common patterns for Compute."}]|0.75
 ```
 
 4. Validate content_items structure:
@@ -565,7 +714,25 @@ grep "rag_retrieval_complete" src/logs/workflows.log | grep "retrieval_time_ms"
 1. Run gap analysis
 2. Query recommended_courses table:
 ```bash
-sqlite3 test_database.db "SELECT course_title, difficulty_level, estimated_duration_minutes, learning_objectives, generation_status FROM recommended_courses WHERE workflow_id='<workflow_id>';"
+sqlite3 test_database.db "SELECT course_title, difficulty_level, estimated_duration_minutes, learning_objectives, generation_status FROM recommended_courses WHERE workflow_id='19952bd09cfe44bc9460c4f521caca89';"
+
+---
+(.venv) yitzchak@MacBookPro presgen-assess % sqlite3 test_database.db "SELECT course_title, difficulty_level, estimated_duration_minutes, learning_objectives, generation_status FROM recommended_courses WHERE workflow_id='19952bd09cfe44bc9460c4f521caca89';"
+Mastering Security|beginner|60|["Understand core Security principles", "Apply Security in practical scenarios", "Master exam topics related to Security"]|pending
+Mastering Networking|beginner|60|["Understand core Networking principles", "Apply Networking in practical scenarios", "Master exam topics related to Networking"]|pending
+Mastering Compute|beginner|60|["Understand core Compute principles", "Apply Compute in practical scenarios", "Master exam topics related to Compute"]|pending
+Mastering Security|beginner|60|["Understand core Security principles", "Apply Security in practical scenarios", "Master exam topics related to Security"]|pending
+Mastering Networking|beginner|60|["Understand core Networking principles", "Apply Networking in practical scenarios", "Master exam topics related to Networking"]|pending
+Mastering Compute|beginner|60|["Understand core Compute principles", "Apply Compute in practical scenarios", "Master exam topics related to Compute"]|pending
+Mastering Security|beginner|60|["Understand core Security principles", "Apply Security in practical scenarios", "Master exam topics related to Security"]|pending
+Mastering Networking|beginner|60|["Understand core Networking principles", "Apply Networking in practical scenarios", "Master exam topics related to Networking"]|pending
+Mastering Compute|beginner|60|["Understand core Compute principles", "Apply Compute in practical scenarios", "Master exam topics related to Compute"]|pending
+Mastering Security|beginner|60|["Understand core Security principles", "Apply Security in practical scenarios", "Master exam topics related to Security"]|pending
+Mastering Networking|beginner|60|["Understand core Networking principles", "Apply Networking in practical scenarios", "Master exam topics related to Networking"]|pending
+Mastering Compute|beginner|60|["Understand core Compute principles", "Apply Compute in practical scenarios", "Master exam topics related to Compute"]|pending
+Mastering Security|beginner|60|["Understand core Security principles", "Apply Security in practical scenarios", "Master exam topics related to Security"]|pending
+Mastering Networking|beginner|60|["Understand core Networking principles", "Apply Networking in practical scenarios", "Master exam topics related to Networking"]|pending
+Mastering Compute|beginner|60|["Understand core Compute principles", "Apply Compute in practical scenarios", "Master exam topics related to Compute"]|pending
 ```
 
 **Expected Results per Course**:
@@ -590,7 +757,25 @@ sqlite3 test_database.db "SELECT course_title, difficulty_level, estimated_durat
 **Test Steps**:
 1. Query courses ordered by priority:
 ```bash
-sqlite3 test_database.db "SELECT skill_name, priority, course_title FROM recommended_courses WHERE workflow_id='<workflow_id>' ORDER BY priority DESC;"
+sqlite3 test_database.db "SELECT skill_name, priority, course_title FROM recommended_courses WHERE workflow_id='19952bd09cfe44bc9460c4f521caca89' ORDER BY priority DESC;"
+
+---
+(.venv) yitzchak@MacBookPro presgen-assess % sqlite3 test_database.db "SELECT skill_name, priority, course_title FROM recommended_courses WHERE workflow_id='19952bd09cfe44bc9460c4f521caca89' ORDER BY priority DESC;"
+Security|9|Mastering Security
+Networking|9|Mastering Networking
+Compute|9|Mastering Compute
+Security|9|Mastering Security
+Networking|9|Mastering Networking
+Compute|9|Mastering Compute
+Security|9|Mastering Security
+Networking|9|Mastering Networking
+Compute|9|Mastering Compute
+Security|9|Mastering Security
+Networking|9|Mastering Networking
+Compute|9|Mastering Compute
+Security|9|Mastering Security
+Networking|9|Mastering Networking
+Compute|9|Mastering Compute
 ```
 
 **Expected Results**:
@@ -653,6 +838,12 @@ grep "ai_generation" src/logs/workflows.log
 2. Check logs:
 ```bash
 grep "gap_analysis" src/logs/workflows.log
+
+---
+...
+2025-10-02 18:05:11 | presgen_assess.workflows | INFO     | manual_gap_analysis_completion:1155 | ✅ Gap analysis persisted | gap_analysis_id=9360c073-466a-4a47-ac30-be6e5c4dd322
+2025-10-02 18:12:03 | presgen_assess.workflows | INFO     | get_workflow_gap_analysis:1314 | 📊 Getting gap analysis for workflow: 8e46398d-c292-4439-a045-31dfeb49d7ef
+2025-10-02 18:12:03 | presgen_assess.workflows | INFO     | get_workflow_gap_analysis:1317 | ✅ Gap analysis retrieved for workflow: 8e46398d-c292-4439-a045-31dfeb49d7ef
 ```
 
 **Expected Log Events**:
