@@ -70,13 +70,17 @@ _Last updated: 2025-10-02_
 
 ### 5. Google Drive Organization (Per-Skill Structure)
 
-- Create folder structure: `Assessments/{workflow_id}/Presentations/{skill_name}/`
-- Each skill gets its own folder
+- Create human-readable folder structure:
+  - **With user email**: `Assessments/{assessment_title}_{user_email}_{workflow_id}/Presentations/{skill_name}/`
+  - **Without user email**: `Assessments/{assessment_title}_{workflow_id}/Presentations/{skill_name}/`
+- Each skill gets its own subfolder under Presentations
 - File naming: `{skill_name}_presentation_{timestamp}.pptx`
-- Example:
-  - `Assessments/abc-123/Presentations/EC2_Instance_Types/`
-  - `Assessments/abc-123/Presentations/S3_Bucket_Policies/`
-  - `Assessments/abc-123/Presentations/IAM_Roles/`
+- Example with user email:
+  - `Assessments/AWS_Solutions_Architect_john.doe@company.com_abc-123/Presentations/EC2_Instance_Types/`
+  - `Assessments/AWS_Solutions_Architect_john.doe@company.com_abc-123/Presentations/S3_Bucket_Policies/`
+  - `Assessments/AWS_Solutions_Architect_john.doe@company.com_abc-123/Presentations/IAM_Roles/`
+- Example without user email:
+  - `Assessments/AWS_Solutions_Architect_abc-123/Presentations/EC2_Instance_Types/`
 
 ### 6. Enhanced Course Recommendations (1:1 Skill Mapping)
 
@@ -173,14 +177,16 @@ _Last updated: 2025-10-02_
 └─────────────────────────────────────────────────────────────┘
                             ↓
 ┌─────────────────────────────────────────────────────────────┐
-│                    Google Drive (Per-Skill Folders)         │
-│  Assessments/{workflow_id}/Presentations/                   │
-│    EC2_Instance_Types/                                      │
-│      - EC2_Instance_Types_2025-10-02.pptx                   │
-│    S3_Bucket_Policies/                                      │
-│      - S3_Bucket_Policies_2025-10-02.pptx                   │
-│    IAM_Roles/                                               │
-│      - IAM_Roles_2025-10-02.pptx                            │
+│             Google Drive (Human-Readable Folders)           │
+│  Assessments/                                               │
+│    AWS_Solutions_Architect_john.doe@company.com_abc-123/    │
+│      Presentations/                                         │
+│        EC2_Instance_Types/                                  │
+│          - EC2_Instance_Types_2025-10-02.pptx               │
+│        S3_Bucket_Policies/                                  │
+│          - S3_Bucket_Policies_2025-10-02.pptx               │
+│        IAM_Roles/                                           │
+│          - IAM_Roles_2025-10-02.pptx                        │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -201,6 +207,11 @@ CREATE TABLE IF NOT EXISTS generated_presentations (
     skill_id TEXT NOT NULL,  -- 🎯 NEW: Links to specific skill gap
     skill_name TEXT NOT NULL,  -- 🎯 NEW: Human-readable skill name
     course_id TEXT REFERENCES recommended_courses(id),  -- 🎯 NEW: 1:1 course mapping
+
+    -- Drive folder naming (human-readable)
+    assessment_title TEXT,  -- 🎯 NEW: e.g., "AWS Solutions Architect"
+    user_email TEXT,  -- 🎯 NEW: For folder naming (optional)
+    drive_folder_path TEXT,  -- 🎯 NEW: Full path for reference
 
     presentation_title TEXT NOT NULL,
     presentation_url TEXT,  -- Google Slides URL
@@ -292,22 +303,27 @@ class TemplateType(str, Enum):
     CUSTOM = "custom"  # User-specified template
 
 class PresentationContentSpec(BaseModel):
-    """Content specification for presentation generation."""
+    """Content specification for presentation generation (PER-SKILL)."""
     workflow_id: UUID
+    skill_id: str  # 🎯 NEW: Single skill this presentation covers
+    skill_name: str  # 🎯 NEW: Human-readable skill name
+
     title: str = Field(..., description="Presentation title")
     subtitle: Optional[str] = Field(None, description="Presentation subtitle")
 
-    # Content structure
-    skill_gaps: List[Dict[str, Any]] = Field(..., description="Skill gaps to include")
-    content_outlines: List[Dict[str, Any]] = Field(..., description="Content for each gap")
+    # Content structure (SINGLE SKILL)
+    skill_gap: Dict[str, Any] = Field(..., description="Single skill gap for this presentation")
+    content_outline: Dict[str, Any] = Field(..., description="Content outline for this skill")
 
-    # Template selection
-    template_type: TemplateType
-    template_id: Optional[str] = None
+    # Template selection (SHORT-FORM)
+    template_type: TemplateType = TemplateType.SINGLE_SKILL  # Always single skill
+    template_id: Optional[str] = "short_form_skill"
 
     # Metadata
     exam_name: str
+    assessment_title: str  # 🎯 NEW: For Drive folder naming
     learner_name: Optional[str] = None
+    user_email: Optional[str] = None  # 🎯 NEW: For Drive folder naming
     assessment_date: datetime
     overall_score: float
 
@@ -595,9 +611,18 @@ class PresentationGenerationJob:
 
             # Step 3: Save to Drive (80-90%)
             await self._update_progress(80, "Saving to Google Drive")
+
+            # Build human-readable folder path
+            folder_path = self._build_drive_folder_path(
+                assessment_title=self.content_spec.assessment_title,
+                user_email=self.content_spec.user_email,
+                workflow_id=self.content_spec.workflow_id,
+                skill_name=self.content_spec.skill_name
+            )
+
             drive_result = await self.presgen_client.save_to_drive(
                 presentation_result.file_data,
-                folder_path=f"Assessments/{self.content_spec.workflow_id}/Presentations"
+                folder_path=folder_path
             )
 
             # Step 4: Update database (90-100%)
@@ -696,6 +721,37 @@ class PresentationGenerationJob:
         )
         result = await self.db.execute(stmt)
         return result.scalar_one()
+
+    def _build_drive_folder_path(
+        self,
+        assessment_title: str,
+        user_email: Optional[str],
+        workflow_id: UUID,
+        skill_name: str
+    ) -> str:
+        """
+        Build human-readable Google Drive folder path.
+
+        Format:
+        - With email: Assessments/{assessment_title}_{user_email}_{workflow_id}/Presentations/{skill_name}/
+        - Without email: Assessments/{assessment_title}_{workflow_id}/Presentations/{skill_name}/
+
+        Example:
+        - Assessments/AWS_Solutions_Architect_john.doe@company.com_abc-123/Presentations/EC2_Instance_Types/
+        """
+        # Sanitize components for folder naming
+        safe_title = assessment_title.replace(" ", "_").replace("/", "-")
+        safe_skill = skill_name.replace(" ", "_").replace("/", "-")
+        short_workflow_id = str(workflow_id)[:8]  # First 8 chars for brevity
+
+        if user_email:
+            # Include user email in folder name
+            base_folder = f"{safe_title}_{user_email}_{short_workflow_id}"
+        else:
+            # Omit user email
+            base_folder = f"{safe_title}_{short_workflow_id}"
+
+        return f"Assessments/{base_folder}/Presentations/{safe_skill}/"
 
 
 class JobQueue:
