@@ -255,12 +255,14 @@ CREATE TABLE IF NOT EXISTS generated_presentations (
     UNIQUE(workflow_id, skill_id, generation_status) WHERE generation_status = 'completed'
 );
 
--- Trigger to update updated_at
-CREATE TRIGGER IF NOT EXISTS update_presentations_timestamp
-AFTER UPDATE ON generated_presentations
-BEGIN
-    UPDATE generated_presentations SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id;
-END;
+CREATE UNIQUE INDEX idx_presentations_unique_skill_completed
+ON generated_presentations (workflow_id, skill_id)
+WHERE generation_status = 'completed';
+
+-- Trigger keeps updated_at fresh on writes
+CREATE TRIGGER trg_generated_presentations_touch_updated_at
+BEFORE UPDATE ON generated_presentations
+FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
 ```
 
 ### Update Table: `recommended_courses`
@@ -305,8 +307,8 @@ class TemplateType(str, Enum):
 class PresentationContentSpec(BaseModel):
     """Content specification for presentation generation (PER-SKILL)."""
     workflow_id: UUID
-    skill_id: str  # 🎯 NEW: Single skill this presentation covers
-    skill_name: str  # 🎯 NEW: Human-readable skill name
+    skill_id: str = Field(..., description="Single skill this presentation covers")
+    skill_name: str = Field(..., description="Human-readable skill name")
 
     title: str = Field(..., description="Presentation title")
     subtitle: Optional[str] = Field(None, description="Presentation subtitle")
@@ -321,18 +323,17 @@ class PresentationContentSpec(BaseModel):
 
     # Metadata
     exam_name: str
-    assessment_title: str  # 🎯 NEW: For Drive folder naming
+    assessment_title: str = Field(..., description="For Drive folder naming")
     learner_name: Optional[str] = None
-    user_email: Optional[str] = None  # 🎯 NEW: For Drive folder naming
+    user_email: Optional[str] = Field(None, description="For Drive folder naming (optional)")
     assessment_date: datetime
     overall_score: float
 
 class PresentationGenerationRequest(BaseModel):
-    """Request to generate presentation."""
+    """Request to generate presentation for a single skill/course."""
     workflow_id: UUID
-    template_type: Optional[TemplateType] = None  # Auto-select if None
-    custom_title: Optional[str] = None
-    include_skill_gap_ids: Optional[List[str]] = None  # If None, include all
+    course_id: UUID = Field(..., description="Course ID to generate presentation for")
+    custom_title: Optional[str] = Field(None, description="Override default title")
 
 class PresentationGenerationResponse(BaseModel):
     """Response after initiating presentation generation."""
@@ -349,7 +350,7 @@ class PresentationJobStatus(BaseModel):
     presentation_id: UUID
     status: PresentationStatus
     progress: int = Field(..., ge=0, le=100)
-    current_step: Optional[str] = None
+    current_step: Optional[str] = Field(None, description="e.g., 'Generating slides'")
     estimated_time_remaining_seconds: Optional[int] = None
     error_message: Optional[str] = None
 
@@ -357,21 +358,42 @@ class GeneratedPresentation(BaseModel):
     """Complete generated presentation details."""
     id: UUID
     workflow_id: UUID
+
+    # Skill mapping
+    skill_id: str
+    skill_name: str
+    course_id: Optional[UUID]
+
+    # Drive folder info
+    assessment_title: Optional[str]
+    user_email: Optional[str]
+    drive_folder_path: Optional[str]
+
+    # Presentation details
     presentation_title: str
     presentation_url: Optional[HttpUrl]
     download_url: Optional[HttpUrl]
     drive_file_id: Optional[str]
 
+    # Generation metadata
     generation_status: PresentationStatus
+    generation_started_at: Optional[datetime]
+    generation_completed_at: Optional[datetime]
     generation_duration_ms: Optional[int]
+    estimated_duration_minutes: Optional[int]
 
+    # Job tracking
+    job_id: Optional[str]
+    job_progress: int
+    job_error_message: Optional[str]
+
+    # Template and content
     template_name: Optional[str]
     total_slides: Optional[int]
-    skill_gaps_covered: List[str]
 
+    # Metadata
     file_size_mb: Optional[float]
     thumbnail_url: Optional[HttpUrl]
-
     created_at: datetime
     updated_at: datetime
 ```
@@ -382,23 +404,22 @@ class GeneratedPresentation(BaseModel):
 
 ```python
 # src/service/content_orchestration.py
-from typing import List, Dict, Any, Optional
-from uuid import UUID, uuid4
+from typing import Dict, Any, Optional
+from uuid import UUID
 import logging
-from src.schemas.presentation import (
-    PresentationContentSpec,
-    TemplateType,
-    PresentationGenerationRequest
-)
-from src.models.gap_analysis import GapAnalysisResults, ContentOutline
-from src.models.workflow import WorkflowExecution
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from src.schemas.presentation import PresentationContentSpec, PresentationGenerationRequest
+from src.models.workflow import WorkflowExecution
+from src.models.assessment.recommended_course import RecommendedCourse
+from src.models.gap_analysis import GapAnalysisResults, ContentOutline
 
 logger = logging.getLogger(__name__)
 
+
 class ContentOrchestrationService:
-    """Orchestrates content preparation for presentation generation."""
+    """Builds per-skill content specs for presentation generation."""
 
     def __init__(self, db_session: AsyncSession):
         self.db = db_session
@@ -407,145 +428,77 @@ class ContentOrchestrationService:
         self,
         request: PresentationGenerationRequest
     ) -> PresentationContentSpec:
-        """
-        Prepare content specification for presentation generation.
+        workflow = await self._fetch_workflow(request.workflow_id)
+        course = await self._fetch_course(request.course_id)
+        gap_analysis = await self._fetch_gap_analysis(workflow.id)
+        outline = await self._fetch_content_outline(workflow.id, course.skill_id)
 
-        Steps:
-        1. Fetch gap analysis results
-        2. Fetch content outlines
-        3. Select appropriate template
-        4. Build content specification
-        """
-        workflow_id = request.workflow_id
+        if not gap_analysis or not outline:
+            raise ValueError("Missing gap analysis or content outline for requested course")
 
-        logger.info(f"📋 Preparing presentation content for workflow {workflow_id}")
+        title = request.custom_title or self._default_title(workflow.certification_name, course.skill_name)
 
-        # 1. Fetch gap analysis
-        gap_analysis = await self._fetch_gap_analysis(workflow_id)
-        if not gap_analysis:
-            raise ValueError(f"Gap analysis not found for workflow {workflow_id}")
-
-        # 2. Fetch content outlines
-        content_outlines = await self._fetch_content_outlines(
-            workflow_id,
-            request.include_skill_gap_ids
-        )
-
-        if not content_outlines:
-            raise ValueError(f"No content outlines found for workflow {workflow_id}")
-
-        # 3. Select template
-        template_type = request.template_type or self._auto_select_template(
-            len(content_outlines)
-        )
-
-        # 4. Fetch workflow metadata
-        workflow = await self._fetch_workflow(workflow_id)
-
-        # 5. Build content specification
-        content_spec = PresentationContentSpec(
-            workflow_id=workflow_id,
-            title=request.custom_title or self._generate_title(workflow, gap_analysis),
-            subtitle=f"Assessment Results - {gap_analysis.created_at.strftime('%B %d, %Y')}",
-            skill_gaps=self._format_skill_gaps(gap_analysis),
-            content_outlines=self._format_content_outlines(content_outlines),
-            template_type=template_type,
+        return PresentationContentSpec(
+            workflow_id=workflow.id,
+            skill_id=course.skill_id,
+            skill_name=course.skill_name,
+            title=title,
+            subtitle=self._default_subtitle(gap_analysis),
+            skill_gap=self._extract_skill_gap(gap_analysis, course.skill_id),
+            content_outline=self._serialize_outline(outline),
+            assessment_title=workflow.assessment_title,
+            learner_name=workflow.learner_name,
+            user_email=workflow.user_email,
             exam_name=workflow.certification_name or "Certification Exam",
             assessment_date=gap_analysis.created_at,
             overall_score=float(gap_analysis.overall_score)
         )
 
-        logger.info(
-            f"✅ Content spec prepared | "
-            f"gaps={len(content_spec.skill_gaps)} | "
-            f"template={template_type} | "
-            f"slides_est={self._estimate_slide_count(content_spec)}"
-        )
+    async def _fetch_workflow(self, workflow_id: UUID) -> WorkflowExecution:
+        stmt = select(WorkflowExecution).where(WorkflowExecution.id == str(workflow_id))
+        result = await self.db.execute(stmt)
+        return result.scalar_one()
 
-        return content_spec
+    async def _fetch_course(self, course_id: UUID) -> RecommendedCourse:
+        stmt = select(RecommendedCourse).where(RecommendedCourse.id == str(course_id))
+        result = await self.db.execute(stmt)
+        return result.scalar_one()
 
     async def _fetch_gap_analysis(self, workflow_id: UUID) -> Optional[GapAnalysisResults]:
-        """Fetch gap analysis results from database."""
-        stmt = select(GapAnalysisResults).where(
-            GapAnalysisResults.workflow_id == workflow_id
+        stmt = select(GapAnalysisResults).where(GapAnalysisResults.workflow_id == str(workflow_id))
+        result = await self.db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def _fetch_content_outline(self, workflow_id: UUID, skill_id: str) -> Optional[ContentOutline]:
+        stmt = select(ContentOutline).where(
+            ContentOutline.workflow_id == str(workflow_id),
+            ContentOutline.skill_id == skill_id
         )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
-    async def _fetch_content_outlines(
-        self,
-        workflow_id: UUID,
-        skill_ids: Optional[List[str]] = None
-    ) -> List[ContentOutline]:
-        """Fetch content outlines for specified skills."""
-        stmt = select(ContentOutline).where(
-            ContentOutline.workflow_id == workflow_id
-        )
+    def _extract_skill_gap(self, gap_analysis: GapAnalysisResults, skill_id: str) -> Dict[str, Any]:
+        for gap in gap_analysis.skill_gaps:
+            if gap.get("skill_id") == skill_id:
+                return gap
+        raise ValueError(f"Skill gap not found for skill_id={skill_id}")
 
-        if skill_ids:
-            stmt = stmt.where(ContentOutline.skill_id.in_(skill_ids))
+    def _serialize_outline(self, outline: ContentOutline) -> Dict[str, Any]:
+        return {
+            "skill_id": outline.skill_id,
+            "skill_name": outline.skill_name,
+            "exam_domain": outline.exam_domain,
+            "exam_guide_section": outline.exam_guide_section,
+            "content_items": outline.content_items,
+            "rag_retrieval_score": float(outline.rag_retrieval_score) if outline.rag_retrieval_score else None
+        }
 
-        result = await self.db.execute(stmt)
-        return result.scalars().all()
+    def _default_title(self, certification_name: Optional[str], skill_name: str) -> str:
+        base = certification_name or "Skill Presentation"
+        return f"{base} - {skill_name}"
 
-    async def _fetch_workflow(self, workflow_id: UUID) -> WorkflowExecution:
-        """Fetch workflow execution details."""
-        stmt = select(WorkflowExecution).where(WorkflowExecution.id == workflow_id)
-        result = await self.db.execute(stmt)
-        return result.scalar_one()
-
-    def _auto_select_template(self, skill_gap_count: int) -> TemplateType:
-        """Auto-select template based on number of skill gaps."""
-        if skill_gap_count == 1:
-            return TemplateType.SINGLE_SKILL
-        elif skill_gap_count <= 5:
-            return TemplateType.MULTI_SKILL
-        else:
-            return TemplateType.COMPREHENSIVE
-
-    def _generate_title(
-        self,
-        workflow: WorkflowExecution,
-        gap_analysis: GapAnalysisResults
-    ) -> str:
-        """Generate presentation title."""
-        cert_name = workflow.certification_name or "Certification"
-        score = int(gap_analysis.overall_score)
-        return f"{cert_name} - Skill Gap Analysis ({score}% Score)"
-
-    def _format_skill_gaps(self, gap_analysis: GapAnalysisResults) -> List[Dict[str, Any]]:
-        """Format skill gaps for presentation."""
-        return gap_analysis.skill_gaps  # Already in correct format (JSONB)
-
-    def _format_content_outlines(
-        self,
-        outlines: List[ContentOutline]
-    ) -> List[Dict[str, Any]]:
-        """Format content outlines for presentation."""
-        return [
-            {
-                "skill_id": outline.skill_id,
-                "skill_name": outline.skill_name,
-                "exam_domain": outline.exam_domain,
-                "exam_guide_section": outline.exam_guide_section,
-                "content_items": outline.content_items,
-                "rag_retrieval_score": float(outline.rag_retrieval_score) if outline.rag_retrieval_score else None
-            }
-            for outline in outlines
-        ]
-
-    def _estimate_slide_count(self, content_spec: PresentationContentSpec) -> int:
-        """Estimate total slide count."""
-        # Title slide + agenda = 2
-        # 1 slide per skill gap intro = len(skill_gaps)
-        # 2-3 slides per content outline = len(content_outlines) * 2.5
-        # Summary slide = 1
-
-        base_slides = 3
-        gap_slides = len(content_spec.skill_gaps)
-        content_slides = int(len(content_spec.content_outlines) * 2.5)
-
-        return base_slides + gap_slides + content_slides
+    def _default_subtitle(self, gap_analysis: GapAnalysisResults) -> str:
+        return f"Assessment Results - {gap_analysis.created_at.strftime('%B %d, %Y')}"
 ```
 
 ---
@@ -1069,19 +1022,30 @@ async def list_presentations(
         GeneratedPresentation(
             id=UUID(p.id),
             workflow_id=UUID(p.workflow_id),
+            skill_id=p.skill_id,
+            skill_name=p.skill_name,
+            course_id=UUID(p.course_id) if p.course_id else None,
+            assessment_title=p.assessment_title,
+            user_email=p.user_email,
+            drive_folder_path=p.drive_folder_path,
             presentation_title=p.presentation_title,
             presentation_url=p.presentation_url,
             download_url=p.download_url,
             drive_file_id=p.drive_file_id,
             generation_status=PresentationStatus(p.generation_status),
+            generation_started_at=p.generation_started_at,
+            generation_completed_at=p.generation_completed_at,
             generation_duration_ms=p.generation_duration_ms,
+            estimated_duration_minutes=p.estimated_duration_minutes,
+            job_id=p.job_id,
+            job_progress=p.job_progress or 0,
+            job_error_message=p.job_error_message,
             template_name=p.template_name,
             total_slides=p.total_slides,
-            skill_gaps_covered=p.skill_gaps_covered.split(",") if p.skill_gaps_covered else [],
             file_size_mb=p.file_size_mb,
             thumbnail_url=p.thumbnail_url,
-            created_at=datetime.fromisoformat(p.created_at),
-            updated_at=datetime.fromisoformat(p.updated_at)
+            created_at=p.created_at,
+            updated_at=p.updated_at
         )
         for p in presentations
     ]
@@ -1091,19 +1055,74 @@ async def list_presentations(
 
 ## 🧪 **Sprint 3 Manual TDD Test Cases**
 
-Will be documented in: `GAP_TO_PRES_SPRINT_3_TDD_MANUAL_TESTING.md`
+Documented in `GAP_TO_PRES_SPRINT_3_TDD_MANUAL_TESTING.md`.
 
-### Test Suites:
-1. **Content Orchestration** (5 tests)
-2. **Template Selection** (4 tests)
-3. **Job Queue Management** (6 tests)
-4. **PresGen-Core Integration** (8 tests)
-5. **Database Persistence** (5 tests)
-6. **API Endpoint Testing** (10 tests)
-7. **Error Handling** (6 tests)
-8. **Drive Organization** (4 tests)
+### Test Suites & Scenarios
+1. **Content Orchestration (5)**
+   - Confirm single-skill spec creation pulls the correct gap, outline, and metadata per course.
+   - Validate optional `custom_title` override flows through to the generated spec.
+   - Ensure missing gap analysis raises 404 mapped error.
+   - Verify assessment metadata (title/email) propagates to Drive folder path builder.
+   - Assert estimated slide count stays within 7-11 range for typical outlines.
 
-**Total**: 48 test cases
+2. **Template Selection (4)**
+   - Auto-select single skill template regardless of request.
+   - Reject invalid template type overrides.
+   - Ensure template id/name defaults applied when omitted.
+   - Handle future multi-skill flag gracefully with informative error.
+
+3. **Job Queue Management (6)**
+   - Enqueue job stores progress=0, pending status, timestamps null.
+   - Mid-flight progress callback updates status/progress to 20-80 window.
+   - Completion path writes Drive metadata and marks status completed.
+   - Failure path records error message and retains partial progress.
+   - Retry logic increments attempt counter (placeholder) without duplicate job IDs.
+   - Queue parallelism cap respected when pushing > max_concurrent jobs.
+
+4. **PresGen-Core Integration (8)**
+   - POST payload matches `PresentationContentSpec` schema.
+   - Proper auth headers applied.
+   - Network timeout surfaces as failed status with error message persisted.
+   - Response parsing handles missing optional fields gracefully.
+   - Save-to-drive invoked with sanitized folder path.
+   - Drive save error transitions job to failed with helpful log.
+   - Ensure binary payload discarded after upload to avoid memory leak.
+   - Verify correlation ID propagated through structured logger.
+
+5. **Database Persistence (5)**
+   - Migration applies partial unique index enforcing single completed presentation per skill/workflow.
+   - Trigger updates `updated_at` on row change.
+   - Recommended course records store `presentation_id` and URL and cascade null on delete.
+   - Job progress constraint rejects values outside 0-100.
+   - Completed presentation retains duration metadata.
+
+6. **API Endpoint Testing (10)**
+   - POST generate returns 202 with job id.
+   - GET status returns queued progress, transitions to database values after completion.
+   - GET list returns enriched skill/course metadata.
+   - Batch generate enforces concurrency limit and returns array of jobs.
+   - Regeneration of same skill ensures unique constraint forces new row or updates existing.
+   - Invalid course/workflow combination returns 404.
+   - Cancel request (future) responds 501 placeholder.
+   - Auth guard denies anonymous access (if applicable middleware).
+   - Input validation rejects non-UUID ids.
+   - API docs show new schema fields.
+
+7. **Error Handling (6)**
+   - Simulate PresGen-Core 500 response surfaces nice error.
+   - Missing Drive credentials results in retry and eventual failure.
+   - Queue overflow emits warning and delays enqueue.
+   - Database constraint violation (duplicate completed) yields deterministic message.
+   - Unexpected exceptions bubble through StructuredLogger.
+   - Recovery path resets stuck `generating` jobs older than threshold.
+
+8. **Drive Organization (4)**
+   - Folder path includes email when available.
+   - Folder path omits email for anonymous workflows.
+   - Files saved under respective skill subfolder.
+   - Regenerated file increments timestamp in filename.
+
+**Total**: 48 test cases tracked with expected inputs/outputs in the manual testing doc.
 
 ---
 
@@ -1207,4 +1226,3 @@ Will be documented in: `GAP_TO_PRES_SPRINT_3_TDD_MANUAL_TESTING.md`
 *Last Updated*: 2025-10-02 - Updated for per-skill generation architecture
 *Sprint 3 Status*: READY TO START
 *Dependencies*: Sprint 2 Complete ✅
-

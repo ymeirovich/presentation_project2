@@ -14,7 +14,6 @@ This migration creates the generated_presentations table to support:
 """
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = '007_presentations'
@@ -100,6 +99,37 @@ def upgrade() -> None:
     # Create unique index for job_id (only non-null values)
     op.create_index('idx_presentations_job_unique', 'generated_presentations', ['job_id'], unique=True, postgresql_where=sa.text('job_id IS NOT NULL'))
 
+    # Unique completed presentation per workflow/skill
+    op.create_index(
+        'idx_presentations_unique_skill_completed',
+        'generated_presentations',
+        ['workflow_id', 'skill_id'],
+        unique=True,
+        postgresql_where=sa.text("generation_status = 'completed'")
+    )
+
+    # Ensure touch_updated_at helper exists (no-op if already present)
+    op.execute(
+        """
+        CREATE OR REPLACE FUNCTION touch_updated_at()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            NEW.updated_at = NOW();
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+        """
+    )
+
+    # Trigger to auto-update updated_at column
+    op.execute(
+        """
+        CREATE TRIGGER trg_generated_presentations_touch_updated_at
+        BEFORE UPDATE ON generated_presentations
+        FOR EACH ROW EXECUTE FUNCTION touch_updated_at();
+        """
+    )
+
     # Update recommended_courses table to add presentation linking
     op.add_column('recommended_courses', sa.Column('presentation_id', sa.String(36), nullable=True))
     op.add_column('recommended_courses', sa.Column('presentation_url', sa.Text(), nullable=True))
@@ -128,6 +158,7 @@ def downgrade() -> None:
     op.drop_column('recommended_courses', 'presentation_id')
 
     # Drop indexes on generated_presentations
+    op.drop_index('idx_presentations_unique_skill_completed', table_name='generated_presentations')
     op.drop_index('idx_presentations_created', table_name='generated_presentations')
     op.drop_index('idx_presentations_job_unique', table_name='generated_presentations')
     op.drop_index('idx_presentations_job', table_name='generated_presentations')
@@ -135,6 +166,9 @@ def downgrade() -> None:
     op.drop_index('idx_presentations_course', table_name='generated_presentations')
     op.drop_index('idx_presentations_skill', table_name='generated_presentations')
     op.drop_index('idx_presentations_workflow', table_name='generated_presentations')
+
+    # Drop trigger (function retained for reuse by other tables if present)
+    op.execute("DROP TRIGGER IF EXISTS trg_generated_presentations_touch_updated_at ON generated_presentations;")
 
     # Drop table
     op.drop_table('generated_presentations')
