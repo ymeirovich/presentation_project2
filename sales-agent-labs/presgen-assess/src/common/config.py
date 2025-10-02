@@ -41,6 +41,13 @@ class Settings(BaseSettings):
         description="Path to OAuth client credentials JSON for Google Sheets"
     )
 
+    # Standardized OAuth Token Path
+    oauth_token_path: str = Field(
+        default="/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/token.json",
+        alias="OAUTH_TOKEN_PATH",
+        description="Path to standardized OAuth token JSON for all Google API services"
+    )
+
     # PresGen Module Integration (40-slide support)
     presgen_core_url: str = Field(default="http://localhost:8001", alias="PRESGEN_CORE_URL")
     presgen_avatar_url: str = Field(default="http://localhost:8002", alias="PRESGEN_AVATAR_URL")

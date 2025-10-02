@@ -84,14 +84,12 @@ class GoogleSheetsService:
         Returns:
             OAuth credentials object
         """
-        # Determine token path (same dir as oauth client, but named token_*.json)
-        creds_dir = os.path.dirname(self.credentials_path)
-        creds_filename = os.path.basename(self.credentials_path)
-        token_filename = creds_filename.replace('oauth_', 'token_').replace('_client', '')
-        token_path = os.path.join(creds_dir, token_filename)
+        # Use standardized token path from environment variable
+        token_path = os.getenv('OAUTH_TOKEN_PATH',
+                              '/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/token.json')
 
         logger.debug(f"📁 OAuth client: {self.credentials_path}")
-        logger.debug(f"📁 Token path: {token_path}")
+        logger.debug(f"📁 Token path: {token_path} (from OAUTH_TOKEN_PATH env var)")
 
         creds = None
 

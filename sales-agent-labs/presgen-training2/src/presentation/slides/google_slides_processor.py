@@ -1,3 +1,4 @@
+import os
 import re
 import requests
 import time
@@ -46,8 +47,10 @@ class GoogleSlidesProcessor:
 
     # OAuth 2.0 scopes for Google Slides API
     SCOPES = [
-        'https://www.googleapis.com/auth/presentations.readonly',
-        'https://www.googleapis.com/auth/drive.readonly'
+        "https://www.googleapis.com/auth/presentations",
+        "https://www.googleapis.com/auth/drive.file",
+        "https://www.googleapis.com/auth/script.projects",
+        "https://www.googleapis.com/auth/spreadsheets"
     ]
 
     def __init__(self, logger: Optional[logging.Logger] = None, skip_auth: bool = False):
@@ -67,8 +70,15 @@ class GoogleSlidesProcessor:
         """Authenticate with Google APIs using OAuth or service account"""
         try:
             creds = None
-            token_file = Path("config/google_slides_token.json")
-            credentials_file = Path("config/google_slides_credentials.json")
+            token_file = Path(
+                os.getenv("OAUTH_TOKEN_PATH", "token.json")
+            )
+            credentials_file = Path(
+                os.getenv(
+                    "OAUTH_CLIENT_SECRET_PATH",
+                    "config/google_slides_credentials.json"
+                )
+            )
 
             # Load existing token
             if token_file.exists():

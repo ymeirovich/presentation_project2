@@ -21,7 +21,8 @@ SCRIPT_SCOPE = "https://www.googleapis.com/auth/script.projects"
 SCOPES = [SLIDES_SCOPE, DRIVE_SCOPE, SCRIPT_SCOPE]
 
 
-TOKEN_PATH = pathlib.Path("token_slides.json")
+# Standardized token path from environment variable
+TOKEN_PATH = pathlib.Path(os.getenv('OAUTH_TOKEN_PATH', 'token.json'))
 # Put your OAuth client JSON for Slides/Drive here (Web or Installed type).
 # This is separate from Imagen's OAuth; using a dedicated file keeps things clean.
 OAUTH_CLIENT_JSON = pathlib.Path("oauth_slides_client.json")
@@ -40,6 +41,9 @@ def _load_credentials() -> Credentials:
 
     SCOPES = [SLIDES_SCOPE, DRIVE_SCOPE, SCRIPT_SCOPE]
 
+    # Check if service account is forced (no OAuth fallback)
+    force_service_account = os.getenv("FORCE_SERVICE_ACCOUNT") == "true"
+
     # Try service account first (no OAuth consent needed)
     service_account_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
     if service_account_path and pathlib.Path(service_account_path).exists():
@@ -52,9 +56,20 @@ def _load_credentials() -> Credentials:
             log.info("✅ Successfully authenticated with service account")
             return creds
         except Exception as e:
+            if force_service_account:
+                log.error(f"❌ Service account authentication failed and OAuth fallback disabled: {e}")
+                raise RuntimeError(f"Service account required but authentication failed: {e}")
             log.warning(f"Service account authentication failed: {e}. Falling back to OAuth.")
 
-    # Fallback to OAuth flow
+    # If service account is forced but not available
+    if force_service_account:
+        raise RuntimeError(
+            f"Service account required (FORCE_SERVICE_ACCOUNT=true) but not found.\n"
+            f"Set GOOGLE_APPLICATION_CREDENTIALS to valid service account path."
+        )
+
+    # Fallback to OAuth flow (only if not forced to use service account)
+    log.warning("⚠️ OAuth fallback enabled - OAuth client may be invalid/revoked")
     force_consent = os.getenv("FORCE_OAUTH_CONSENT") == "1"
 
     creds = None
