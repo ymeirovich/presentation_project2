@@ -29,6 +29,18 @@ class Settings(BaseSettings):
     oauth_client_json: Optional[str] = Field(default=None, alias="OAUTH_CLIENT_JSON")
     google_user_token_path: Optional[str] = Field(default=None, alias="GOOGLE_USER_TOKEN_PATH")
 
+    # Google Sheets Authentication Method
+    use_oauth_for_sheets: bool = Field(
+        default=False,
+        alias="USE_OAUTH_FOR_SHEETS",
+        description="Use OAuth user authentication instead of service account for Google Sheets export"
+    )
+    oauth_sheets_client: str = Field(
+        default="/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/oauth_slides_client.json",
+        alias="OAUTH_SHEETS_CLIENT",
+        description="Path to OAuth client credentials JSON for Google Sheets"
+    )
+
     # PresGen Module Integration (40-slide support)
     presgen_core_url: str = Field(default="http://localhost:8001", alias="PRESGEN_CORE_URL")
     presgen_avatar_url: str = Field(default="http://localhost:8002", alias="PRESGEN_AVATAR_URL")

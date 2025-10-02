@@ -2,12 +2,16 @@
 
 import logging
 import json
+import os
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from uuid import uuid4
 
 try:
-    from google.oauth2.service_account import Credentials
+    from google.oauth2.service_account import Credentials as ServiceAccountCredentials
+    from google.oauth2.credentials import Credentials as OAuthCredentials
+    from google.auth.transport.requests import Request
+    from google_auth_oauthlib.flow import InstalledAppFlow
     from googleapiclient.discovery import build
     from googleapiclient.errors import HttpError
     GOOGLE_SHEETS_AVAILABLE = True
@@ -18,11 +22,21 @@ logger = logging.getLogger(__name__)
 
 
 class GoogleSheetsService:
-    """Service for exporting skill gap analysis to Google Sheets."""
+    """Service for exporting skill gap analysis to Google Sheets.
 
-    def __init__(self, credentials_path: Optional[str] = None):
-        """Initialize Google Sheets service with credentials."""
+    Supports both service account and OAuth user authentication.
+    """
+
+    def __init__(self, credentials_path: Optional[str] = None, use_oauth: bool = False):
+        """Initialize Google Sheets service with credentials.
+
+        Args:
+            credentials_path: Path to service account JSON (if use_oauth=False)
+                            or OAuth client JSON (if use_oauth=True)
+            use_oauth: If True, use OAuth flow instead of service account
+        """
         self.credentials_path = credentials_path
+        self.use_oauth = use_oauth
         self.service = None
         self.scopes = [
             'https://www.googleapis.com/auth/spreadsheets',
@@ -36,17 +50,20 @@ class GoogleSheetsService:
                 logger.warning(f"⚠️ Google Sheets service initialization failed: {e}")
 
     def _initialize_service(self):
-        """Initialize Google Sheets API service with service account."""
+        """Initialize Google Sheets API service with OAuth or service account."""
         try:
-            logger.info(f"🔐 Initializing Google Sheets service with service account: {self.credentials_path}")
+            if self.use_oauth:
+                logger.info(f"🔐 Initializing Google Sheets with OAuth authentication")
+                credentials = self._get_oauth_credentials()
+                logger.info(f"✅ OAuth credentials obtained successfully")
+            else:
+                logger.info(f"🔐 Initializing Google Sheets with service account: {self.credentials_path}")
+                credentials = ServiceAccountCredentials.from_service_account_file(
+                    self.credentials_path,
+                    scopes=self.scopes
+                )
+                logger.info(f"✅ Service account credentials loaded successfully")
 
-            # Load service account credentials
-            credentials = Credentials.from_service_account_file(
-                self.credentials_path,
-                scopes=self.scopes
-            )
-
-            logger.info(f"✅ Service account credentials loaded successfully")
             logger.debug(f"📋 Scopes: {', '.join(self.scopes)}")
 
             # Build Sheets API service
@@ -55,11 +72,54 @@ class GoogleSheetsService:
             logger.info("✅ Google Sheets API service initialized successfully")
 
         except FileNotFoundError as e:
-            logger.error(f"❌ Service account file not found: {self.credentials_path}")
+            logger.error(f"❌ Credentials file not found: {self.credentials_path}")
             raise
         except Exception as e:
             logger.error(f"❌ Failed to initialize Google Sheets service: {e}", exc_info=True)
             raise
+
+    def _get_oauth_credentials(self):
+        """Get OAuth credentials, refreshing or authenticating as needed.
+
+        Returns:
+            OAuth credentials object
+        """
+        # Determine token path (same dir as oauth client, but named token_*.json)
+        creds_dir = os.path.dirname(self.credentials_path)
+        creds_filename = os.path.basename(self.credentials_path)
+        token_filename = creds_filename.replace('oauth_', 'token_').replace('_client', '')
+        token_path = os.path.join(creds_dir, token_filename)
+
+        logger.debug(f"📁 OAuth client: {self.credentials_path}")
+        logger.debug(f"📁 Token path: {token_path}")
+
+        creds = None
+
+        # Check if token exists
+        if os.path.exists(token_path):
+            logger.debug(f"📋 Loading existing OAuth token")
+            creds = OAuthCredentials.from_authorized_user_file(token_path, self.scopes)
+
+        # If no valid credentials, do OAuth flow
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                logger.info("🔄 Refreshing expired OAuth token")
+                creds.refresh(Request())
+                logger.info("✅ OAuth token refreshed successfully")
+            else:
+                logger.info("🔐 Starting OAuth flow (browser will open for authentication)")
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    self.credentials_path, self.scopes
+                )
+                creds = flow.run_local_server(port=0)
+                logger.info("✅ OAuth authentication completed successfully")
+
+            # Save token for future use
+            with open(token_path, 'w') as token:
+                token.write(creds.to_json())
+            logger.info(f"✅ OAuth token saved to: {token_path}")
+
+        return creds
 
     async def export_skill_gap_analysis(
         self,

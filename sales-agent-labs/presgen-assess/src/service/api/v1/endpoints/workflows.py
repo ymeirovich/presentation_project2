@@ -1463,9 +1463,20 @@ async def export_gap_analysis_to_google_sheets(
 
         logger.info(f"✅ Data fetched | answers={len(questions_with_responses)} outlines={len(content_outlines)} courses={len(recommended_courses)}")
 
-        sheets_service = GoogleSheetsService(
-            credentials_path=settings.google_application_credentials
-        )
+        # Choose authentication method based on configuration
+        if settings.use_oauth_for_sheets:
+            logger.info("🔐 Using OAuth authentication for Google Sheets export")
+            sheets_service = GoogleSheetsService(
+                credentials_path=settings.oauth_sheets_client,
+                use_oauth=True
+            )
+        else:
+            logger.info("🔐 Using service account authentication for Google Sheets export")
+            sheets_service = GoogleSheetsService(
+                credentials_path=settings.google_application_credentials,
+                use_oauth=False
+            )
+
         exporter = EnhancedGapAnalysisExporter(sheets_service)
 
         export_options = {
