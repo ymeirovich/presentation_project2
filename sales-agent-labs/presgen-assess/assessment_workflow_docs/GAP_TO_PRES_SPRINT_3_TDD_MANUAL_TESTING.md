@@ -52,27 +52,52 @@ alembic upgrade head
 sqlite3 test_database.db ".schema generated_presentations"
 ```
 
-**Expected Output**:
+**Expected Output** (full schema with all columns):
 ```sql
 CREATE TABLE generated_presentations (
-    id VARCHAR(36) NOT NULL,
-    workflow_id VARCHAR(36) NOT NULL,
-    skill_id VARCHAR(255) NOT NULL,
-    skill_name VARCHAR(500) NOT NULL,
-    course_id VARCHAR(36),
-    assessment_title VARCHAR(500),
-    user_email VARCHAR(255),
-    drive_folder_path TEXT,
-    presentation_title VARCHAR(500) NOT NULL,
-    presentation_url TEXT,
-    download_url TEXT,
-    drive_file_id VARCHAR(255),
-    generation_status VARCHAR(50) NOT NULL,
-    -- ... (additional columns)
-    PRIMARY KEY (id),
-    FOREIGN KEY(workflow_id) REFERENCES workflow_executions (id) ON DELETE CASCADE,
-    FOREIGN KEY(course_id) REFERENCES recommended_courses (id) ON DELETE SET NULL
+	id VARCHAR(36) NOT NULL,
+	workflow_id VARCHAR(36) NOT NULL,
+	skill_id VARCHAR(255) NOT NULL,
+	skill_name VARCHAR(500) NOT NULL,
+	course_id VARCHAR(36),
+	assessment_title VARCHAR(500),
+	user_email VARCHAR(255),
+	drive_folder_path TEXT,
+	presentation_title VARCHAR(500) NOT NULL,
+	presentation_url TEXT,
+	download_url TEXT,
+	drive_file_id VARCHAR(255),
+	drive_folder_id VARCHAR(255),
+	generation_status VARCHAR(50) DEFAULT 'pending' NOT NULL,
+	generation_started_at DATETIME,
+	generation_completed_at DATETIME,
+	generation_duration_ms INTEGER,
+	estimated_duration_minutes INTEGER,
+	job_id VARCHAR(36),
+	job_progress INTEGER DEFAULT '0' NOT NULL,
+	job_error_message TEXT,
+	template_id VARCHAR(100) DEFAULT 'short_form_skill',
+	template_name VARCHAR(255) DEFAULT 'Skill-Focused Presentation',
+	total_slides INTEGER,
+	content_outline_id VARCHAR(36),
+	file_size_mb FLOAT,
+	thumbnail_url TEXT,
+	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	PRIMARY KEY (id),
+	FOREIGN KEY(workflow_id) REFERENCES workflow_executions (id) ON DELETE CASCADE,
+	FOREIGN KEY(course_id) REFERENCES recommended_courses (id) ON DELETE SET NULL,
+	FOREIGN KEY(content_outline_id) REFERENCES content_outlines (id) ON DELETE SET NULL,
+	CONSTRAINT check_generation_status CHECK (generation_status IN ('pending', 'generating', 'completed', 'failed', 'cancelled')),
+	CONSTRAINT check_job_progress_range CHECK (job_progress >= 0 AND job_progress <= 100)
 );
+CREATE INDEX idx_presentations_workflow ON generated_presentations (workflow_id);
+CREATE INDEX idx_presentations_skill ON generated_presentations (skill_id);
+CREATE INDEX idx_presentations_course ON generated_presentations (course_id);
+CREATE INDEX idx_presentations_status ON generated_presentations (generation_status);
+CREATE INDEX idx_presentations_job ON generated_presentations (job_id);
+CREATE INDEX idx_presentations_created ON generated_presentations (created_at);
+CREATE UNIQUE INDEX idx_presentations_job_unique ON generated_presentations (job_id);
 ```
 
 ### 2. Verify Mock Mode
