@@ -7,7 +7,7 @@ Sprint 3: Simple in-memory queue (upgrade to Celery/Redis for production).
 
 import logging
 import asyncio
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 from uuid import UUID, uuid4
 from datetime import datetime
 

@@ -25,7 +25,7 @@ from src.schemas.presentation import (
     PresentationListResponse
 )
 from src.models.presentation import GeneratedPresentation
-from src.models.gaps import RecommendedCourse
+from src.models.gap_analysis import RecommendedCourse
 from src.service.content_orchestration import ContentOrchestrationService
 from src.service.background_jobs import job_queue
 

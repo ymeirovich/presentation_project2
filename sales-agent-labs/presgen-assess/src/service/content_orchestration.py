@@ -16,8 +16,7 @@ from sqlalchemy.orm import selectinload
 
 from src.schemas.presentation import PresentationContentSpec, TemplateType
 from src.models.workflow import WorkflowExecution
-from src.models.gap_analysis import GapAnalysisResult, ContentOutline
-from src.models.gaps import RecommendedCourse
+from src.models.gap_analysis import GapAnalysisResult, ContentOutline, RecommendedCourse
 
 logger = logging.getLogger(__name__)
 
