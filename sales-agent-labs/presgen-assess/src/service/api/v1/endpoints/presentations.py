@@ -33,6 +33,53 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+# ============================================================================
+# UUID Helper Functions
+# ============================================================================
+
+def normalize_uuid(uuid_str: str) -> str:
+    """
+    Normalize UUID by removing hyphens.
+
+    Args:
+        uuid_str: UUID with or without hyphens
+
+    Returns:
+        UUID without hyphens (32 chars)
+
+    Examples:
+        >>> normalize_uuid("123e4567-e89b-12d3-a456-426614174000")
+        "123e4567e89b12d3a456426614174000"
+        >>> normalize_uuid("123e4567e89b12d3a456426614174000")
+        "123e4567e89b12d3a456426614174000"
+    """
+    return uuid_str.replace('-', '')
+
+
+def format_uuid(uuid_str: str) -> str:
+    """
+    Format UUID with hyphens for proper UUID format in API responses.
+
+    Converts SQLite storage format (no hyphens) to standard UUID format.
+    If already formatted with hyphens, returns as-is.
+
+    Args:
+        uuid_str: UUID with or without hyphens
+
+    Returns:
+        UUID with hyphens (36 chars): xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+
+    Examples:
+        >>> format_uuid("123e4567e89b12d3a456426614174000")
+        "123e4567-e89b-12d3-a456-426614174000"
+        >>> format_uuid("123e4567-e89b-12d3-a456-426614174000")
+        "123e4567-e89b-12d3-a456-426614174000"
+    """
+    if len(uuid_str) == 36:
+        return uuid_str  # Already formatted
+    return f"{uuid_str[:8]}-{uuid_str[8:12]}-{uuid_str[12:16]}-{uuid_str[16:20]}-{uuid_str[20:]}"
+
+
 @router.post(
     "/workflows/{workflow_id}/courses/{course_id}/generate-presentation",
     response_model=PresentationGenerationResponse,
@@ -333,23 +380,57 @@ async def generate_all_presentations(
 @router.get(
     "/workflows/{workflow_id}/presentations/{presentation_id}/status",
     response_model=PresentationJobStatus,
-    summary="Get presentation generation status"
+    summary="Get presentation generation status",
+    description="""
+    Get real-time status of presentation generation.
+
+    **UUID Format**: Accepts both hyphenated and non-hyphenated UUID formats.
+
+    **Returns**:
+    - job_id: Background job identifier
+    - status: pending | generating | completed | failed
+    - progress: 0-100%
+    - current_step: Human-readable progress description
+    - error_message: Error details if failed
+    """
 )
 async def get_presentation_status(
-    workflow_id: UUID,
-    presentation_id: UUID,
+    workflow_id: str,  # Changed from UUID to accept both formats
+    presentation_id: str,  # Changed from UUID to accept both formats
     db: AsyncSession = Depends(get_db)
 ) -> PresentationJobStatus:
     """
     Get status of a presentation generation job.
 
     Returns real-time progress (0-100%) and current step.
+    Accepts UUIDs with or without hyphens.
     """
     try:
-        # Fetch presentation from database
+        # Normalize UUIDs (remove hyphens)
+        presentation_id_normalized = normalize_uuid(presentation_id)
+        workflow_id_normalized = normalize_uuid(workflow_id)
+
+        # Also format with hyphens for database comparison (mixed storage format)
+        presentation_id_formatted = format_uuid(presentation_id)
+        workflow_id_formatted = format_uuid(workflow_id)
+
+        logger.debug(
+            f"📊 Status check | "
+            f"workflow={workflow_id_normalized} | "
+            f"presentation={presentation_id_normalized}"
+        )
+
+        # Fetch presentation from database - try both UUID formats
+        # Database may have UUIDs with or without hyphens
         stmt = select(GeneratedPresentation).where(
-            GeneratedPresentation.id == str(presentation_id),
-            GeneratedPresentation.workflow_id == str(workflow_id)
+            (
+                (GeneratedPresentation.id == presentation_id_normalized) |
+                (GeneratedPresentation.id == presentation_id_formatted)
+            ),
+            (
+                (GeneratedPresentation.workflow_id == workflow_id_normalized) |
+                (GeneratedPresentation.workflow_id == workflow_id_formatted)
+            )
         )
         result = await db.execute(stmt)
         presentation = result.scalar_one_or_none()
@@ -369,7 +450,7 @@ async def get_presentation_status(
         # Return status from database
         return PresentationJobStatus(
             job_id=presentation.job_id or "",
-            presentation_id=presentation_id,
+            presentation_id=presentation.id,
             status=presentation.generation_status,
             progress=presentation.job_progress or 100,
             current_step="Complete" if presentation.generation_status == 'completed' else None,
@@ -389,46 +470,83 @@ async def get_presentation_status(
 @router.get(
     "/workflows/{workflow_id}/presentations",
     response_model=PresentationListResponse,
-    summary="List all presentations for workflow"
+    summary="List all presentations for workflow",
+    description="""
+    List all presentations for a workflow.
+
+    **UUID Format**: Accepts both hyphenated and non-hyphenated UUID formats.
+
+    **Returns**: Presentations with counts by status (completed, pending, generating, failed)
+    """
 )
 async def list_presentations(
-    workflow_id: UUID,
+    workflow_id: str,  # Changed from UUID to accept both formats
     db: AsyncSession = Depends(get_db)
 ) -> PresentationListResponse:
     """
     List all presentations for a workflow with statistics.
 
     Returns all presentations (completed, generating, pending, failed)
-    with count summaries.
+    with count summaries. Accepts UUIDs with or without hyphens.
     """
     try:
-        # Fetch all presentations
+        # Normalize workflow_id (remove hyphens)
+        workflow_id_normalized = normalize_uuid(workflow_id)
+        workflow_id_formatted = format_uuid(workflow_id)
+
+        logger.info(f"📋 List presentations | workflow={workflow_id_normalized}")
+        logger.debug(f"  Original workflow_id: {workflow_id}")
+
+        # Fetch all presentations - try both UUID formats
         stmt = select(GeneratedPresentation).where(
-            GeneratedPresentation.workflow_id == str(workflow_id)
+            (GeneratedPresentation.workflow_id == workflow_id_normalized) |
+            (GeneratedPresentation.workflow_id == workflow_id_formatted)
         ).order_by(GeneratedPresentation.created_at.desc())
 
         result = await db.execute(stmt)
         presentations = result.scalars().all()
+
+        logger.debug(f"  Found {len(presentations)} presentations")
+
+        if not presentations:
+            logger.info(f"  ℹ️  No presentations found for workflow {workflow_id_normalized}")
+            return PresentationListResponse(
+                workflow_id=workflow_id,
+                presentations=[],
+                total_count=0,
+                completed_count=0,
+                pending_count=0,
+                generating_count=0,
+                failed_count=0
+            )
 
         # Get counts by status
         counts_stmt = select(
             GeneratedPresentation.generation_status,
             func.count(GeneratedPresentation.id)
         ).where(
-            GeneratedPresentation.workflow_id == str(workflow_id)
+            (GeneratedPresentation.workflow_id == workflow_id_normalized) |
+            (GeneratedPresentation.workflow_id == workflow_id_formatted)
         ).group_by(GeneratedPresentation.generation_status)
 
         counts_result = await db.execute(counts_stmt)
         counts = dict(counts_result.all())
 
-        # Convert to schema
-        presentation_schemas = [
-            GeneratedPresentationSchema(
-                id=UUID(p.id),
-                workflow_id=UUID(p.workflow_id),
+        # Convert to schema with proper UUID formatting
+        logger.debug(f"  Converting {len(presentations)} presentations to schema")
+        presentation_schemas = []
+        for p in presentations:
+            # Add hyphens back to UUIDs for proper UUID format in response
+            pres_id = format_uuid(p.id)
+            wf_id = format_uuid(p.workflow_id)
+            c_id = format_uuid(p.course_id) if p.course_id else None
+
+            presentation_schemas.append(GeneratedPresentationSchema(
+                id=UUID(pres_id),
+                workflow_id=UUID(wf_id),
                 skill_id=p.skill_id,
                 skill_name=p.skill_name,
-                course_id=UUID(p.course_id) if p.course_id else None,
+                course_id=UUID(c_id) if c_id else None,
                 assessment_title=p.assessment_title,
                 user_email=p.user_email,
                 drive_folder_path=p.drive_folder_path,
@@ -450,18 +568,24 @@ async def list_presentations(
                 thumbnail_url=p.thumbnail_url,
                 created_at=p.created_at,
                 updated_at=p.updated_at
-            )
-            for p in presentations
-        ]
+            ))
+
+        # Calculate status counts
+        completed_count = counts.get('completed', 0)
+        pending_count = counts.get('pending', 0)
+        generating_count = counts.get('generating', 0)
+        failed_count = counts.get('failed', 0)
+
+        logger.info(f"  ✅ Returning {len(presentations)} presentations | completed={completed_count} generating={generating_count} pending={pending_count} failed={failed_count}")
 
         return PresentationListResponse(
             workflow_id=workflow_id,
             presentations=presentation_schemas,
             total_count=len(presentations),
-            completed_count=counts.get('completed', 0),
-            pending_count=counts.get('pending', 0),
-            generating_count=counts.get('generating', 0),
-            failed_count=counts.get('failed', 0)
+            completed_count=completed_count,
+            pending_count=pending_count,
+            generating_count=generating_count,
+            failed_count=failed_count
         )
 
     except Exception as e:
@@ -469,4 +593,105 @@ async def list_presentations(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list presentations: {str(e)}"
+        )
+
+
+@router.get(
+    "/workflows/{workflow_id}/presentations/{presentation_id}",
+    response_model=GeneratedPresentationSchema,
+    summary="Get single presentation details",
+    description="""
+    Get detailed information about a specific presentation.
+
+    **UUID Format**: Accepts both hyphenated and non-hyphenated UUID formats for both workflow_id and presentation_id.
+
+    **Returns**: Complete presentation details including generation status, metadata, and file information.
+    """
+)
+async def get_presentation(
+    workflow_id: str,
+    presentation_id: str,
+    db: AsyncSession = Depends(get_db)
+) -> GeneratedPresentationSchema:
+    """
+    Get detailed information about a specific presentation.
+
+    Accepts UUIDs with or without hyphens for both workflow_id and presentation_id.
+    """
+    try:
+        # Normalize UUIDs (remove hyphens)
+        workflow_id_normalized = normalize_uuid(workflow_id)
+        presentation_id_normalized = normalize_uuid(presentation_id)
+        workflow_id_formatted = format_uuid(workflow_id)
+        presentation_id_formatted = format_uuid(presentation_id)
+
+        logger.info(f"🔍 Get presentation | workflow={workflow_id_normalized} | presentation={presentation_id_normalized}")
+        logger.debug(f"  Original workflow_id: {workflow_id}")
+        logger.debug(f"  Original presentation_id: {presentation_id}")
+
+        # Fetch presentation - try both UUID formats
+        stmt = select(GeneratedPresentation).where(
+            (
+                (GeneratedPresentation.id == presentation_id_normalized) |
+                (GeneratedPresentation.id == presentation_id_formatted)
+            ),
+            (
+                (GeneratedPresentation.workflow_id == workflow_id_normalized) |
+                (GeneratedPresentation.workflow_id == workflow_id_formatted)
+            )
+        )
+
+        result = await db.execute(stmt)
+        presentation = result.scalar_one_or_none()
+
+        if not presentation:
+            logger.warning(f"  ⚠️  Presentation not found | workflow={workflow_id_normalized} | presentation={presentation_id_normalized}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Presentation {presentation_id} not found in workflow {workflow_id}"
+            )
+
+        # Add hyphens back to UUIDs for proper UUID format in response
+        pres_id = format_uuid(presentation.id)
+        wf_id = format_uuid(presentation.workflow_id)
+        c_id = format_uuid(presentation.course_id) if presentation.course_id else None
+
+        logger.info(f"  ✅ Found presentation | status={presentation.generation_status} | title={presentation.presentation_title}")
+
+        return GeneratedPresentationSchema(
+            id=UUID(pres_id),
+            workflow_id=UUID(wf_id),
+            skill_id=presentation.skill_id,
+            skill_name=presentation.skill_name,
+            course_id=UUID(c_id) if c_id else None,
+            assessment_title=presentation.assessment_title,
+            user_email=presentation.user_email,
+            drive_folder_path=presentation.drive_folder_path,
+            presentation_title=presentation.presentation_title,
+            presentation_url=presentation.presentation_url,
+            download_url=presentation.download_url,
+            drive_file_id=presentation.drive_file_id,
+            generation_status=presentation.generation_status,
+            generation_started_at=presentation.generation_started_at,
+            generation_completed_at=presentation.generation_completed_at,
+            generation_duration_ms=presentation.generation_duration_ms,
+            estimated_duration_minutes=presentation.estimated_duration_minutes,
+            job_id=presentation.job_id,
+            job_progress=presentation.job_progress or 0,
+            job_error_message=presentation.job_error_message,
+            template_name=presentation.template_name,
+            total_slides=presentation.total_slides,
+            file_size_mb=presentation.file_size_mb,
+            thumbnail_url=presentation.thumbnail_url,
+            created_at=presentation.created_at,
+            updated_at=presentation.updated_at
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Failed to get presentation: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get presentation: {str(e)}"
         )
