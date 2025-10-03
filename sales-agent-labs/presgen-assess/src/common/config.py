@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     presgen_avatar_url: str = Field(default="http://localhost:8002", alias="PRESGEN_AVATAR_URL")
     presgen_core_max_slides: int = Field(default=40, alias="PRESGEN_CORE_MAX_SLIDES")
     presgen_avatar_max_slides: int = Field(default=40, alias="PRESGEN_AVATAR_MAX_SLIDES")
+    presgen_use_mock: Optional[bool] = Field(
+        default=None,
+        alias="PRESGEN_USE_MOCK",
+        description="Force mock mode for PresGen-Core (None = auto-detect from DEBUG, True = mock, False = production)"
+    )
 
     # Workflow Settings (Async-aware)
     max_concurrent_workflows: int = Field(default=10, alias="MAX_CONCURRENT_WORKFLOWS")

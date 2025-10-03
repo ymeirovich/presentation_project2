@@ -1,10 +1,10 @@
 # Phase 4 Project Status – PresGen-Core Integration
 
-_Last updated: 2025-10-03_
+_Last updated: 2025-10-03 20:30_
 
-## Current Status – Sprint 3 Complete: Per-Skill Presentation Generation ✅
+## Current Status – Sprint 3-4 Implementation In Progress ⏳
 
-### Sprint 3 Deliverables (Gap Analysis → Presentations)
+### Sprint 3 Deliverables (Gap Analysis → Presentations) – COMPLETE ✅
 - ✅ **Database Schema**: `generated_presentations` table with 30 fields
 - ✅ **Background Job System**: Async presentation generation with independent database sessions
 - ✅ **Content Orchestration**: Service to prepare presentation content specifications
@@ -15,6 +15,23 @@ _Last updated: 2025-10-03_
 - ✅ **Session Management Fix**: Background jobs create independent DB sessions
 - ✅ **TDD Manual Testing**: Complete Sprint 3 testing guide validated
 - ✅ **Presentations Generated**: 3 test presentations completed (Networking: 7 slides, Security: 10 slides, Compute: 9 slides)
+
+### Sprint 3-4 Transition (Option 3: API Endpoint Fixes) – COMPLETE ✅
+- ✅ **UUID Normalization**: Helper functions for SQLite compatibility (`normalize_uuid()`, `format_uuid()`)
+- ✅ **Status Endpoint Fix**: Accepts both hyphenated and non-hyphenated UUIDs
+- ✅ **List Endpoint Fix**: Enhanced with improved logging and dual-format UUID support
+- ✅ **GET Single Presentation**: New endpoint for retrieving complete presentation details
+- ✅ **Enhanced Logging**: Debug and info logging with emoji indicators (📊, 📋, 🔍, ✅)
+- ✅ **Comprehensive Testing**: All 5 test cases passed (Test Suite 1)
+- ✅ **TDD Documentation**: GAP_TO_PRES_SPRINT_3-4_TDD_MANUAL_TESTING.md created
+
+### Sprint 3-4 Transition (Option 1: Production PresGen-Core) – PARTIAL ⏳
+- ✅ **Environment-Based Mock Toggle**: `PRESGEN_USE_MOCK` environment variable support
+- ✅ **Settings Configuration**: Added `presgen_use_mock` to config (auto-detect from `DEBUG`)
+- ✅ **Client Initialization Logging**: PresGenCoreClient logs mock/production mode on init
+- ✅ **Google Credentials Verified**: Service account and OAuth token files exist
+- ⏳ **PresGen-Core Service**: Not running on port 8001 (prerequisite for production mode)
+- ⏳ **Production API Integration**: Ready for implementation when PresGen-Core is available
 
 ### Previous Sprint Status
 - ✅ **Sprint 4 AI Question Generation**: Fully implemented and operational

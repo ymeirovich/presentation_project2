@@ -12,6 +12,7 @@ from datetime import datetime
 from uuid import uuid4
 
 from src.schemas.presentation import PresentationContentSpec
+from src.common.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -46,10 +47,23 @@ class PresGenCoreClient:
     """
 
     def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None):
-        self.base_url = base_url or "http://localhost:8000"  # Mock default
+        self.base_url = base_url or settings.presgen_core_url
         self.api_key = api_key
-        self.timeout = 300.0  # 5 minutes for long-running generation
-        self.use_mock = True  # Enable mock mode for Sprint 3 testing
+        self.timeout = 600.0  # 10 minutes for long-running generation
+
+        # Use mock mode in debug mode, production mode otherwise
+        # Can be overridden with PRESGEN_USE_MOCK environment variable
+        if settings.presgen_use_mock is not None:
+            self.use_mock = settings.presgen_use_mock
+        else:
+            self.use_mock = settings.debug
+
+        logger.info(
+            f"🔧 PresGenCoreClient initialized | "
+            f"base_url={self.base_url} | "
+            f"mock_mode={self.use_mock} | "
+            f"debug={settings.debug}"
+        )
 
     async def generate_presentation(
         self,
