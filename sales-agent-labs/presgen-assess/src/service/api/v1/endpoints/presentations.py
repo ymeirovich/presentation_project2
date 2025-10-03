@@ -12,7 +12,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, status, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, cast, String, text
 
 from src.service.database import get_db
 from src.schemas.presentation import (
@@ -40,8 +40,8 @@ router = APIRouter()
     summary="Generate presentation for a single skill/course"
 )
 async def generate_single_presentation(
-    workflow_id: UUID,
-    course_id: UUID,
+    workflow_id: str,
+    course_id: str,
     request: PresentationGenerationRequest,
     db: AsyncSession = Depends(get_db)
 ) -> PresentationGenerationResponse:
@@ -69,24 +69,35 @@ async def generate_single_presentation(
         )
 
         # Validate that workflow_id and course_id match in request
-        if request.workflow_id != workflow_id or request.course_id != course_id:
+        if str(request.workflow_id).replace('-', '') != workflow_id.replace('-', '') or \
+           str(request.course_id).replace('-', '') != course_id.replace('-', ''):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Workflow ID or Course ID in request doesn't match URL parameters"
             )
 
         # Check if course exists
-        course_stmt = select(RecommendedCourse).where(
-            RecommendedCourse.id == str(course_id)
-        )
-        course_result = await db.execute(course_stmt)
-        course = course_result.scalar_one_or_none()
+        # Remove hyphens from course_id for SQLite UUID comparison (UUIDs stored without hyphens)
+        # Use raw SQL to bypass PGUUID type processor issues with SQLite
+        course_id_normalized = course_id.replace('-', '')
+        course_stmt = text("""
+            SELECT * FROM recommended_courses WHERE id = :course_id
+        """)
+        course_result = await db.execute(course_stmt, {"course_id": course_id_normalized})
+        course_row = course_result.fetchone()
 
-        if not course:
+        if not course_row:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Course {course_id} not found"
             )
+
+        # Map row to object attributes for later use
+        course = type('Course', (), {
+            'id': course_row[0],
+            'skill_id': course_row[3],
+            'skill_name': course_row[4]
+        })()
 
         # Check if presentation already exists for this skill
         existing_stmt = select(GeneratedPresentation).where(
@@ -139,11 +150,10 @@ async def generate_single_presentation(
         db.add(presentation)
         await db.commit()
 
-        # Enqueue background job
+        # Enqueue background job (job creates its own session)
         job_id = await job_queue.enqueue(
             presentation_id=presentation_id,
-            content_spec=content_spec,
-            db_session=db
+            content_spec=content_spec
         )
 
         # Update presentation with job_id
@@ -182,7 +192,7 @@ async def generate_single_presentation(
     summary="Generate presentations for all courses in workflow"
 )
 async def generate_all_presentations(
-    workflow_id: UUID,
+    workflow_id: str,
     request: BatchPresentationGenerationRequest,
     db: AsyncSession = Depends(get_db)
 ) -> BatchPresentationGenerationResponse:
@@ -206,12 +216,23 @@ async def generate_all_presentations(
             f"max_concurrent={request.max_concurrent}"
         )
 
-        # Fetch all courses for this workflow
-        courses_stmt = select(RecommendedCourse).where(
-            RecommendedCourse.workflow_id == str(workflow_id)
-        )
-        courses_result = await db.execute(courses_stmt)
-        courses = courses_result.scalars().all()
+        # Normalize workflow_id (remove hyphens for SQLite UUID comparison)
+        workflow_id_normalized = workflow_id.replace('-', '')
+
+        # Fetch all courses for this workflow using raw SQL to avoid UUID type issues
+        courses_stmt = text("""
+            SELECT * FROM recommended_courses WHERE workflow_id = :workflow_id
+        """)
+        courses_result = await db.execute(courses_stmt, {"workflow_id": workflow_id_normalized})
+        courses_rows = courses_result.fetchall()
+
+        # Convert rows to course objects
+        courses = [type('Course', (), {
+            'id': row[0],
+            'workflow_id': row[2],
+            'skill_id': row[3],
+            'skill_name': row[4]
+        })() for row in courses_rows]
 
         if not courses:
             raise HTTPException(
@@ -263,11 +284,10 @@ async def generate_all_presentations(
             db.add(presentation)
             await db.commit()
 
-            # Enqueue job
+            # Enqueue job (job creates its own session)
             job_id = await job_queue.enqueue(
                 presentation_id=presentation_id,
-                content_spec=content_spec,
-                db_session=db
+                content_spec=content_spec
             )
 
             presentation.job_id = job_id

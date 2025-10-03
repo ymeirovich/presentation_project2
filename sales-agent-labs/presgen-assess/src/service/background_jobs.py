@@ -17,6 +17,7 @@ from sqlalchemy import select, update
 from src.schemas.presentation import PresentationStatus, PresentationJobStatus, PresentationContentSpec
 from src.models.presentation import GeneratedPresentation
 from src.service.presgen_core_client import PresGenCoreClient
+from src.service.database import AsyncSessionLocal
 
 logger = logging.getLogger(__name__)
 
@@ -36,13 +37,12 @@ class PresentationGenerationJob:
         self,
         job_id: str,
         presentation_id: UUID,
-        content_spec: PresentationContentSpec,
-        db_session: AsyncSession
+        content_spec: PresentationContentSpec
     ):
         self.job_id = job_id
         self.presentation_id = presentation_id
         self.content_spec = content_spec
-        self.db = db_session
+        self.db: Optional[AsyncSession] = None  # Created in execute()
         self.presgen_client = PresGenCoreClient()  # Uses mock by default
 
         self.progress = 0
@@ -58,61 +58,76 @@ class PresentationGenerationJob:
         2. Call PresGen-Core API (20-80%)
         3. Save to Drive (80-90%)
         4. Update database (90-100%)
+
+        Creates its own database session for proper lifecycle management.
+        Session is guaranteed to be closed even on errors.
         """
-        try:
-            logger.info(f"🎬 Starting presentation generation job {self.job_id}")
+        # Create independent database session for this background job
+        async with AsyncSessionLocal() as session:
+            self.db = session
 
-            await self._update_status(PresentationStatus.GENERATING, 0, "Starting generation")
+            try:
+                logger.info(f"🎬 Starting presentation generation job {self.job_id}")
 
-            # Step 1: Validate content spec (10%)
-            await self._update_progress(10, "Validating content specification")
-            await asyncio.sleep(0.1)  # Small delay for testing
+                await self._update_status(PresentationStatus.GENERATING, 0, "Starting generation")
 
-            # Step 2: Call PresGen-Core API (20-80%)
-            await self._update_progress(20, "Generating slides")
-            presentation_result = await self.presgen_client.generate_presentation(
-                self.content_spec,
-                progress_callback=self._presgen_progress_callback
-            )
+                # Step 1: Validate content spec (10%)
+                await self._update_progress(10, "Validating content specification")
+                await asyncio.sleep(0.1)  # Small delay for testing
 
-            # Step 3: Save to Drive (80-90%)
-            await self._update_progress(80, "Saving to Google Drive")
+                # Step 2: Call PresGen-Core API (20-80%)
+                await self._update_progress(20, "Generating slides")
+                presentation_result = await self.presgen_client.generate_presentation(
+                    self.content_spec,
+                    progress_callback=self._presgen_progress_callback
+                )
 
-            # Build human-readable folder path
-            folder_path = self.presgen_client.build_drive_folder_path(
-                assessment_title=self.content_spec.assessment_title,
-                user_email=self.content_spec.user_email,
-                workflow_id=str(self.content_spec.workflow_id),
-                skill_name=self.content_spec.skill_name
-            )
+                # Step 3: Save to Drive (80-90%)
+                await self._update_progress(80, "Saving to Google Drive")
 
-            drive_result = await self.presgen_client.save_to_drive(
-                presentation_result.file_data,
-                folder_path=folder_path
-            )
+                # Build human-readable folder path
+                folder_path = self.presgen_client.build_drive_folder_path(
+                    assessment_title=self.content_spec.assessment_title,
+                    user_email=self.content_spec.user_email,
+                    workflow_id=str(self.content_spec.workflow_id),
+                    skill_name=self.content_spec.skill_name
+                )
 
-            # Step 4: Update database (90-100%)
-            await self._update_progress(90, "Finalizing")
-            await self._finalize_presentation(presentation_result, drive_result, folder_path)
+                drive_result = await self.presgen_client.save_to_drive(
+                    presentation_result.file_data,
+                    folder_path=folder_path
+                )
 
-            await self._update_status(PresentationStatus.COMPLETED, 100, "Generation complete")
+                # Step 4: Update database (90-100%)
+                await self._update_progress(90, "Finalizing")
+                await self._finalize_presentation(presentation_result, drive_result, folder_path)
 
-            logger.info(
-                f"✅ Presentation generation complete | "
-                f"job_id={self.job_id} | "
-                f"presentation_id={self.presentation_id} | "
-                f"slides={presentation_result.slide_count}"
-            )
+                await self._update_status(PresentationStatus.COMPLETED, 100, "Generation complete")
 
-        except Exception as e:
-            logger.error(f"❌ Presentation generation failed: {e}", exc_info=True)
-            await self._update_status(
-                PresentationStatus.FAILED,
-                self.progress,
-                f"Generation failed: {str(e)}",
-                error_message=str(e)
-            )
-            raise
+                logger.info(
+                    f"✅ Presentation generation complete | "
+                    f"job_id={self.job_id} | "
+                    f"presentation_id={self.presentation_id} | "
+                    f"slides={presentation_result.slide_count}"
+                )
+
+            except Exception as e:
+                logger.error(f"❌ Presentation generation failed: {e}", exc_info=True)
+                try:
+                    # Attempt to update status to failed
+                    await self._update_status(
+                        PresentationStatus.FAILED,
+                        self.progress,
+                        f"Generation failed: {str(e)}",
+                        error_message=str(e)
+                    )
+                except Exception as update_error:
+                    logger.error(f"❌ Failed to update error status: {update_error}")
+                raise
+            finally:
+                # Session automatically closed by context manager
+                self.db = None
+                logger.debug(f"🔒 Database session closed for job {self.job_id}")
 
     async def _update_status(
         self,
@@ -217,16 +232,16 @@ class JobQueue:
     async def enqueue(
         self,
         presentation_id: UUID,
-        content_spec: PresentationContentSpec,
-        db_session: AsyncSession
+        content_spec: PresentationContentSpec
     ) -> str:
         """
         Enqueue a new presentation generation job.
 
+        The job will create its own database session for proper lifecycle management.
+
         Args:
             presentation_id: ID of presentation record
             content_spec: Content specification for this skill
-            db_session: Database session
 
         Returns:
             job_id: Unique job identifier
@@ -236,13 +251,13 @@ class JobQueue:
         job = PresentationGenerationJob(
             job_id=job_id,
             presentation_id=presentation_id,
-            content_spec=content_spec,
-            db_session=db_session
+            content_spec=content_spec
         )
 
         self.jobs[job_id] = job
 
         # Start job in background (use Celery/RQ in production)
+        # Job will create its own database session
         asyncio.create_task(job.execute())
 
         logger.info(

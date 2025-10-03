@@ -1,13 +1,25 @@
 """Configuration management for PresGen-Assess."""
 
 import os
+from pathlib import Path
 from typing import Optional
 from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# Get the project root directory (where .env should be)
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+ENV_FILE = PROJECT_ROOT / ".env"
 
 
 class Settings(BaseSettings):
     """Application settings with environment variable support."""
+
+    model_config = SettingsConfigDict(
+        env_file=str(ENV_FILE),
+        env_file_encoding='utf-8',
+        case_sensitive=False,
+        extra='ignore'
+    )
 
     # Database Configuration
     database_url: str = Field(
@@ -87,13 +99,20 @@ class Settings(BaseSettings):
     api_v1_prefix: str = Field(default="/api/v1", alias="API_V1_PREFIX")
     secret_key: str = Field(default="change-me-in-production", alias="SECRET_KEY")
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
-
 
 # Global settings instance
 settings = Settings()
+
+# Debug logging to verify settings are loaded correctly
+import logging
+import sys
+logger = logging.getLogger(__name__)
+print(f"📁 ENV_FILE path: {ENV_FILE}", file=sys.stderr)
+print(f"🔍 ENV_FILE exists: {ENV_FILE.exists()}", file=sys.stderr)
+print(f"🗄️  Database URL loaded: {settings.database_url}", file=sys.stderr)
+logger.info(f"📁 ENV_FILE path: {ENV_FILE}")
+logger.info(f"🔍 ENV_FILE exists: {ENV_FILE.exists()}")
+logger.info(f"🗄️  Database URL loaded: {settings.database_url}")
 
 
 def get_database_url() -> str:

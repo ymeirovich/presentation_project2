@@ -52,52 +52,27 @@ alembic upgrade head
 sqlite3 test_database.db ".schema generated_presentations"
 ```
 
-**Expected Output** (full schema with all columns):
+**Expected Output**:
 ```sql
-CREATE TABLE generated_presentations (
-	id VARCHAR(36) NOT NULL,
-	workflow_id VARCHAR(36) NOT NULL,
-	skill_id VARCHAR(255) NOT NULL,
-	skill_name VARCHAR(500) NOT NULL,
-	course_id VARCHAR(36),
-	assessment_title VARCHAR(500),
-	user_email VARCHAR(255),
-	drive_folder_path TEXT,
-	presentation_title VARCHAR(500) NOT NULL,
-	presentation_url TEXT,
-	download_url TEXT,
-	drive_file_id VARCHAR(255),
-	drive_folder_id VARCHAR(255),
-	generation_status VARCHAR(50) DEFAULT 'pending' NOT NULL,
-	generation_started_at DATETIME,
-	generation_completed_at DATETIME,
-	generation_duration_ms INTEGER,
-	estimated_duration_minutes INTEGER,
-	job_id VARCHAR(36),
-	job_progress INTEGER DEFAULT '0' NOT NULL,
-	job_error_message TEXT,
-	template_id VARCHAR(100) DEFAULT 'short_form_skill',
-	template_name VARCHAR(255) DEFAULT 'Skill-Focused Presentation',
-	total_slides INTEGER,
-	content_outline_id VARCHAR(36),
-	file_size_mb FLOAT,
-	thumbnail_url TEXT,
-	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-	updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-	PRIMARY KEY (id),
-	FOREIGN KEY(workflow_id) REFERENCES workflow_executions (id) ON DELETE CASCADE,
-	FOREIGN KEY(course_id) REFERENCES recommended_courses (id) ON DELETE SET NULL,
-	FOREIGN KEY(content_outline_id) REFERENCES content_outlines (id) ON DELETE SET NULL,
-	CONSTRAINT check_generation_status CHECK (generation_status IN ('pending', 'generating', 'completed', 'failed', 'cancelled')),
-	CONSTRAINT check_job_progress_range CHECK (job_progress >= 0 AND job_progress <= 100)
-);
-CREATE INDEX idx_presentations_workflow ON generated_presentations (workflow_id);
-CREATE INDEX idx_presentations_skill ON generated_presentations (skill_id);
-CREATE INDEX idx_presentations_course ON generated_presentations (course_id);
-CREATE INDEX idx_presentations_status ON generated_presentations (generation_status);
-CREATE INDEX idx_presentations_job ON generated_presentations (job_id);
-CREATE INDEX idx_presentations_created ON generated_presentations (created_at);
-CREATE UNIQUE INDEX idx_presentations_job_unique ON generated_presentations (job_id);
+sqlite3 test_database.db "CREATE TABLE generated_presentations (
+    id VARCHAR(36) NOT NULL,
+    workflow_id VARCHAR(36) NOT NULL,
+    skill_id VARCHAR(255) NOT NULL,
+    skill_name VARCHAR(500) NOT NULL,
+    course_id VARCHAR(36),
+    assessment_title VARCHAR(500),
+    user_email VARCHAR(255),
+    drive_folder_path TEXT,
+    presentation_title VARCHAR(500) NOT NULL,
+    presentation_url TEXT,
+    download_url TEXT,
+    drive_file_id VARCHAR(255),
+    generation_status VARCHAR(50) NOT NULL,
+    -- ... (additional columns)
+    PRIMARY KEY (id),
+    FOREIGN KEY(workflow_id) REFERENCES workflow_executions (id) ON DELETE CASCADE,
+    FOREIGN KEY(course_id) REFERENCES recommended_courses (id) ON DELETE SET NULL
+);"
 ```
 
 ### 2. Verify Mock Mode
@@ -105,6 +80,9 @@ CREATE UNIQUE INDEX idx_presentations_job_unique ON generated_presentations (job
 ```bash
 # Check that PresGenCoreClient is in mock mode
 grep "use_mock = True" src/service/presgen_core_client.py
+
+(.venv) yitzchak@MacBookPro presgen-assess % grep "use_mock = True" src/service/presgen_core_client.py
+        self.use_mock = True  # Enable mock mode for Sprint 3 testing
 ```
 
 **Expected**: `self.use_mock = True  # Mock mode for Sprint 3 testing`
@@ -112,18 +90,11 @@ grep "use_mock = True" src/service/presgen_core_client.py
 ### 3. Start Development Server
 
 ```bash
-# Start FastAPI server (from presgen-assess directory)
-cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/presgen-assess
-source venv/bin/activate
-uvicorn src.service.app:app --reload --port 8000
+# Start FastAPI server
+uvicorn src.service.main:app --reload --port 8000
 
-# In a new terminal, verify health check
+# Verify health check
 curl http://localhost:8000/health
-```
-
-**Expected Output**:
-```json
-{"status":"healthy","service":"presgen-assess"}
 ```
 
 ### 4. Prepare Test Workflow
@@ -136,23 +107,13 @@ You'll need an existing workflow with:
 
 **Get Test Workflow ID**:
 ```bash
-sqlite3 test_database.db "SELECT id, status, created_at FROM workflow_executions ORDER BY created_at DESC LIMIT 1;"
-```
-
-**Example Output**:
-```
-8e46398dc2924439a04531dfeb49d7ef|completed|2025-10-01 11:28:38
+sqlite3 test_database.db "SELECT id, assessment_title FROM workflow_executions ORDER BY created_at DESC LIMIT 1;"
 ```
 
 **Get Test Course ID**:
 ```bash
 # Replace {workflow_id} with your test workflow ID
-sqlite3 test_database.db "SELECT id, skill_name FROM recommended_courses WHERE workflow_id = '{workflow_id}' LIMIT 1;"
-```
-
-**Example Output**:
-```
-0f524bb9d7f343d6867c9597b2f91804|Security
+sqlite3 test_database.db "SELECT id, skill_name FROM recommended_courses WHERE workflow_id = '8e46398dc2924439a04531dfeb49d7ef' LIMIT 1;"
 ```
 
 ---
@@ -173,13 +134,20 @@ Generate a presentation for ONE skill/course and verify the complete flow from A
 
 ```bash
 # Replace {workflow_id} and {course_id} with actual UUIDs
-curl -X POST "http://localhost:8000/api/v1/workflows/{workflow_id}/courses/{course_id}/generate-presentation" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "workflow_id": "{workflow_id}",
+curl -X POST "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/courses/220f8b53c7b242a88eeb5f7ae08aff84/generate-presentation"  -H "Content-Type: application/json"  -d '{
+    "workflow_id": "8e46398dc2924439a04531dfeb49d7ef",
+    "course_id": "220f8b53c7b242a88eeb5f7ae08aff84",
+    "custom_title": "Mastering EC2 Instance Types"
+  }'
+
+  --
+  (.venv) yitzchak@MacBookPro presgen-assess % >....                                                         
+ '{
+    "workflow_id": "8e46398dc2924439a04531dfeb49d7ef",
     "course_id": "{course_id}",
     "custom_title": "Mastering EC2 Instance Types"
   }'
+{"detail":[{"type":"uuid_parsing","loc":["path","course_id"],"msg":"Input should be a valid UUID, invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `o` at 2","input":"course_id","ctx":{"error":"invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `o` at 2"},"url":"https://errors.pydantic.dev/2.11/v/uuid_parsing"},{"type":"uuid_parsing","loc":["body","course_id"],"msg":"Input should be a valid UUID, invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `o` at 3","input":"{course_id}","ctx":{"error":"invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `o` at 3"},"url":"https://errors.pydantic.dev/2.11/v/uuid_parsing"}]}% 
 ```
 
 **Expected Response (HTTP 202 Accepted)**:
@@ -190,7 +158,7 @@ curl -X POST "http://localhost:8000/api/v1/workflows/{workflow_id}/courses/{cour
   "presentation_id": "660e8400-e29b-41d4-a716-446655440001",
   "message": "Presentation generation started for EC2 Instance Types",
   "estimated_duration_seconds": 300,
-  "status_check_url": "/api/v1/workflows/{workflow_id}/presentations/{presentation_id}/status"
+  "status_check_url": "/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/presentations/0f6ad75d-41d6-46a8-8ed5-30e2a09a3d7a/status"
 }
 ```
 
@@ -206,7 +174,11 @@ curl -X POST "http://localhost:8000/api/v1/workflows/{workflow_id}/courses/{cour
 
 ```bash
 # Query presentation record
-sqlite3 test_database.db "SELECT id, skill_name, generation_status, job_id, job_progress FROM generated_presentations WHERE id = '{presentation_id}';"
+sqlite3 test_database.db "SELECT id, skill_name, generation_status, job_id, job_progress FROM generated_presentations WHERE id = '0f6ad75d-41d6-46a8-8ed5-30e2a09a3d7a';"
+
+--
+0f6ad75d-41d6-46a8-8ed5-30e2a09a3d7a|Networking|completed|bf6e2fa4-668a-4d6f-83ea-a354586d7832|100
+
 ```
 
 **Expected Output**:
@@ -227,10 +199,16 @@ sqlite3 test_database.db "SELECT id, skill_name, generation_status, job_id, job_
 # Poll status every 2 seconds (mock completes in ~1 second)
 for i in {1..5}; do
   echo "=== Check $i ==="
-  curl "http://localhost:8000/api/v1/workflows/{workflow_id}/presentations/{presentation_id}/status"
+  curl "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/presentations/0f6ad75d-41d6-46a8-8ed5-30e2a09a3d7a/status"
   echo ""
   sleep 2
 done
+
+---
+=== Check 2 ===
+{"detail":"Presentation 0f6ad75d-41d6-46a8-8ed5-30e2a09a3d7a not found"}
+=== Check 3 ===
+{"detail":"Presentation 0f6ad75d-41d6-46a8-8ed5-30e2a09a3d7a not found"}
 ```
 
 **Expected Progress Sequence**:
@@ -239,7 +217,7 @@ done
 ```json
 {
   "job_id": "{job_id}",
-  "presentation_id": "{presentation_id}",
+  "presentation_id": "0f6ad75d-41d6-46a8-8ed5-30e2a09a3d7a",
   "status": "generating",
   "progress": 10,
   "current_step": "Validating content",
@@ -251,7 +229,7 @@ done
 ```json
 {
   "job_id": "{job_id}",
-  "presentation_id": "{presentation_id}",
+  "presentation_id": "0f6ad75d-41d6-46a8-8ed5-30e2a09a3d7a",
   "status": "completed",
   "progress": 100,
   "current_step": "Complete",
@@ -270,7 +248,11 @@ done
 
 ```bash
 # Query complete record
-sqlite3 test_database.db "SELECT skill_name, generation_status, job_progress, presentation_url, drive_folder_path, drive_file_id, total_slides FROM generated_presentations WHERE id = '{presentation_id}';"
+sqlite3 test_database.db "SELECT skill_name, generation_status, job_progress, presentation_url, drive_folder_path, drive_file_id, total_slides FROM generated_presentations WHERE id = '0f6ad75d-41d6-46a8-8ed5-30e2a09a3d7a';"
+
+---
+Networking|completed|100|https://docs.google.com/presentation/d/8971149f/edit|Assessments/gap_analysis_complete_8e46398d/Presentations/Networking/|12911ba7-f03f-49|7
+
 ```
 
 **Expected Output**:
@@ -282,7 +264,7 @@ EC2 Instance Types|completed|100|https://docs.google.com/presentation/d/mock-abc
 - ✅ `generation_status` = 'completed'
 - ✅ `job_progress` = 100
 - ✅ `presentation_url` contains Google Slides mock URL
-- ✅ `drive_folder_path` uses format: `Assessments/{assessment_title}_{user_email}_{workflow_id}/Presentations/{skill_name}/`
+- ✅ `drive_folder_path` uses format: `Assessments/{assessment_title}_{user_email}_8e46398dc2924439a04531dfeb49d7ef/Presentations/{skill_name}/`
 - ✅ `drive_file_id` is populated (mock ID)
 - ✅ `total_slides` is between 7-11 (short-form)
 - ✅ `generation_started_at` and `generation_completed_at` are set
@@ -328,12 +310,17 @@ Verify that the system prevents generating duplicate presentations for the same 
 
 ```bash
 # Use same workflow_id and course_id from Test Case 1
-curl -X POST "http://localhost:8000/api/v1/workflows/{workflow_id}/courses/{course_id}/generate-presentation" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "workflow_id": "{workflow_id}",
-    "course_id": "{course_id}"
+curl -X POST "http://localhost:8000/api/v1/workflows/8e46398d-c292-4439-a045-31dfeb49d7ef/courses/61124ad4-908e-4ab3-a237-29142d3b9ae0/generate-presentation" -H "Content-Type: application/json" -d '{
+    "workflow_id": "8e46398dc2924439a04531dfeb49d7ef",
+    "course_id": "61124ad4-908e-4ab3-a237-29142d3b9ae0"
   }'
+
+  ---
+  (.venv) yitzchak@MacBookPro presgen-assess % curl -X POST "http://localhost:8000/api/v1/workflows/8e46398d-c292-4439-a045-31dfeb49d7ef/courses/61124ad4-908e-4ab3-a237-29142d3b9ae0/generate-presentation" -H "Content-Type: application/json" -d '{
+    "workflow_id": "8e46398dc2924439a04531dfeb49d7ef",
+    "course_id": "61124ad4-908e-4ab3-a237-29142d3b9ae0"
+  }'
+{"success":true,"job_id":"7ca91227-ca44-4c5f-a07e-d7e17a0bbd33","presentation_id":"53f2a834-cdc8-4108-90c4-850353d0116d","message":"Presentation generation started for Security","estimated_duration_seconds":300,"status_check_url":"/api/v1/workflows/8e46398d-c292-4439-a045-31dfeb49d7ef/presentations/53f2a834-cdc8-4108-90c4-850353d0116d/status"}%     
 ```
 
 **Expected Response (HTTP 202 Accepted)**:
@@ -344,7 +331,7 @@ curl -X POST "http://localhost:8000/api/v1/workflows/{workflow_id}/courses/{cour
   "presentation_id": "{existing_presentation_id}",
   "message": "Presentation already exists for EC2 Instance Types",
   "estimated_duration_seconds": 0,
-  "status_check_url": "/api/v1/workflows/{workflow_id}/presentations/{existing_presentation_id}/status"
+  "status_check_url": "/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/presentations/{existing_presentation_id}/status"
 }
 ```
 
@@ -360,7 +347,12 @@ curl -X POST "http://localhost:8000/api/v1/workflows/{workflow_id}/courses/{cour
 
 ```bash
 # Count presentations for this skill/workflow
-sqlite3 test_database.db "SELECT COUNT(*) FROM generated_presentations WHERE workflow_id = '{workflow_id}' AND skill_id = '{skill_id}' AND generation_status = 'completed';"
+sqlite3 test_database.db "SELECT COUNT(*) FROM generated_presentations WHERE workflow_id = '8e46398dc2924439a04531dfeb49d7ef' AND skill_id = 'networking' AND generation_status = 'completed';"
+
+--
+(.venv) yitzchak@MacBookPro presgen-assess % sqlite3 test_database.db "SELECT COUNT(*) FROM generated_presentations WHERE workflow_id = '8e46398dc2924439a04531dfeb49d7ef' AND skill_id = 'networking' AND generation_status = 'completed';"
+1
+(.venv) yitzchak@MacBookPro presgen-assess % 
 ```
 
 **Expected Output**: `1` (only one completed presentation per skill)
@@ -382,12 +374,22 @@ Generate presentations for ALL courses in a workflow using parallel job executio
 #### Step 3.1: Submit Batch Generation Request
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/workflows/{workflow_id}/generate-all-presentations" \
+curl -X POST "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/generate-all-presentations" \
   -H "Content-Type: application/json" \
   -d '{
-    "workflow_id": "{workflow_id}",
+    "workflow_id": "8e46398dc2924439a04531dfeb49d7ef",
     "max_concurrent": 3
   }'
+
+  curl -X POST "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/generate-all-presentations" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workflow_id": "8e46398d-c292-4439-a045-31dfeb49d7ef",
+    "max_concurrent": 3
+  }'
+
+  ---
+  {"success":true,"jobs":[{"job_id":"f9107810-2b5a-47f8-9983-c8b795405147","presentation_id":"97693ef7-c7a5-4e35-9d12-6719f31e3d15","skill_name":"Security"},{"job_id":"17fab524-0249-43b8-98f0-db70055bbb2d","presentation_id":"119b1f81-bd4c-4f99-9faa-3deababf1257","skill_name":"Compute"},{"job_id":"07a4affe-cfd7-4e6d-a546-c25fd1a6108f","presentation_id":"b0b9e44e-d2c7-44ba-9400-11e11f850a42","skill_name":"Security"},{"job_id":"216ca9a8-4510-4b30-bca4-d3270a7184b4","presentation_id":"e5a8c24a-be71-4014-bc2c-2c4c57947b23","skill_name":"Compute"}],"message":"Started generation for 4 skill presentations","total_presentations":4,"estimated_total_duration_seconds":600}% 
 ```
 
 **Expected Response (HTTP 202 Accepted)**:
@@ -431,7 +433,18 @@ curl -X POST "http://localhost:8000/api/v1/workflows/{workflow_id}/generate-all-
 
 ```bash
 # List all presentations for workflow
-sqlite3 test_database.db "SELECT skill_name, generation_status, job_progress FROM generated_presentations WHERE workflow_id = '{workflow_id}' ORDER BY created_at DESC;"
+sqlite3 test_database.db "SELECT skill_name, generation_status, job_progress FROM generated_presentations WHERE workflow_id = '8e46398dc2924439a04531dfeb49d7ef' ORDER BY created_at DESC;"
+
+--
+(.venv) yitzchak@MacBookPro presgen-assess % sqlite3 test_database.db "SELECT skill_name, generation_status, job_progress FROM generated_presentations WHERE workflow_id = '8e46398dc2924439a04531dfeb49d7ef' ORDER BY created_at DESC;"
+Compute|completed|100
+Security|completed|100
+Compute|completed|100
+Security|completed|100
+Networking|completed|100
+Security|pending|0
+Security|pending|0
+Security|pending|0
 ```
 
 **Expected Output**:
@@ -453,10 +466,28 @@ EC2 Instance Types|completed|100
 # Poll list endpoint to see progress
 for i in {1..5}; do
   echo "=== Check $i ==="
-  curl "http://localhost:8000/api/v1/workflows/{workflow_id}/presentations" | jq '.presentations[] | {skill_name, status: .generation_status, progress: .job_progress}'
+  curl "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/presentations" | jq '.presentations[] | {skill_name, status: .generation_status, progress: .job_progress}'
   echo ""
   sleep 2
 done
+
+--
+(.venv) yitzchak@MacBookPro presgen-assess % for i in {1..5}; do
+  echo "=== Check $i ==="
+  curl "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/presentations" | jq '.presentations[] | {skill_name, status: .generation_status, progress: .job_progress}'
+  echo ""
+  sleep 2
+done
+=== Check 1 ===
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100  1295  100  1295    0     0  52129      0 --:--:-- --:--:-- --:--:-- 53958
+{
+  "skill_name": "Security",
+  "status": "completed",
+  "progress": 100
+}
+
 ```
 
 **Expected Progress Sequence**:
@@ -499,7 +530,18 @@ Verify that Drive folder paths use human-readable format with assessment title, 
 
 ```bash
 # Query all drive folder paths
-sqlite3 test_database.db "SELECT skill_name, drive_folder_path FROM generated_presentations WHERE workflow_id = '{workflow_id}';"
+sqlite3 test_database.db "SELECT skill_name, drive_folder_path FROM generated_presentations WHERE workflow_id = '8e46398dc2924439a04531dfeb49d7ef';"
+
+---
+(.venv) yitzchak@MacBookPro presgen-assess % sqlite3 test_database.db "SELECT skill_name, drive_folder_path FROM generated_presentations WHERE workflow_id = '8e46398dc2924439a04531dfeb49d7ef';"
+Security|
+Security|
+Security|
+Networking|Assessments/gap_analysis_complete_8e46398d/Presentations/Networking/
+Security|Assessments/gap_analysis_complete_8e46398d/Presentations/Security/
+Compute|Assessments/gap_analysis_complete_8e46398d/Presentations/Compute/
+Security|Assessments/gap_analysis_complete_8e46398d/Presentations/Security/
+Compute|Assessments/gap_analysis_complete_8e46398d/Presentations/Compute/
 ```
 
 **Expected Output (with user_email)**:
@@ -529,7 +571,12 @@ S3 Storage Classes|Assessments/AWS_Solutions_Architect_abc123/Presentations/S3_S
 
 ```bash
 # Check assessment_title and user_email storage
-sqlite3 test_database.db "SELECT DISTINCT assessment_title, user_email FROM generated_presentations WHERE workflow_id = '{workflow_id}';"
+sqlite3 test_database.db "SELECT DISTINCT assessment_title, user_email FROM generated_presentations WHERE workflow_id = '8e46398dc2924439a04531dfeb49d7ef';"
+
+---
+(.venv) yitzchak@MacBookPro presgen-assess % sqlite3 test_database.db "SELECT DISTINCT assessment_title, user_email FROM generated_presentations WHERE workflow_id = '8e46398dc2924439a04531dfeb49d7ef';"
+gap_analysis_complete|
+(.venv) yitzchak@MacBookPro presgen-assess % 
 ```
 
 **Expected Output**:
@@ -562,12 +609,17 @@ logger.setLevel(logging.DEBUG)
 
 ```bash
 # Repeat Test Case 1 with debug logging enabled
-curl -X POST "http://localhost:8000/api/v1/workflows/{workflow_id}/courses/{course_id}/generate-presentation" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "workflow_id": "{workflow_id}",
-    "course_id": "{course_id}"
+curl -X POST "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/courses/220f8b53c7b242a88eeb5f7ae08aff84/generate-presentation" -H "Content-Type: application/json" -d '{
+    "workflow_id": "8e46398dc2924439a04531dfeb49d7ef",
+    "course_id": "220f8b53c7b242a88eeb5f7ae08aff84"
   }'
+
+  --
+  (.venv) yitzchak@MacBookPro presgen-assess % curl -X POST "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/courses/220f8b53c7b242a88eeb5f7ae08aff84/generate-presentation" -H "Content-Type: application/json" -d '{
+    "workflow_id": "8e46398dc2924439a04531dfeb49d7ef",
+    "course_id": "220f8b53c7b242a88eeb5f7ae08aff84"
+  }'
+{"success":true,"job_id":"bf6e2fa4-668a-4d6f-83ea-a354586d7832","presentation_id":"0f6ad75d-41d6-46a8-8ed5-30e2a09a3d7a","message":"Presentation already exists for Networking","estimated_duration_seconds":0,"status_check_url":"/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/presentations/0f6ad75d-41d6-46a8-8ed5-30e2a09a3d7a/status"}%  
 ```
 
 #### Step 5.3: Review Server Logs
@@ -603,12 +655,16 @@ Test error scenarios and validate proper error responses.
 #### Step 6.1: Invalid Workflow ID
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/workflows/invalid-uuid/courses/{course_id}/generate-presentation" \
-  -H "Content-Type: application/json" \
-  -d '{
+curl -X POST "http://localhost:8000/api/v1/workflows/invalid-uuid/courses/220f8b53c7b242a88eeb5f7ae08aff84/generate-presentation" -H "Content-Type: application/json" -d '{
     "workflow_id": "invalid-uuid",
-    "course_id": "{course_id}"
+    "course_id": "220f8b53c7b242a88eeb5f7ae08aff84"
   }'
+  --
+  (.venv) yitzchak@MacBookPro presgen-assess % curl -X POST "http://localhost:8000/api/v1/workflows/invalid-uuid/courses/220f8b53c7b242a88eeb5f7ae08aff84/generate-presentation" -H "Content-Type: application/json" -d '{
+    "workflow_id": "invalid-uuid",
+    "course_id": "220f8b53c7b242a88eeb5f7ae08aff84"
+  }'
+{"detail":[{"type":"uuid_parsing","loc":["body","workflow_id"],"msg":"Input should be a valid UUID, invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `i` at 1","input":"invalid-uuid","ctx":{"error":"invalid character: expected an optional prefix of `urn:uuid:` followed by [0-9a-fA-F-], found `i` at 1"},"url":"https://errors.pydantic.dev/2.11/v/uuid_parsing"}]}%  
 ```
 
 **Expected Response (HTTP 422 Unprocessable Entity)**:
@@ -627,12 +683,20 @@ curl -X POST "http://localhost:8000/api/v1/workflows/invalid-uuid/courses/{cours
 #### Step 6.2: Non-Existent Course
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/workflows/{workflow_id}/courses/00000000-0000-0000-0000-000000000000/generate-presentation" \
+curl -X POST "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/courses/00000000-0000-0000-0000-000000000000/generate-presentation" \
   -H "Content-Type: application/json" \
   -d '{
-    "workflow_id": "{workflow_id}",
+    "workflow_id": "8e46398dc2924439a04531dfeb49d7ef",
     "course_id": "00000000-0000-0000-0000-000000000000"
   }'
+  --
+  (.venv) yitzchak@MacBookPro presgen-assess % curl -X POST "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/courses/00000000-0000-0000-0000-000000000000/generate-presentation" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workflow_id": "8e46398dc2924439a04531dfeb49d7ef",
+    "course_id": "00000000-0000-0000-0000-000000000000"
+  }'
+{"detail":"Course 00000000-0000-0000-0000-000000000000 not found"}%    
 ```
 
 **Expected Response (HTTP 404 Not Found)**:
@@ -645,12 +709,21 @@ curl -X POST "http://localhost:8000/api/v1/workflows/{workflow_id}/courses/00000
 #### Step 6.3: Mismatched Request Body
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/workflows/{workflow_id}/courses/{course_id}/generate-presentation" \
+curl -X POST "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/courses/220f8b53c7b242a88eeb5f7ae08aff84/generate-presentation" \
   -H "Content-Type: application/json" \
   -d '{
-    "workflow_id": "different-uuid",
-    "course_id": "{course_id}"
+    "workflow_id": "8e46398dc2924439a04531dfeb49d7ea",
+    "course_id": "220f8b53c7b242a88eeb5f7ae08aff84"
   }'
+  --
+  (.venv) yitzchak@MacBookPro presgen-assess % curl -X POST "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/courses/220f8b53c7b242a88eeb5f7ae08aff84/generate-presentation" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "workflow_id": "8e46398dc2924439a04531dfeb49d7ea",
+    "course_id": "220f8b53c7b242a88eeb5f7ae08aff84"
+  }'
+{"detail":"Workflow ID or Course ID in request doesn't match URL parameters"}%                             
+(.venv) yitzchak@MacBookPro presgen-assess % 
 ```
 
 **Expected Response (HTTP 400 Bad Request)**:
@@ -679,17 +752,21 @@ Verify the list endpoint returns all presentations with correct counts and stati
 #### Step 7.1: Query List Endpoint
 
 ```bash
-curl "http://localhost:8000/api/v1/workflows/{workflow_id}/presentations"
+curl "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/presentations"
 ```
+--
+(.venv) yitzchak@MacBookPro presgen-assess % curl "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/presentations"
+{"workflow_id":"8e46398d-c292-4439-a045-31dfeb49d7ef","presentations":[{"id":"53f2a834-cdc8-4108-90c4-850353d0116d","workflow_id":"8e46398d-c292-4439-a045-31dfeb49d7ef","skill_id":"security","skill_name":"Security","course_id":"61124ad4-908e-4ab3-a237-29142d3b9ae0","assessment_title":"gap_analysis_complete","user_email":null,"drive_folder_path":"Assessments/gap_analysis_complete_8e46398d/Presentations/Security/","presentation_title":"gap_analysis_complete - Security","presentation_url":"https://docs.google.com/presentation/d/375ee125/edit","download_url":"https://drive.google.com/file/d/c194af6c-052c-43/export?format=pptx","drive_file_id":"c194af6c-052c-43","generation_status":"completed","generation_started_at":"2025-10-03T13:10:27.272632","generation_completed_at":"2025-10-03T13:10:28.530970","generation_duration_ms":1254,"estimated_duration_minutes":5,"job_id":"7ca91227-ca44-4c5f-a07e-d7e17a0bbd33","job_progress":100,"job_error_message":null,"template_name":"Skill-Focused Presentation","total_slides":10,"file_size_mb":2.6,"thumbnail_url":"https://docs.google.com/presentation/d/375ee125/thumbnail","created_at":"2025-10-03T13:10:27.268693","updated_at":"2025-10-03T13:10:28.530965"}],"total_count":1,"completed_count":1,"pending_count":0,"generating_count":0,"failed_count":0}%
+(.venv) yitzchak@MacBookPro presgen-assess % 
 
 **Expected Response (HTTP 200 OK)**:
 ```json
 {
-  "workflow_id": "{workflow_id}",
+  "workflow_id": "8e46398dc2924439a04531dfeb49d7ef",
   "presentations": [
     {
       "id": "{presentation_id_1}",
-      "workflow_id": "{workflow_id}",
+      "workflow_id": "8e46398dc2924439a04531dfeb49d7ef",
       "skill_id": "ec2-instance-types",
       "skill_name": "EC2 Instance Types",
       "course_id": "{course_id_1}",
@@ -757,18 +834,18 @@ Verify generation duration tracking and performance metrics.
 START_TIME=$(date +%s)
 
 # Submit request
-RESPONSE=$(curl -X POST "http://localhost:8000/api/v1/workflows/{workflow_id}/courses/{course_id}/generate-presentation" \
+RESPONSE=$(curl -X POST "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/courses/220f8b53c7b242a88eeb5f7ae08aff84/generate-presentation" \
   -H "Content-Type: application/json" \
   -d '{
-    "workflow_id": "{workflow_id}",
-    "course_id": "{course_id}"
+    "workflow_id": "8e46398dc2924439a04531dfeb49d7ef",
+    "course_id": "220f8b53c7b242a88eeb5f7ae08aff84"
   }')
 
 PRESENTATION_ID=$(echo $RESPONSE | jq -r '.presentation_id')
 
 # Poll until complete
 while true; do
-  STATUS=$(curl -s "http://localhost:8000/api/v1/workflows/{workflow_id}/presentations/${PRESENTATION_ID}/status" | jq -r '.status')
+  STATUS=$(curl -s "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/presentations/$0f6ad75d-41d6-46a8-8ed5-30e2a09a3d7a/status" | jq -r '.status')
   if [ "$STATUS" == "completed" ]; then
     break
   fi
@@ -780,12 +857,15 @@ END_TIME=$(date +%s)
 ELAPSED=$((END_TIME - START_TIME))
 
 echo "Generation completed in ${ELAPSED} seconds"
+---
+Generation completed in 79 seconds
+(.venv) yitzchak@MacBookPro presgen-assess % 
 ```
 
 **Step 8.2**: Query database for duration
 
 ```bash
-sqlite3 test_database.db "SELECT generation_duration_ms FROM generated_presentations WHERE id = '${PRESENTATION_ID}';"
+sqlite3 test_database.db "SELECT generation_duration_ms FROM generated_presentations WHERE id = '$0f6ad75d-41d6-46a8-8ed5-30e2a09a3d7a';"
 ```
 
 **Validation Checklist**:
@@ -835,10 +915,10 @@ Test complete workflow from assessment creation through presentation generation.
 **Step 9.4**: Generate Presentations
 ```bash
 # Use batch generation for all skills
-curl -X POST "http://localhost:8000/api/v1/workflows/{workflow_id}/generate-all-presentations" \
+curl -X POST "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/generate-all-presentations" \
   -H "Content-Type: application/json" \
   -d '{
-    "workflow_id": "{workflow_id}",
+    "workflow_id": "8e46398dc2924439a04531dfeb49d7ef",
     "max_concurrent": 3
   }'
 ```
@@ -846,7 +926,15 @@ curl -X POST "http://localhost:8000/api/v1/workflows/{workflow_id}/generate-all-
 **Step 9.5**: Verify Complete State
 ```bash
 # Check all presentations completed
-curl "http://localhost:8000/api/v1/workflows/{workflow_id}/presentations" | jq '.completed_count == .total_count'
+curl "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/presentations" | jq '.completed_count == .total_count'
+
+--
+(.venv) yitzchak@MacBookPro presgen-assess % curl "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/presentations" | jq '.completed_count == .total_count'
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100  1295  100  1295    0     0   112k      0 --:--:-- --:--:-- --:--:--  114k
+true
+(.venv) yitzchak@MacBookPro presgen-assess % 
 ```
 
 **Expected Output**: `true`
@@ -884,25 +972,25 @@ if content_spec.skill_name == "Test Failure Skill":
 **Step 10.3**: Generate presentation
 
 ```bash
-curl -X POST "http://localhost:8000/api/v1/workflows/{workflow_id}/courses/{course_id}/generate-presentation" \
+curl -X POST "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/courses/220f8b53c7b242a88eeb5f7ae08aff84/generate-presentation" \
   -H "Content-Type: application/json" \
   -d '{
-    "workflow_id": "{workflow_id}",
-    "course_id": "{course_id}"
+    "workflow_id": "8e46398dc2924439a04531dfeb49d7ef",
+    "course_id": "220f8b53c7b242a88eeb5f7ae08aff84"
   }'
 ```
 
 **Step 10.4**: Check status
 
 ```bash
-curl "http://localhost:8000/api/v1/workflows/{workflow_id}/presentations/{presentation_id}/status"
+curl "http://localhost:8000/api/v1/workflows/8e46398dc2924439a04531dfeb49d7ef/presentations/0f6ad75d-41d6-46a8-8ed5-30e2a09a3d7a/status"
 ```
 
 **Expected Response**:
 ```json
 {
   "job_id": "{job_id}",
-  "presentation_id": "{presentation_id}",
+  "presentation_id": "0f6ad75d-41d6-46a8-8ed5-30e2a09a3d7a",
   "status": "failed",
   "progress": 20,
   "current_step": null,
@@ -913,8 +1001,12 @@ curl "http://localhost:8000/api/v1/workflows/{workflow_id}/presentations/{presen
 **Step 10.5**: Verify database
 
 ```bash
-sqlite3 test_database.db "SELECT generation_status, job_error_message FROM generated_presentations WHERE id = '{presentation_id}';"
+sqlite3 test_database.db "SELECT generation_status, job_error_message FROM generated_presentations WHERE id = '0f6ad75d-41d6-46a8-8ed5-30e2a09a3d7a';"
 ```
+--
+(.venv) yitzchak@MacBookPro presgen-assess % sqlite3 test_database.db "SELECT generation_status, job_error_message FROM generated_presentations WHERE id = '0f6ad75d-41d6-46a8-8ed5-30e2a09a3d7a';"
+completed|
+(.venv) yitzchak@MacBookPro presgen-assess % 
 
 **Expected Output**:
 ```
@@ -1007,7 +1099,7 @@ SELECT
   presentation_url,
   drive_folder_path
 FROM generated_presentations
-WHERE workflow_id = '{workflow_id}'
+WHERE workflow_id = '8e46398dc2924439a04531dfeb49d7ef'
 ORDER BY created_at DESC;
 ```
 
@@ -1017,7 +1109,7 @@ ORDER BY created_at DESC;
 ```sql
 SELECT generation_status, COUNT(*) as count
 FROM generated_presentations
-WHERE workflow_id = '{workflow_id}'
+WHERE workflow_id = '8e46398dc2924439a04531dfeb49d7ef'
 GROUP BY generation_status;
 ```
 
@@ -1040,7 +1132,7 @@ WHERE generation_status = 'completed';
 ```sql
 SELECT DISTINCT drive_folder_path
 FROM generated_presentations
-WHERE workflow_id = '{workflow_id}'
+WHERE workflow_id = '8e46398dc2924439a04531dfeb49d7ef'
 AND drive_folder_path IS NOT NULL;
 ```
 
@@ -1051,16 +1143,16 @@ AND drive_folder_path IS NOT NULL;
 BASE_URL="http://localhost:8000/api/v1"
 
 # Single generation
-POST ${BASE_URL}/workflows/{workflow_id}/courses/{course_id}/generate-presentation
+POST ${BASE_URL}/workflows/8e46398dc2924439a04531dfeb49d7ef/courses/220f8b53c7b242a88eeb5f7ae08aff84/generate-presentation
 
 # Batch generation
-POST ${BASE_URL}/workflows/{workflow_id}/generate-all-presentations
+POST ${BASE_URL}/workflows/8e46398dc2924439a04531dfeb49d7ef/generate-all-presentations
 
 # Check status
-GET ${BASE_URL}/workflows/{workflow_id}/presentations/{presentation_id}/status
+GET ${BASE_URL}/workflows/8e46398dc2924439a04531dfeb49d7ef/presentations/0f6ad75d-41d6-46a8-8ed5-30e2a09a3d7a/status
 
 # List all
-GET ${BASE_URL}/workflows/{workflow_id}/presentations
+GET ${BASE_URL}/workflows/8e46398dc2924439a04531dfeb49d7ef/presentations
 ```
 
 ---
