@@ -52,14 +52,17 @@ class GoogleAuthManager:
             if UserCredentials is None or Request is None:
                 raise RuntimeError("google-auth oauth client library is not available")
 
+            # Load credentials WITHOUT passing scopes - the token already has scopes embedded
+            # Passing scopes can cause scope mismatch errors with the Google API
             credentials = UserCredentials.from_authorized_user_file(
-                str(self.user_token_path), scopes=self.scopes
+                str(self.user_token_path)
             )
 
             if credentials and credentials.expired and credentials.refresh_token:
                 credentials.refresh(Request())
 
-            logger.debug("Loaded Google OAuth credentials from %s", self.user_token_path)
+            logger.debug("Loaded Google OAuth credentials from %s (scopes: %s)",
+                        self.user_token_path, credentials.scopes)
             return credentials
 
         # Fall back to service account credentials if configured.

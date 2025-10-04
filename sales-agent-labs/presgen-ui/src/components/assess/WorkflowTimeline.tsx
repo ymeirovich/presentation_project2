@@ -63,6 +63,7 @@ export function WorkflowTimeline({ workflowId, className, onRetry }: WorkflowTim
   const [retrying, setRetrying] = useState(false)
   const [manualProcessing, setManualProcessing] = useState(false)
   const [autoProgressing, setAutoProgressing] = useState(false)
+  const [resuming, setResuming] = useState(false)
 
   const fetchData = async () => {
     try {
@@ -118,6 +119,22 @@ export function WorkflowTimeline({ workflowId, className, onRetry }: WorkflowTim
       setError(err instanceof Error ? err.message : 'Failed to auto-progress workflow')
     } finally {
       setAutoProgressing(false)
+    }
+  }
+
+  const handleResume = async () => {
+    if (!workflow) return
+
+    try {
+      setResuming(true)
+      // Resume workflow by calling manual process endpoint
+      await manualProcessWorkflow(workflow.id)
+      onRetry?.()
+      await fetchData() // Refresh the data
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to resume workflow')
+    } finally {
+      setResuming(false)
     }
   }
 
@@ -189,6 +206,10 @@ export function WorkflowTimeline({ workflowId, className, onRetry }: WorkflowTim
   const canManualProcess = workflow.execution_status === 'awaiting_completion' && workflow.current_step === 'collect_responses'
   const canAutoProgress = workflow.execution_status === 'pending' && workflow.current_step === 'initiated'
 
+  // Check if workflow is paused (has paused_at but no resumed_at)
+  const isPaused = workflow.paused_at && !workflow.resumed_at
+  const canResume = isPaused && workflow.execution_status === 'pending'
+
   // Get assessment title from parameters
   const assessmentTitle = workflow.parameters?.title as string || 'Assessment Workflow'
 
@@ -215,7 +236,13 @@ export function WorkflowTimeline({ workflowId, className, onRetry }: WorkflowTim
       return `https://docs.google.com/forms/d/${workflow.google_form_id}/edit`
     }
 
+    // Do NOT generate mock URL if workflow is in error state
+    if (workflow.execution_status === 'error') {
+      return null
+    }
+
     // For workflows that reached collect_responses stage, generate mock URL
+    // (only if not in error state)
     if (workflow.current_step === 'collect_responses' || workflow.progress >= 70) {
       const mockFormId = `1${workflow.id.replace(/-/g, '').substring(0, 25)}`
       return `https://docs.google.com/forms/d/${mockFormId}/edit`
@@ -388,6 +415,35 @@ export function WorkflowTimeline({ workflowId, className, onRetry }: WorkflowTim
                   <>
                     <Play className="h-4 w-4 mr-2" />
                     Start Assessment Generation
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {canResume && (
+          <div className="pt-4 border-t">
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground px-1">
+                ⏸️ Workflow is paused. Resume to continue processing.
+              </div>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleResume}
+                disabled={resuming}
+                className="w-full bg-amber-600 hover:bg-amber-700"
+              >
+                {resuming ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                    Resuming Workflow...
+                  </>
+                ) : (
+                  <>
+                    <Play className="h-4 w-4 mr-2" />
+                    Resume Workflow
                   </>
                 )}
               </Button>
