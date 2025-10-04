@@ -10,6 +10,12 @@ import uvicorn
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
+# Add sales-agent-labs to path for Google Slides integration
+# This allows presgen_core_client.py to import src.agent.slides_google
+sales_agent_labs_dir = Path(__file__).parent.parent
+if str(sales_agent_labs_dir) not in sys.path:
+    sys.path.insert(0, str(sales_agent_labs_dir))
+
 from src.service.app import app
 from src.common.config import settings
 from src.common.logging_config import (
@@ -32,14 +38,14 @@ def main():
     log_application_startup()
 
     try:
-        logger.info("🌐 Starting Uvicorn server on http://0.0.0.0:8080")
+        logger.info("🌐 Starting Uvicorn server on http://0.0.0.0:8000")
         logger.info(f"🔧 Debug mode: {settings.debug}")
         logger.info(f"📊 Log level: {settings.log_level}")
 
         uvicorn.run(
             "main:app",
             host="0.0.0.0",
-            port=8080,
+            port=8000,
             reload=settings.debug,
             log_level=settings.log_level.lower(),
             access_log=True

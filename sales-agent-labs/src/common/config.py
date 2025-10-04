@@ -129,3 +129,39 @@ def require(*keys: str) -> Any:
         path = ".".join(keys)
         raise RuntimeError(f"Missing required config key: {path}")
     return val
+
+
+# ============================================================================
+# Port Configuration Helpers (Standardized 2025-10-04)
+# ============================================================================
+def get_presgen_assess_port() -> int:
+    """Get the port for PresGen-Assess service (default: 8000)."""
+    return int(os.getenv("PRESGEN_ASSESS_PORT", "8000"))
+
+
+def get_presgen_core_port() -> int:
+    """Get the port for PresGen-Core service (default: 8080)."""
+    return int(os.getenv("PRESGEN_CORE_PORT", "8080"))
+
+
+def get_presgen_ui_port() -> int:
+    """Get the port for PresGen-UI service (default: 3000)."""
+    return int(os.getenv("PRESGEN_UI_PORT", "3000"))
+
+
+def get_presgen_assess_url() -> str:
+    """Get the URL for PresGen-Assess service."""
+    return os.getenv("PRESGEN_ASSESS_URL", f"http://localhost:{get_presgen_assess_port()}")
+
+
+def get_presgen_core_url() -> str:
+    """Get the URL for PresGen-Core service."""
+    return os.getenv("PRESGEN_CORE_URL", f"http://localhost:{get_presgen_core_port()}")
+
+
+def log_port_configuration():
+    """Log the current port configuration (useful for debugging)."""
+    log.info("🔧 Service Port Configuration:")
+    log.info(f"  📡 PresGen-Assess: {get_presgen_assess_url()} (port {get_presgen_assess_port()})")
+    log.info(f"  📡 PresGen-Core: {get_presgen_core_url()} (port {get_presgen_core_port()})")
+    log.info(f"  📡 PresGen-UI: port {get_presgen_ui_port()}")

@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { randomUUID } from 'crypto'
 
-// PresGen-Assess Backend API URL
-const ASSESS_API_URL = process.env.NEXT_PUBLIC_ASSESS_API_URL || 'http://localhost:8081'
+import { ASSESS_API_URL } from '@/lib/config'
 
 // Enhanced logging utility with correlation ID support
 function logDataFlow(

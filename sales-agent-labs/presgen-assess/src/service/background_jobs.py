@@ -82,10 +82,7 @@ class PresentationGenerationJob:
                     progress_callback=self._presgen_progress_callback
                 )
 
-                # Step 3: Save to Drive (80-90%)
-                await self._update_progress(80, "Saving to Google Drive")
-
-                # Build human-readable folder path
+                # Build human-readable folder path (for metadata tracking)
                 folder_path = self.presgen_client.build_drive_folder_path(
                     assessment_title=self.content_spec.assessment_title,
                     user_email=self.content_spec.user_email,
@@ -93,14 +90,11 @@ class PresentationGenerationJob:
                     skill_name=self.content_spec.skill_name
                 )
 
-                drive_result = await self.presgen_client.save_to_drive(
-                    presentation_result.file_data,
-                    folder_path=folder_path
-                )
-
-                # Step 4: Update database (90-100%)
+                # Production mode: Google Slides URL is already available (no separate Drive save needed)
+                # Mock mode: Also returns mock URL (no file data to save)
+                # Step 3: Update database (90-100%)
                 await self._update_progress(90, "Finalizing")
-                await self._finalize_presentation(presentation_result, drive_result, folder_path)
+                await self._finalize_presentation(presentation_result, folder_path)
 
                 await self._update_status(PresentationStatus.COMPLETED, 100, "Generation complete")
 
@@ -174,7 +168,6 @@ class PresentationGenerationJob:
     async def _finalize_presentation(
         self,
         presentation_result: Any,
-        drive_result: Any,
         folder_path: str
     ) -> None:
         """Finalize presentation record in database."""
@@ -195,20 +188,28 @@ class PresentationGenerationJob:
         # Estimate duration in minutes (3-7 minutes)
         estimated_minutes = duration_ms // 60000 or 5  # Default 5 minutes
 
+        # Production workflow: Google Slides URL is returned directly (with public permissions)
+        # The presentation_url IS the shareable Google Slides URL
+        update_values = {
+            "presentation_url": presentation_result.presentation_url,
+            "drive_folder_path": folder_path,
+            "total_slides": presentation_result.slide_count,
+            "thumbnail_url": presentation_result.thumbnail_url,
+            "generation_duration_ms": duration_ms,
+            "estimated_duration_minutes": estimated_minutes
+        }
+
+        # Optional: Extract file_id from Google Slides URL for reference
+        # Example URL: https://docs.google.com/presentation/d/{file_id}/edit
+        if presentation_result.presentation_url:
+            parts = presentation_result.presentation_url.split('/')
+            if len(parts) > 5 and parts[3] == 'presentation':
+                file_id = parts[5]
+                update_values["drive_file_id"] = file_id
+
         update_stmt = update(GeneratedPresentation).where(
             GeneratedPresentation.id == str(self.presentation_id)
-        ).values(
-            presentation_url=presentation_result.presentation_url,
-            download_url=drive_result.download_url,
-            drive_file_id=drive_result.file_id,
-            drive_folder_id=drive_result.folder_id,
-            drive_folder_path=folder_path,
-            total_slides=presentation_result.slide_count,
-            file_size_mb=drive_result.file_size_mb,
-            thumbnail_url=presentation_result.thumbnail_url,
-            generation_duration_ms=duration_ms,
-            estimated_duration_minutes=estimated_minutes
-        )
+        ).values(**update_values)
 
         await self.db.execute(update_stmt)
         await self.db.commit()

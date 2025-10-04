@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     )
 
     # PresGen Module Integration (40-slide support)
-    presgen_core_url: str = Field(default="http://localhost:8001", alias="PRESGEN_CORE_URL")
+    presgen_core_url: str = Field(default="http://localhost:8080", alias="PRESGEN_CORE_URL")
     presgen_avatar_url: str = Field(default="http://localhost:8002", alias="PRESGEN_AVATAR_URL")
     presgen_core_max_slides: int = Field(default=40, alias="PRESGEN_CORE_MAX_SLIDES")
     presgen_avatar_max_slides: int = Field(default=40, alias="PRESGEN_AVATAR_MAX_SLIDES")
@@ -115,9 +115,17 @@ logger = logging.getLogger(__name__)
 print(f"📁 ENV_FILE path: {ENV_FILE}", file=sys.stderr)
 print(f"🔍 ENV_FILE exists: {ENV_FILE.exists()}", file=sys.stderr)
 print(f"🗄️  Database URL loaded: {settings.database_url}", file=sys.stderr)
+print(f"🔧 Port Configuration (Standardized 2025-10-04):", file=sys.stderr)
+print(f"  📡 PresGen-Core URL: {settings.presgen_core_url}", file=sys.stderr)
+print(f"  📡 PresGen-Avatar URL: {settings.presgen_avatar_url}", file=sys.stderr)
+print(f"  📡 PresGen-Core Max Slides: {settings.presgen_core_max_slides}", file=sys.stderr)
 logger.info(f"📁 ENV_FILE path: {ENV_FILE}")
 logger.info(f"🔍 ENV_FILE exists: {ENV_FILE.exists()}")
 logger.info(f"🗄️  Database URL loaded: {settings.database_url}")
+logger.info(f"🔧 Port Configuration (Standardized 2025-10-04):")
+logger.info(f"  📡 PresGen-Core URL: {settings.presgen_core_url}")
+logger.info(f"  📡 PresGen-Avatar URL: {settings.presgen_avatar_url}")
+logger.info(f"  📡 PresGen-Core Max Slides: {settings.presgen_core_max_slides}")
 
 
 def get_database_url() -> str:

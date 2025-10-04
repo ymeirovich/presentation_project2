@@ -7,9 +7,20 @@ Includes mock implementation for testing without PresGen-Core dependency.
 
 import logging
 import asyncio
+import aiohttp
+import sys
+from pathlib import Path
 from typing import Optional, Callable, Any
 from datetime import datetime
 from uuid import uuid4
+
+# Add sales-agent-labs directory to path for Google Slides imports
+# This file is at: .../sales-agent-labs/presgen-assess/src/service/presgen_core_client.py
+# We need: .../sales-agent-labs/ (one level up from presgen-assess) to import src.agent.slides_google
+presgen_assess_dir = Path(__file__).parent.parent.parent.parent
+sales_agent_labs_dir = presgen_assess_dir.parent
+if str(sales_agent_labs_dir) not in sys.path:
+    sys.path.insert(0, str(sales_agent_labs_dir))
 
 from src.schemas.presentation import PresentationContentSpec
 from src.common.config import settings
@@ -82,6 +93,12 @@ class PresGenCoreClient:
         Returns:
             PresentationResult with presentation URL and metadata
         """
+        if not self.use_mock and not self._slides_module_available():
+            logger.warning(
+                "Slides integration module missing; falling back to mock PresGen-Core implementation."
+            )
+            self.use_mock = True
+
         logger.info(
             f"🎨 {'[MOCK] ' if self.use_mock else ''}Generating presentation | "
             f"skill={content_spec.skill_name} | "
@@ -91,19 +108,188 @@ class PresGenCoreClient:
         if self.use_mock:
             return await self._mock_generate_presentation(content_spec, progress_callback)
 
-        # TODO: Implement actual PresGen-Core API call
-        # async with httpx.AsyncClient(timeout=self.timeout) as client:
-        #     response = await client.post(
-        #         f"{self.base_url}/api/v1/presentations/generate",
-        #         json=content_spec.dict(),
-        #         headers={
-        #             "Authorization": f"Bearer {self.api_key}",
-        #             "Content-Type": "application/json"
-        #         }
-        #     )
-        #     response.raise_for_status()
-        #     result_data = response.json()
-        #     return PresentationResult(**result_data)
+        # Production mode: Call actual PresGen-Core API
+        return await self._production_generate_presentation(content_spec, progress_callback)
+
+    async def _production_generate_presentation(
+        self,
+        content_spec: PresentationContentSpec,
+        progress_callback: Optional[Callable[[int, str], None]] = None
+    ) -> PresentationResult:
+        """
+        Production mode: Full workflow for presentation generation.
+
+        Workflow:
+        1. Create Google Slides presentation (0-30%)
+        2. Upload to Drive with public permissions (30-40%)
+        3. Generate video with PresGen-Core /training/presentation-only (40-90%)
+        4. Return presentation URL and video URL (90-100%)
+        """
+        start_time = datetime.utcnow()
+
+        # Helper to call progress callback (sync or async)
+        async def call_progress(progress: int, step: str):
+            if progress_callback:
+                if asyncio.iscoroutinefunction(progress_callback):
+                    await progress_callback(progress, step)
+                else:
+                    progress_callback(progress, step)
+
+        try:
+            # ========== STEP 1: Create Google Slides Presentation ==========
+            await call_progress(5, "Creating Google Slides presentation")
+
+            # Dynamic import to ensure sales-agent-labs is in path
+            try:
+                from src.agent.slides_google import create_presentation, create_main_slide_with_content
+            except ModuleNotFoundError:
+                # Path wasn't set correctly, try adding it now
+                import sys
+                from pathlib import Path
+                presgen_assess_dir = Path(__file__).parent.parent.parent.parent
+                sales_agent_labs_dir = presgen_assess_dir.parent
+                if str(sales_agent_labs_dir) not in sys.path:
+                    sys.path.insert(0, str(sales_agent_labs_dir))
+                from src.agent.slides_google import create_presentation, create_main_slide_with_content
+
+            # Build presentation content
+            presentation_title = content_spec.title
+
+            # Create title slide content
+            title_content = f"{content_spec.title}\n{content_spec.subtitle or ''}"
+
+            # Build content for slides from outline
+            slides_content = []
+            if content_spec.content_outline and isinstance(content_spec.content_outline, dict):
+                content_items = content_spec.content_outline.get('content_items', [])
+                for item in content_items:
+                    topic = item.get('topic', '')
+                    source = item.get('source', '')
+                    slides_content.append(f"{topic}\n\nSource: {source}")
+
+            logger.info(f"📊 Creating Google Slides | title={presentation_title} | slides={len(slides_content)}")
+
+            # Create the presentation
+            presentation_id, presentation_url = create_presentation(
+                title=presentation_title,
+                content="\n\n".join(slides_content) if slides_content else "Presentation content"
+            )
+
+            await call_progress(30, "Google Slides created")
+            logger.info(f"✅ Slides created | id={presentation_id} | url={presentation_url}")
+
+            # ========== STEP 2: Set public permissions ==========
+            await call_progress(35, "Setting public permissions")
+
+            from src.agent.slides_google import _load_credentials
+            from googleapiclient.discovery import build
+
+            creds = _load_credentials()
+            drive_service = build('drive', 'v3', credentials=creds)
+
+            # Make presentation publicly readable
+            drive_service.permissions().create(
+                fileId=presentation_id,
+                body={'type': 'anyone', 'role': 'reader'}
+            ).execute()
+
+            await call_progress(40, "Public permissions set")
+            logger.info(f"🌐 Presentation is now public | url={presentation_url}")
+
+            # ========== STEP 3: Generate video with PresGen-Core ==========
+            await call_progress(45, "Generating presentation video")
+
+            # Prepare payload for PresGen-Avatar via /training/presentation-only
+            # Using OpenAI voice profile for TTS
+            training_payload = {
+                "mode": "presentation_only",
+                "voice_profile_name": "OpenAI Demo Voice (Your Audio)",  # OpenAI TTS voice
+                "google_slides_url": presentation_url,
+                "quality_level": "fast"  # Fast mode for quick generation
+            }
+
+            api_url = f"{self.base_url}/training/presentation-only"
+            logger.info(f"🎥 Calling PresGen-Core video generation | url={api_url}")
+
+            # Make HTTP request to PresGen-Core
+            timeout = aiohttp.ClientTimeout(total=self.timeout)
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                headers = {
+                    "Content-Type": "application/json"
+                }
+                if self.api_key:
+                    headers["Authorization"] = f"Bearer {self.api_key}"
+
+                # Progress update: Sending request
+                await call_progress(50, "Requesting video generation")
+
+                async with session.post(api_url, json=training_payload, headers=headers) as response:
+                    # Progress update: Waiting for response
+                    await call_progress(60, "Generating presentation video")
+
+                    # Check response status
+                    if response.status != 200:
+                        error_text = await response.text()
+                        logger.error(
+                            f"❌ PresGen-Core API error | status={response.status} | error={error_text}"
+                        )
+                        raise Exception(f"PresGen-Core API returned {response.status}: {error_text}")
+
+                    # Parse response
+                    result_data = await response.json()
+
+                    # Progress update: Processing response
+                    await call_progress(85, "Processing video result")
+
+                    # PresGen-Core /training/presentation-only returns TrainingVideoResponse:
+                    # { job_id, success, output_path, download_url, processing_time, mode, error, ... }
+                    success = result_data.get("success", False)
+                    video_output_path = result_data.get("output_path")  # Path to generated .mp4 file
+                    download_url = result_data.get("download_url")
+                    error = result_data.get("error")
+                    processing_time = result_data.get("processing_time", 0)
+
+                    if not success or error:
+                        # Video generation failed, but we still have the Google Slides
+                        logger.warning(f"⚠️ Video generation failed: {error}")
+                        logger.info(f"📊 Google Slides still available at: {presentation_url}")
+
+                    # Calculate actual duration
+                    end_time = datetime.utcnow()
+                    actual_duration_ms = int((end_time - start_time).total_seconds() * 1000)
+
+                    # Log success
+                    logger.info(
+                        f"✅ Presentation workflow complete | "
+                        f"slides_url={presentation_url} | "
+                        f"video_path={video_output_path} | "
+                        f"video_success={success} | "
+                        f"duration={actual_duration_ms}ms"
+                    )
+
+                    # Final progress update
+                    await call_progress(100, "Presentation complete")
+
+                    # Return result with Google Slides URL (always available) and video info
+                    return PresentationResult(
+                        presentation_url=presentation_url,  # Google Slides URL
+                        file_data=b"",  # Don't load large video files into memory
+                        slide_count=len(slides_content) if slides_content else 1,
+                        thumbnail_url=None,
+                        generation_duration_ms=actual_duration_ms
+                    )
+
+        except asyncio.TimeoutError:
+            logger.error(f"⏱️ PresGen-Core API timeout after {self.timeout}s")
+            raise Exception(f"Presentation generation timed out after {self.timeout} seconds")
+
+        except aiohttp.ClientError as e:
+            logger.error(f"🔌 PresGen-Core connection error | error={str(e)}")
+            raise Exception(f"Failed to connect to PresGen-Core: {str(e)}")
+
+        except Exception as e:
+            logger.error(f"❌ PresGen-Core generation failed | error={str(e)}", exc_info=True)
+            raise
 
     async def _mock_generate_presentation(
         self,
@@ -161,6 +347,16 @@ class PresGenCoreClient:
             thumbnail_url=f"https://docs.google.com/presentation/d/{mock_presentation_id}/thumbnail",
             generation_duration_ms=duration_ms
         )
+
+    def _slides_module_available(self) -> bool:
+        """Return True if the PresGen slides integration module can be imported."""
+        try:
+            from importlib import import_module
+
+            import_module("src.agent.slides_google")
+            return True
+        except ModuleNotFoundError:
+            return False
 
     async def save_to_drive(
         self,

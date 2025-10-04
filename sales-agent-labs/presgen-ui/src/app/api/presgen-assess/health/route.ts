@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-
-// PresGen-Assess Backend API URL
-const ASSESS_API_URL = process.env.NEXT_PUBLIC_ASSESS_API_URL || 'http://localhost:8081'
+import { ASSESS_API_URL } from '@/lib/config'
 
 export async function GET(request: NextRequest) {
   try {
