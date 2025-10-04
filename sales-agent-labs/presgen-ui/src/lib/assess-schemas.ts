@@ -117,7 +117,16 @@ export const WorkflowDetailSchema = z.object({
   user_id: z.string(),
   certification_profile_id: z.string().uuid(),
   current_step: z.string(),
-  execution_status: z.enum(['pending', 'in_progress', 'completed', 'failed', 'awaiting_completion']),
+  execution_status: z.enum([
+    'pending',
+    'in_progress',
+    'awaiting_completion',
+    'sheet_url_provided',
+    'generating_presentation',
+    'completed',
+    'failed',
+    'paused',
+  ]),
   workflow_type: z.string(),
   parameters: z.record(z.string(), z.unknown()).optional(),
   google_form_id: z.string().optional().nullable(),
@@ -130,6 +139,8 @@ export const WorkflowDetailSchema = z.object({
   error_message: z.string().nullable().optional(),
   step_execution_log: z.array(WorkflowStepSchema).optional(),
   generated_content_urls: GeneratedContentUrlsSchema.optional().nullable(),
+  paused_at: z.string().nullable().optional(),
+  resumed_at: z.string().nullable().optional(),
 })
 
 export const WorkflowListResponseSchema = z.array(WorkflowDetailSchema)

@@ -23,6 +23,8 @@ class WorkflowBase(BaseModel):
     )
     progress: int = Field(default=0, ge=0, le=100, description="Completion progress percentage")
     error_message: Optional[str] = Field(None, description="Error message if workflow failed")
+    paused_at: Optional[datetime] = Field(None, description="Timestamp when workflow was paused")
+    resumed_at: Optional[datetime] = Field(None, description="Timestamp when workflow was resumed")
 
     @validator('workflow_type')
     def validate_workflow_type(cls, v):

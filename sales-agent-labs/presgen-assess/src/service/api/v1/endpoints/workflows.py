@@ -26,6 +26,7 @@ from src.services.workflow_orchestrator import WorkflowOrchestrator
 from src.services.ai_question_generator import AIQuestionGenerator
 from src.services.response_ingestion_service import ResponseIngestionService
 from src.services.google_sheets_service import GoogleSheetsService, EnhancedGapAnalysisExporter
+from src.services.google_forms_service import GoogleFormsService
 from fastapi.responses import JSONResponse, Response
 
 logger = get_workflow_logger()
