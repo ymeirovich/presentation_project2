@@ -1,108 +1,103 @@
-"""Configuration management for PresGen-Assess."""
+"""Configuration management for PresGen-Assess (lightweight env loader)."""
 
 import os
 from pathlib import Path
 from typing import Optional
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from dataclasses import dataclass
 
 # Get the project root directory (where .env should be)
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 ENV_FILE = PROJECT_ROOT / ".env"
 
+# Basic .env loader (handles KEY=VALUE lines)
+if ENV_FILE.exists():
+    with ENV_FILE.open() as env_fp:
+        for raw_line in env_fp:
+            line = raw_line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if '=' not in line:
+                continue
+            key, value = line.split('=', 1)
+            os.environ.setdefault(key.strip(), value.strip())
 
-class Settings(BaseSettings):
-    """Application settings with environment variable support."""
 
-    model_config = SettingsConfigDict(
-        env_file=str(ENV_FILE),
-        env_file_encoding='utf-8',
-        case_sensitive=False,
-        extra='ignore'
-    )
+@dataclass
+class Settings:
+    """Application settings loaded from environment variables."""
 
     # Database Configuration
-    database_url: str = Field(
-        default="postgresql+asyncpg://presgen_assess_user:secure_password@localhost:5432/presgen_assess",
-        alias="DATABASE_URL"
+    database_url: str = os.getenv(
+        "DATABASE_URL",
+        "postgresql+asyncpg://presgen_assess_user:secure_password@localhost:5432/presgen_assess",
     )
-    chroma_db_path: str = Field(default="./knowledge-base/embeddings", alias="CHROMA_DB_PATH")
+    chroma_db_path: str = os.getenv("CHROMA_DB_PATH", "./knowledge-base/embeddings")
 
     # OpenAI API Configuration
-    openai_api_key: str = Field(..., alias="OPENAI_API_KEY")
-    openai_org_id: Optional[str] = Field(default=None, alias="OPENAI_ORG_ID")
+    openai_api_key: str = os.getenv("OPENAI_API_KEY", "test-key")
+    openai_org_id: Optional[str] = os.getenv("OPENAI_ORG_ID")
 
     # Google Cloud & OAuth Configuration
-    google_application_credentials: Optional[str] = Field(
-        default="./config/google-service-account.json",
-        alias="GOOGLE_APPLICATION_CREDENTIALS"
+    google_application_credentials: Optional[str] = os.getenv(
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        "./config/google-service-account.json",
     )
-    google_cloud_project: Optional[str] = Field(default=None, alias="GOOGLE_CLOUD_PROJECT")
-    oauth_client_json: Optional[str] = Field(default=None, alias="OAUTH_CLIENT_JSON")
-    google_user_token_path: Optional[str] = Field(default=None, alias="GOOGLE_USER_TOKEN_PATH")
+    google_cloud_project: Optional[str] = os.getenv("GOOGLE_CLOUD_PROJECT")
+    oauth_client_json: Optional[str] = os.getenv("OAUTH_CLIENT_JSON")
+    google_user_token_path: Optional[str] = os.getenv("GOOGLE_USER_TOKEN_PATH")
 
     # Google Sheets Authentication Method
-    use_oauth_for_sheets: bool = Field(
-        default=False,
-        alias="USE_OAUTH_FOR_SHEETS",
-        description="Use OAuth user authentication instead of service account for Google Sheets export"
-    )
-    oauth_sheets_client: str = Field(
-        default="/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/oauth_slides_client.json",
-        alias="OAUTH_SHEETS_CLIENT",
-        description="Path to OAuth client credentials JSON for Google Sheets"
+    use_oauth_for_sheets: bool = os.getenv("USE_OAUTH_FOR_SHEETS", "false").lower() == "true"
+    oauth_sheets_client: str = os.getenv(
+        "OAUTH_SHEETS_CLIENT",
+        "/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/oauth_slides_client.json",
     )
 
     # Standardized OAuth Token Path
-    oauth_token_path: str = Field(
-        default="/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/token.json",
-        alias="OAUTH_TOKEN_PATH",
-        description="Path to standardized OAuth token JSON for all Google API services"
+    oauth_token_path: str = os.getenv(
+        "OAUTH_TOKEN_PATH",
+        "/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/token.json",
     )
 
     # PresGen Module Integration (40-slide support)
-    presgen_core_url: str = Field(default="http://localhost:8080", alias="PRESGEN_CORE_URL")
-    presgen_avatar_url: str = Field(default="http://localhost:8002", alias="PRESGEN_AVATAR_URL")
-    presgen_core_max_slides: int = Field(default=40, alias="PRESGEN_CORE_MAX_SLIDES")
-    presgen_avatar_max_slides: int = Field(default=40, alias="PRESGEN_AVATAR_MAX_SLIDES")
-    presgen_use_mock: Optional[bool] = Field(
-        default=None,
-        alias="PRESGEN_USE_MOCK",
-        description="Force mock mode for PresGen-Core (None = auto-detect from DEBUG, True = mock, False = production)"
+    presgen_core_url: str = os.getenv("PRESGEN_CORE_URL", "http://localhost:8080")
+    presgen_avatar_url: str = os.getenv("PRESGEN_AVATAR_URL", "http://localhost:8002")
+    presgen_core_max_slides: int = int(os.getenv("PRESGEN_CORE_MAX_SLIDES", "40"))
+    presgen_avatar_max_slides: int = int(os.getenv("PRESGEN_AVATAR_MAX_SLIDES", "40"))
+    presgen_use_mock: Optional[bool] = (
+        None
+        if os.getenv("PRESGEN_USE_MOCK") is None
+        else os.getenv("PRESGEN_USE_MOCK").lower() == "true"
     )
 
     # Workflow Settings (Async-aware)
-    max_concurrent_workflows: int = Field(default=10, alias="MAX_CONCURRENT_WORKFLOWS")
-    assessment_timeout_minutes: int = Field(default=60, alias="ASSESSMENT_TIMEOUT_MINUTES")
-    async_workflow_enabled: bool = Field(default=True, alias="ASYNC_WORKFLOW_ENABLED")
-    workflow_resume_token_ttl_hours: int = Field(default=72, alias="WORKFLOW_RESUME_TOKEN_TTL_HOURS")
-    max_slides_supported: int = Field(default=40, alias="MAX_SLIDES_SUPPORTED")
+    max_concurrent_workflows: int = int(os.getenv("MAX_CONCURRENT_WORKFLOWS", "10"))
+    assessment_timeout_minutes: int = int(os.getenv("ASSESSMENT_TIMEOUT_MINUTES", "60"))
+    async_workflow_enabled: bool = os.getenv("ASYNC_WORKFLOW_ENABLED", "true").lower() == "true"
+    workflow_resume_token_ttl_hours: int = int(os.getenv("WORKFLOW_RESUME_TOKEN_TTL_HOURS", "72"))
+    max_slides_supported: int = int(os.getenv("MAX_SLIDES_SUPPORTED", "40"))
 
     # Performance Settings
-    presentation_generation_timeout_seconds: int = Field(
-        default=600, alias="PRESENTATION_GENERATION_TIMEOUT_SECONDS"
-    )
-    avatar_generation_timeout_seconds: int = Field(
-        default=900, alias="AVATAR_GENERATION_TIMEOUT_SECONDS"
-    )
-    rag_source_citation_required: bool = Field(default=True, alias="RAG_SOURCE_CITATION_REQUIRED")
+    presentation_generation_timeout_seconds: int = int(os.getenv("PRESENTATION_GENERATION_TIMEOUT_SECONDS", "600"))
+    avatar_generation_timeout_seconds: int = int(os.getenv("AVATAR_GENERATION_TIMEOUT_SECONDS", "900"))
+    rag_source_citation_required: bool = os.getenv("RAG_SOURCE_CITATION_REQUIRED", "true").lower() == "true"
 
     # Development Settings
-    debug: bool = Field(default=False, alias="DEBUG")
-    log_level: str = Field(default="INFO", alias="LOG_LEVEL")
-    enable_cors: bool = Field(default=True, alias="ENABLE_CORS")
+    debug: bool = os.getenv("DEBUG", "false").lower() == "true"
+    log_level: str = os.getenv("LOG_LEVEL", "INFO")
+    enable_cors: bool = os.getenv("ENABLE_CORS", "true").lower() == "true"
 
     # Rate Limiting Settings
-    enable_rate_limiting: bool = Field(default=True, alias="ENABLE_RATE_LIMITING")
-    rate_limit_calls: int = Field(default=100, alias="RATE_LIMIT_CALLS")
-    rate_limit_window_minutes: int = Field(default=15, alias="RATE_LIMIT_WINDOW_MINUTES")
+    enable_rate_limiting: bool = os.getenv("ENABLE_RATE_LIMITING", "true").lower() == "true"
+    rate_limit_calls: int = int(os.getenv("RATE_LIMIT_CALLS", "100"))
+    rate_limit_window_minutes: int = int(os.getenv("RATE_LIMIT_WINDOW_MINUTES", "15"))
 
     # Redis Configuration
-    redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
+    redis_url: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 
     # API Configuration
-    api_v1_prefix: str = Field(default="/api/v1", alias="API_V1_PREFIX")
-    secret_key: str = Field(default="change-me-in-production", alias="SECRET_KEY")
+    api_v1_prefix: str = os.getenv("API_V1_PREFIX", "/api/v1")
+    secret_key: str = os.getenv("SECRET_KEY", "change-me-in-production")
 
 
 # Global settings instance

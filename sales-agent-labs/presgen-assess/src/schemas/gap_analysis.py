@@ -277,3 +277,61 @@ class CourseGenerationProgress(BaseModel):
                 "current_step": "Generating narration audio"
             }
         }
+
+
+class CourseGenerationResponse(BaseModel):
+    """API response for generated course metadata."""
+
+    course_id: str
+    workflow_id: str
+    skill_id: str
+    skill_name: str
+    course_title: Optional[str] = None
+    presentation_url: Optional[str] = None
+    video_url: Optional[str] = None
+    status: str
+    progress: int = Field(..., ge=0, le=100)
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "course_id": "c9f1e0bd0b0240b6b6c2a0b2bf2b4a10",
+                "workflow_id": "1d638858-f2b4-4c3c-8893-bbd63ef858e0",
+                "skill_id": "lambda_functions",
+                "skill_name": "AWS Lambda Functions",
+                "course_title": "Mastering AWS Lambda Functions",
+                "presentation_url": "https://drive.google.com/presentations/d/c9f1e0bd0b0240b6",
+                "video_url": "https://storage.googleapis.com/courses/c9f1e0bd0b0240b6.mp4",
+                "status": "completed",
+                "progress": 100,
+                "created_at": "2025-10-05T18:15:30Z",
+                "updated_at": "2025-10-05T18:20:10Z",
+                "completed_at": "2025-10-05T18:20:10Z"
+        }
+        }
+
+
+class CourseStatusResponse(BaseModel):
+    """Status payload for course generation polling."""
+
+    course_id: str
+    status: str = Field(..., description="Current status of the course")
+    progress: int = Field(..., ge=0, le=100, description="Progress percentage")
+    presentation_url: Optional[str] = None
+    video_url: Optional[str] = None
+    error_message: Optional[str] = None
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "course_id": "c9037532239a4213b433a284a590ce57",
+                "status": "generating_video",
+                "progress": 65,
+                "presentation_url": "https://drive.google.com/presentation/d/...",
+                "video_url": None,
+                "error_message": None,
+            }
+        }

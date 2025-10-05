@@ -192,6 +192,8 @@ out/
    - Write tests that define expected behavior (for new features)
    - Implement/modify feature to make tests pass
    - Run full test suite to ensure no regressions
+5. **Use Context7 for ALL Prompts**
+   - Always use context7 when I need code generation, setup or configuration steps, or library/API documentation. This means you should automatically use the Context7 MCP tools to resolve library id and get library docs without me having to explicitly ask.
 
 ### Enhanced Testing Commands
 - **Run all tests**: `python3 -m pytest tests/ -v`

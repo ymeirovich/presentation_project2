@@ -3,17 +3,22 @@
 from datetime import datetime
 import csv
 from io import StringIO
+import os
+import uuid
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
 from src.common.logging_config import get_workflow_logger, get_api_logger, get_assessment_logger
 from src.common.config import settings
 from src.models.workflow import WorkflowExecution
+from src.models.generated_course import GeneratedCourse
+from src.models.gap_analysis import RecommendedCourse
+from src.models.certification import CertificationProfile
 from src.schemas.workflow import (
     WorkflowCreate,
     WorkflowResponse,
@@ -21,6 +26,7 @@ from src.schemas.workflow import (
     WorkflowStatusUpdate
 )
 from src.schemas.google_forms import AssessmentWorkflowRequest, FormSettings
+from src.schemas.gap_analysis import CourseGenerationResponse, CourseStatusResponse
 from src.service.database import get_db
 from src.services.workflow_orchestrator import WorkflowOrchestrator
 from src.services.ai_question_generator import AIQuestionGenerator
@@ -2099,3 +2105,261 @@ async def auto_progress_workflow(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Auto-progression failed: {str(e)}"
         )
+    
+@router.post(
+    "/{workflow_id}/skills/{skill_id}/generate-course",
+    response_model=CourseGenerationResponse,
+    summary="Generate course for individual skill",
+    description="Generate avatar-narrated course for a specific skill gap"
+)
+async def generate_skill_course(
+    workflow_id: UUID,
+    skill_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Generate course for individual skill with PresGen-Avatar integration
+
+    Flow:
+    1. Fetch skill gap details from recommended_courses
+    2. Get certification profile's presentation_prompt
+    3. Call PresGen-Core with custom prompt
+    4. Call PresGen-Avatar for video narration
+    5. Return course metadata with video URL
+    """
+    from src.services.course_generation_service import log_course_event
+    from src.integrations.presgen_avatar.client import PresGenAvatarClient
+    from src.integrations.presgen_core.client import PresGenCoreClient
+    from src.integrations.presgen_core.schemas import PresGenPresentationRequest
+
+    workflow_id_str = str(workflow_id)
+    workflow_id_normalized = workflow_id.hex
+
+    log_course_event("COURSE_GENERATION_STARTED", workflow_id=workflow_id_str, skill_id=skill_id)
+
+    # 1. Fetch workflow and skill details
+    result = await db.execute(
+        select(WorkflowExecution).where(WorkflowExecution.id == workflow_id)
+    )
+    workflow = result.scalar_one_or_none()
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    # 2. Fetch skill gap from recommended_courses
+    result = await db.execute(
+        select(RecommendedCourse).where(
+            and_(
+                RecommendedCourse.workflow_id == workflow_id,
+                RecommendedCourse.skill_id == skill_id
+            )
+        )
+    )
+    skill_course = result.scalar_one_or_none()
+    if not skill_course:
+        raise HTTPException(status_code=404, detail="Skill not found in recommended courses")
+
+    log_course_event(
+        "SKILL_FOUND",
+        workflow_id=workflow_id_str,
+        skill_name=skill_course.skill_name,
+    )
+
+    # 3. Get certification profile's custom prompt
+    result = await db.execute(
+        select(CertificationProfile).where(
+            CertificationProfile.id == workflow.certification_profile_id
+        )
+    )
+    cert_profile = result.scalar_one_or_none()
+    custom_prompt = cert_profile.presentation_prompt if cert_profile else None
+
+    log_course_event(
+        "CUSTOM_PROMPT_LOADED",
+        workflow_id=workflow_id_str,
+        has_custom_prompt=bool(custom_prompt),
+    )
+
+    # 4. Create course record
+    course_id = str(uuid.uuid4().hex)
+    course = GeneratedCourse(
+        id=course_id,
+        workflow_id=workflow_id_normalized,
+        skill_id=skill_id,
+        skill_name=skill_course.skill_name,
+        course_title=f"Mastering {skill_course.skill_name}",
+        status="pending",
+        progress=0
+    )
+    db.add(course)
+    await db.commit()
+
+    log_course_event("COURSE_RECORD_CREATED", workflow_id=workflow_id_str, course_id=course_id)
+
+    # 5. Call PresGen-Core for presentation
+    presgen_core = PresGenCoreClient(base_url=os.getenv("PRESGEN_CORE_URL"))
+
+    course.status = "generating_presentation"
+    course.progress = 25
+    await db.commit()
+
+    log_course_event("PRESGEN_CORE_STARTED", workflow_id=workflow_id_str, course_id=course_id)
+
+    # TODO: Implement actual PresGen-Core call
+    # presgen_result = await presgen_core.generate_presentation(
+    #     PresGenPresentationRequest(
+    #         skill=skill_course.skill_name,
+    #         domain=skill_course.exam_domain,
+    #         target_duration_minutes=10,
+    #         custom_prompt=custom_prompt,
+    #     )
+    # )
+
+    # Mock response for testing
+    mock_response = await presgen_core.generate_presentation(
+        PresGenPresentationRequest(
+            skill=skill_course.skill_name,
+            domain=skill_course.exam_domain,
+            target_duration_minutes=10,
+            custom_prompt=custom_prompt,
+        )
+    )
+
+    presentation_url = mock_response.presentation_url
+    course.presentation_url = presentation_url
+    course.progress = 50
+    await db.commit()
+
+    log_course_event(
+        "PRESGEN_CORE_COMPLETED",
+        workflow_id=workflow_id_str,
+        presentation_url=presentation_url,
+    )
+
+    # 6. Call PresGen-Avatar for narration
+    avatar_client = PresGenAvatarClient(base_url=os.getenv("PRESGEN_AVATAR_URL"))
+
+    course.status = "generating_video"
+    course.progress = 60
+    await db.commit()
+
+    log_course_event(
+        "PRESGEN_AVATAR_STARTED",
+        workflow_id=workflow_id_str,
+        presentation_url=presentation_url,
+    )
+
+    try:
+        avatar_result = await avatar_client.generate_video(
+            presentation_url=presentation_url,
+            mode="presentation-only",
+            quality="fast",
+            voice_provider="openai",
+            voice_id="alloy",
+        )
+
+        course.presgen_avatar_job_id = avatar_result.job_id
+        course.progress = max(course.progress, avatar_result.progress or 70)
+        await db.commit()
+
+        log_course_event(
+            "PRESGEN_AVATAR_QUEUED",
+            workflow_id=workflow_id_str,
+            course_id=course_id,
+            job_id=avatar_result.job_id,
+            status=avatar_result.status,
+        )
+
+        final_status = avatar_result
+        if avatar_result.status not in {"completed", "failed"}:
+            final_status = await avatar_client.poll_until_complete(avatar_result.job_id)
+            log_course_event(
+                "PRESGEN_AVATAR_PROGRESS",
+                workflow_id=workflow_id_str,
+                job_id=avatar_result.job_id,
+                status=final_status.status,
+                progress=final_status.progress,
+            )
+
+        if final_status.status == "failed":
+            course.status = "failed"
+            course.progress = final_status.progress or course.progress
+            course.error_message = final_status.error_message or "PresGen-Avatar generation failed"
+            await db.commit()
+
+            log_course_event(
+                "COURSE_GENERATION_FAILED",
+                workflow_id=workflow_id_str,
+                job_id=avatar_result.job_id,
+                error=course.error_message,
+            )
+
+            raise HTTPException(status_code=502, detail="PresGen-Avatar generation failed")
+
+        video_url = (
+            str(final_status.video_url)
+            if final_status.video_url
+            else course.video_url
+            or f"https://storage.googleapis.com/avatar-videos/{avatar_result.job_id}.mp4"
+        )
+        course.video_url = video_url
+        course.status = "completed"
+        course.progress = final_status.progress or 100
+        course.completed_at = datetime.utcnow()
+        await db.commit()
+
+        log_course_event(
+            "COURSE_GENERATION_COMPLETED",
+            workflow_id=workflow_id_str,
+            video_url=video_url,
+            job_id=avatar_result.job_id,
+        )
+    finally:
+        await avatar_client.close()
+
+    return CourseGenerationResponse(
+        course_id=course.id,
+        workflow_id=workflow_id_str,
+        skill_id=skill_id,
+        skill_name=skill_course.skill_name,
+        course_title=course.course_title,
+        presentation_url=course.presentation_url,
+        video_url=course.video_url,
+        status=course.status,
+        progress=course.progress,
+        created_at=course.created_at,
+        completed_at=course.completed_at
+    )
+@router.get(
+    "/{workflow_id}/courses/{course_id}/status",
+    response_model=CourseStatusResponse,
+    summary="Get course generation status"
+)
+async def get_course_status(
+    workflow_id: UUID,
+    course_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get real-time status of course generation."""
+
+    workflow_id_normalized = workflow_id.hex
+
+    result = await db.execute(
+        select(GeneratedCourse).where(
+            and_(
+                GeneratedCourse.workflow_id == workflow_id_normalized,
+                GeneratedCourse.id == course_id
+            )
+        )
+    )
+    course = result.scalar_one_or_none()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    return CourseStatusResponse(
+        course_id=course.id,
+        status=course.status,
+        progress=course.progress,
+        presentation_url=course.presentation_url,
+        video_url=course.video_url,
+        error_message=course.error_message
+    )
