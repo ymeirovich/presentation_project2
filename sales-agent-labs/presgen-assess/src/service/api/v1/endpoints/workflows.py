@@ -2128,8 +2128,8 @@ async def generate_skill_course(
     5. Return course metadata with video URL
     """
     from src.services.course_generation_service import log_course_event
-    from src.integrations.presgen_avatar.client import PresGenAvatarClient
-    from src.integrations.presgen_core.client import PresGenCoreClient
+    from src.integrations.presgen_avatar.client import PresGenAvatarClient, CircuitOpenError as AvatarCircuitOpenError
+    from src.integrations.presgen_core.client import PresGenCoreClient, CircuitOpenError as CoreCircuitOpenError
     from src.integrations.presgen_core.schemas import PresGenPresentationRequest
 
     workflow_id_str = str(workflow_id)
@@ -2270,18 +2270,33 @@ async def generate_skill_course(
 
     try:
         core_response = await presgen_core.generate_presentation(
-        PresGenPresentationRequest(
-            skill=skill_course.skill_name,
-            domain=skill_course.exam_domain,
-            target_duration_minutes=10,
-            custom_prompt=custom_prompt,
-            metadata={
-                "workflow_id": workflow_id_str,
-                "skill_id": skill_id,
-                "prompt_length": len(custom_prompt) if custom_prompt else 0,
-            },
+            PresGenPresentationRequest(
+                skill=skill_course.skill_name,
+                domain=skill_course.exam_domain,
+                target_duration_minutes=10,
+                custom_prompt=custom_prompt,
+                metadata={
+                    "workflow_id": workflow_id_str,
+                    "skill_id": skill_id,
+                    "prompt_length": len(custom_prompt) if custom_prompt else 0,
+                },
+            )
         )
+    except CoreCircuitOpenError as exc:
+        course.status = "failed"
+        course.progress = 0
+        course.error_message = "PresGen-Core circuit open; please retry later"
+        await db.commit()
+        await db.refresh(course)
+
+        log_course_event(
+            "PRESGEN_CORE_CIRCUIT_OPEN",
+            workflow_id=workflow_id_str,
+            course_id=course_id,
+            error=str(exc),
         )
+
+        raise HTTPException(status_code=503, detail="PresGen-Core temporarily unavailable") from exc
     except Exception as exc:  # pragma: no cover - error path exercised via manual test
         course.status = "failed"
         course.progress = 0
@@ -2333,7 +2348,37 @@ async def generate_skill_course(
             voice_provider="openai",
             voice_id="alloy",
         )
+    except AvatarCircuitOpenError as exc:
+        course.status = "failed"
+        course.progress = 0
+        course.error_message = "PresGen-Avatar circuit open; please retry later"
+        await db.commit()
+        await db.refresh(course)
 
+        log_course_event(
+            "PRESGEN_AVATAR_CIRCUIT_OPEN",
+            workflow_id=workflow_id_str,
+            course_id=course_id,
+            error=str(exc),
+        )
+
+        raise HTTPException(status_code=503, detail="PresGen-Avatar temporarily unavailable") from exc
+    except Exception as exc:  # pylint: disable=broad-except
+        course.status = "failed"
+        course.progress = 0
+        course.error_message = f"PresGen-Avatar generation failed: {exc}"
+        await db.commit()
+        await db.refresh(course)
+
+        log_course_event(
+            "COURSE_GENERATION_FAILED",
+            workflow_id=workflow_id_str,
+            course_id=course_id,
+            error=course.error_message,
+        )
+
+        raise HTTPException(status_code=502, detail="PresGen-Avatar generation failed") from exc
+    else:
         course.presgen_avatar_job_id = avatar_result.job_id
         course.progress = max(course.progress, avatar_result.progress or 70)
         await db.commit()

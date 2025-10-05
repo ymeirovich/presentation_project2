@@ -518,6 +518,8 @@ presgen_result = await presgen_core.generate_presentation(
 
 ### Phase 7: Error Handling & Resilience (Week 2, Day 2)
 
+**Status**: 🚧 In Progress (retry/backoff + circuit breakers implemented; running Phase 7 TDD)
+
 #### Task 7.1: Add Retry Logic
 ```python
 from tenacity import retry, stop_after_attempt, wait_exponential
