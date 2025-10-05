@@ -213,6 +213,8 @@ class AvatarGenerationResponse(BaseModel):
 
 ### Phase 3: Enhanced Logging (Week 1, Day 2)
 
+**Status**: ✅ Complete (central logger shipped with rotation + Phase 3 TDD executed)
+
 #### Task 3.1: Configure Course Generation Logger
 **File**: `src/services/course_generation_service.py`
 
@@ -265,6 +267,8 @@ course_gen_logger.propagate = False
 ---
 
 ### Phase 4: API Endpoints (Week 1, Day 3-4)
+
+**Status**: ✅ Complete (POST/GET endpoints validated via Phase 4 TDD)
 
 #### Task 4.1: Generate Course Endpoint
 **File**: `src/service/api/v1/endpoints/workflows.py`

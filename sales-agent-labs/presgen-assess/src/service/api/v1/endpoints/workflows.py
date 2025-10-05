@@ -2152,9 +2152,9 @@ async def generate_skill_course(
                 RecommendedCourse.workflow_id == workflow_id,
                 RecommendedCourse.skill_id == skill_id
             )
-        )
+        ).order_by(RecommendedCourse.recommended_at.desc())
     )
-    skill_course = result.scalar_one_or_none()
+    skill_course = result.scalars().first()
     if not skill_course:
         raise HTTPException(status_code=404, detail="Skill not found in recommended courses")
 
@@ -2179,21 +2179,73 @@ async def generate_skill_course(
         has_custom_prompt=bool(custom_prompt),
     )
 
-    # 4. Create course record
-    course_id = str(uuid.uuid4().hex)
-    course = GeneratedCourse(
-        id=course_id,
-        workflow_id=workflow_id_normalized,
-        skill_id=skill_id,
-        skill_name=skill_course.skill_name,
-        course_title=f"Mastering {skill_course.skill_name}",
-        status="pending",
-        progress=0
+    # 4. Check for existing course record
+    existing_course_result = await db.execute(
+        select(GeneratedCourse).where(
+            and_(
+                GeneratedCourse.workflow_id == workflow_id_normalized,
+                GeneratedCourse.skill_id == skill_id
+            )
+        )
     )
-    db.add(course)
-    await db.commit()
+    course = existing_course_result.scalar_one_or_none()
 
-    log_course_event("COURSE_RECORD_CREATED", workflow_id=workflow_id_str, course_id=course_id)
+    if course and course.status != "failed":
+        log_course_event(
+            "COURSE_GENERATION_ALREADY_EXISTS",
+            workflow_id=workflow_id_str,
+            course_id=course.id,
+            status=course.status,
+        )
+        return CourseGenerationResponse(
+            course_id=course.id,
+            workflow_id=workflow_id_str,
+            skill_id=skill_id,
+            skill_name=course.skill_name,
+            course_title=course.course_title,
+            presentation_url=course.presentation_url,
+            video_url=course.video_url,
+            status=course.status,
+            progress=course.progress,
+            created_at=course.created_at,
+            updated_at=course.updated_at,
+            completed_at=course.completed_at,
+        )
+
+    if course and course.status == "failed":
+        log_course_event(
+            "COURSE_GENERATION_RETRY",
+            workflow_id=workflow_id_str,
+            course_id=course.id,
+        )
+        course.course_title = f"Mastering {skill_course.skill_name}"
+        course.presentation_url = None
+        course.video_url = None
+        course.error_message = None
+        course.presgen_core_job_id = None
+        course.presgen_avatar_job_id = None
+        course.status = "pending"
+        course.progress = 0
+        course.completed_at = None
+        await db.commit()
+        await db.refresh(course)
+        course_id = course.id
+    else:
+        course_id = str(uuid.uuid4().hex)
+        course = GeneratedCourse(
+            id=course_id,
+            workflow_id=workflow_id_normalized,
+            skill_id=skill_id,
+            skill_name=skill_course.skill_name,
+            course_title=f"Mastering {skill_course.skill_name}",
+            status="pending",
+            progress=0,
+        )
+        db.add(course)
+        await db.commit()
+        await db.refresh(course)
+
+        log_course_event("COURSE_RECORD_CREATED", workflow_id=workflow_id_str, course_id=course_id)
 
     # 5. Call PresGen-Core for presentation
     presgen_core = PresGenCoreClient(base_url=os.getenv("PRESGEN_CORE_URL"))
@@ -2201,6 +2253,7 @@ async def generate_skill_course(
     course.status = "generating_presentation"
     course.progress = 25
     await db.commit()
+    await db.refresh(course)
 
     log_course_event("PRESGEN_CORE_STARTED", workflow_id=workflow_id_str, course_id=course_id)
 
@@ -2214,20 +2267,36 @@ async def generate_skill_course(
     #     )
     # )
 
-    # Mock response for testing
-    mock_response = await presgen_core.generate_presentation(
-        PresGenPresentationRequest(
-            skill=skill_course.skill_name,
-            domain=skill_course.exam_domain,
-            target_duration_minutes=10,
-            custom_prompt=custom_prompt,
+    try:
+        core_response = await presgen_core.generate_presentation(
+            PresGenPresentationRequest(
+                skill=skill_course.skill_name,
+                domain=skill_course.exam_domain,
+                target_duration_minutes=10,
+                custom_prompt=custom_prompt,
+            )
         )
-    )
+    except Exception as exc:  # pragma: no cover - error path exercised via manual test
+        course.status = "failed"
+        course.progress = 0
+        course.error_message = f"PresGen-Core generation failed: {exc}"
+        await db.commit()
+        await db.refresh(course)
 
-    presentation_url = mock_response.presentation_url
+        log_course_event(
+            "PRESGEN_CORE_FAILED",
+            workflow_id=workflow_id_str,
+            course_id=course_id,
+            error=str(exc),
+        )
+
+        raise HTTPException(status_code=502, detail="PresGen-Core generation failed") from exc
+
+    presentation_url = core_response.presentation_url
     course.presentation_url = presentation_url
     course.progress = 50
     await db.commit()
+    await db.refresh(course)
 
     log_course_event(
         "PRESGEN_CORE_COMPLETED",
@@ -2241,6 +2310,7 @@ async def generate_skill_course(
     course.status = "generating_video"
     course.progress = 60
     await db.commit()
+    await db.refresh(course)
 
     log_course_event(
         "PRESGEN_AVATAR_STARTED",
@@ -2260,6 +2330,7 @@ async def generate_skill_course(
         course.presgen_avatar_job_id = avatar_result.job_id
         course.progress = max(course.progress, avatar_result.progress or 70)
         await db.commit()
+        await db.refresh(course)
 
         log_course_event(
             "PRESGEN_AVATAR_QUEUED",
@@ -2285,6 +2356,7 @@ async def generate_skill_course(
             course.progress = final_status.progress or course.progress
             course.error_message = final_status.error_message or "PresGen-Avatar generation failed"
             await db.commit()
+            await db.refresh(course)
 
             log_course_event(
                 "COURSE_GENERATION_FAILED",
@@ -2306,6 +2378,7 @@ async def generate_skill_course(
         course.progress = final_status.progress or 100
         course.completed_at = datetime.utcnow()
         await db.commit()
+        await db.refresh(course)
 
         log_course_event(
             "COURSE_GENERATION_COMPLETED",
@@ -2327,6 +2400,7 @@ async def generate_skill_course(
         status=course.status,
         progress=course.progress,
         created_at=course.created_at,
+        updated_at=course.updated_at,
         completed_at=course.completed_at
     )
 @router.get(

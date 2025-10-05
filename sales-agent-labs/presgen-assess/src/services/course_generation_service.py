@@ -1,35 +1,49 @@
+"""Centralised logging helpers for Sprint 4 course generation."""
+
 import logging
 from logging.handlers import RotatingFileHandler
 import os
+from typing import Any
 
-# Create logs directory if it doesn't exist
-os.makedirs("logs", exist_ok=True)
 
-# Configure course generation logger
-course_gen_logger = logging.getLogger("course_generation")
-course_gen_logger.setLevel(logging.INFO)
+_LOGGER_NAME = "course_generation"
+_LOG_PATH = "logs/course_generation.log"
 
-# File handler with rotation (10MB max, keep 5 backups)
-file_handler = RotatingFileHandler(
-    "logs/course_generation.log",
-    maxBytes=10*1024*1024,  # 10MB
-    backupCount=5
-)
-file_handler.setLevel(logging.INFO)
 
-# Format: timestamp | level | message
-formatter = logging.Formatter(
-    '%(asctime)s | %(levelname)-8s | %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
-file_handler.setFormatter(formatter)
+def _ensure_logger() -> logging.Logger:
+    """Configure the course generation logger once and return it."""
 
-course_gen_logger.addHandler(file_handler)
+    logger = logging.getLogger(_LOGGER_NAME)
+    if logger.handlers:
+        return logger
 
-# Prevent propagation to root logger
-course_gen_logger.propagate = False
+    os.makedirs(os.path.dirname(_LOG_PATH) or ".", exist_ok=True)
 
-def log_course_event(event: str, **kwargs):
-    """Log course generation event with context"""
-    context = " | ".join([f"{k}={v}" for k, v in kwargs.items()])
-    course_gen_logger.info(f"{event} | {context}")
+    logger.setLevel(logging.INFO)
+
+    file_handler = RotatingFileHandler(
+        _LOG_PATH,
+        maxBytes=10 * 1024 * 1024,  # 10MB
+        backupCount=5,
+    )
+    file_handler.setLevel(logging.INFO)
+    formatter = logging.Formatter(
+        "%(asctime)s | %(levelname)-8s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+
+    logger.propagate = False
+    return logger
+
+
+def log_course_event(event: str, **kwargs: Any) -> None:
+    """Log a structured course generation event."""
+
+    logger = _ensure_logger()
+    if kwargs:
+        context = " | ".join(f"{k}={v}" for k, v in kwargs.items())
+        logger.info("%s | %s", event, context)
+    else:
+        logger.info(event)
