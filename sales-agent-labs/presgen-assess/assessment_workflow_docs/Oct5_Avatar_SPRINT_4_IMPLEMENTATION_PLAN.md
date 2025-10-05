@@ -358,6 +358,8 @@ async def list_workflow_courses(
 
 ### Phase 5: Frontend Integration (Week 1, Day 5)
 
+**Status**: ✅ Complete (UI controls, polling, and playback validated via Phase 5 TDD)
+
 #### Task 5.1: Add Generate Course Button
 **File**: `presgen-ui/src/components/assess/RecommendedCoursesTab.tsx`
 

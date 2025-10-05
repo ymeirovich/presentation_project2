@@ -311,6 +311,30 @@ export const RecommendedCourseSchema = z.object({
   priority: z.number().int(),
 })
 
+export const CourseGenerationResponseSchema = z.object({
+  course_id: z.string(),
+  workflow_id: z.string(),
+  skill_id: z.string(),
+  skill_name: z.string(),
+  course_title: z.string().nullable().optional(),
+  presentation_url: z.string().url().nullable().optional(),
+  video_url: z.string().url().nullable().optional(),
+  status: z.string(),
+  progress: z.number().int().min(0).max(100),
+  created_at: z.string(),
+  updated_at: z.string().nullable().optional(),
+  completed_at: z.string().nullable().optional(),
+})
+
+export const CourseStatusResponseSchema = z.object({
+  course_id: z.string(),
+  status: z.string(),
+  progress: z.number().int().min(0).max(100),
+  presentation_url: z.string().url().nullable().optional(),
+  video_url: z.string().url().nullable().optional(),
+  error_message: z.string().nullable().optional(),
+})
+
 export const GapAnalysisSummarySchema = z.object({
   workflow_id: z.string().uuid(),
   overall_score: z.number().min(0).max(100),
@@ -332,3 +356,5 @@ export type Sprint1GapAnalysisResult = z.infer<typeof Sprint1GapAnalysisResultSc
 export type ContentOutlineItem = z.infer<typeof ContentOutlineItemSchema>
 export type RecommendedCourse = z.infer<typeof RecommendedCourseSchema>
 export type GapAnalysisSummary = z.infer<typeof GapAnalysisSummarySchema>
+export type CourseGenerationResponse = z.infer<typeof CourseGenerationResponseSchema>
+export type CourseStatusResponse = z.infer<typeof CourseStatusResponseSchema>

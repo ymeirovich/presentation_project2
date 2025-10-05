@@ -27,6 +27,10 @@ import {
   RecommendedCourseSchema,
   GapAnalysisSummary,
   GapAnalysisSummarySchema,
+  CourseGenerationResponse,
+  CourseGenerationResponseSchema,
+  CourseStatusResponse,
+  CourseStatusResponseSchema,
 } from '@/lib/assess-schemas'
 
 // Use Next.js API routes as proxy to PresGen-Assess backend
@@ -343,17 +347,42 @@ export async function fetchGapAnalysisSummary(workflowId: string): Promise<GapAn
   return parseResponse<GapAnalysisSummary>(response, GapAnalysisSummarySchema)
 }
 
-export async function triggerCourseGeneration(courseId: string): Promise<any> {
-  const response = await fetch(buildUrl(`/gap-analysis-dashboard/courses/${courseId}/generate`), {
-    method: 'POST',
-    headers: getHeaders('application/json'),
+export async function generateSkillCourse(
+  workflowId: string,
+  skillId: string
+): Promise<CourseGenerationResponse> {
+  const response = await fetch(
+    buildUrl(`/workflows/${workflowId}/skills/${skillId}/generate-course`),
+    {
+      method: 'POST',
+      headers: getHeaders('application/json'),
+    }
+  )
+
+  return parseResponse<CourseGenerationResponse>(response, CourseGenerationResponseSchema)
+}
+
+export async function fetchGeneratedCourses(workflowId: string): Promise<CourseGenerationResponse[]> {
+  const response = await fetch(buildUrl(`/workflows/${workflowId}/courses`), {
+    headers: getHeaders(),
+    cache: 'no-store',
   })
 
-  return parseResponse(response, z.object({
-    success: z.boolean(),
-    course_id: z.string().uuid(),
-    status: z.string(),
-    message: z.string(),
-    estimated_duration_minutes: z.number().int(),
-  }))
+  const schema = z.array(CourseGenerationResponseSchema)
+  return parseResponse<CourseGenerationResponse[]>(response, schema)
+}
+
+export async function fetchCourseStatus(
+  workflowId: string,
+  courseId: string
+): Promise<CourseStatusResponse> {
+  const response = await fetch(
+    buildUrl(`/workflows/${workflowId}/courses/${courseId}/status`),
+    {
+      headers: getHeaders(),
+      cache: 'no-store',
+    }
+  )
+
+  return parseResponse<CourseStatusResponse>(response, CourseStatusResponseSchema)
 }

@@ -2404,6 +2404,45 @@ async def generate_skill_course(
         completed_at=course.completed_at
     )
 @router.get(
+    "/{workflow_id}/courses",
+    response_model=List[CourseGenerationResponse],
+    summary="List generated courses for workflow"
+)
+async def list_generated_courses(
+    workflow_id: UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """Return all generated courses for a workflow."""
+
+    workflow_id_normalized = workflow_id.hex
+
+    result = await db.execute(
+        select(GeneratedCourse)
+        .where(GeneratedCourse.workflow_id == workflow_id_normalized)
+        .order_by(GeneratedCourse.created_at.desc())
+    )
+    courses = result.scalars().all()
+
+    return [
+        CourseGenerationResponse(
+            course_id=course.id,
+            workflow_id=str(workflow_id),
+            skill_id=course.skill_id,
+            skill_name=course.skill_name,
+            course_title=course.course_title,
+            presentation_url=course.presentation_url,
+            video_url=course.video_url,
+            status=course.status,
+            progress=course.progress,
+            created_at=course.created_at,
+            updated_at=course.updated_at,
+            completed_at=course.completed_at,
+        )
+        for course in courses
+    ]
+
+
+@router.get(
     "/{workflow_id}/courses/{course_id}/status",
     response_model=CourseStatusResponse,
     summary="Get course generation status"

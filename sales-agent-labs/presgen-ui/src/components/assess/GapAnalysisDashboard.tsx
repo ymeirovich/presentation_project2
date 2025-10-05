@@ -1,7 +1,7 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
-import { TrendingUp, TrendingDown, AlertTriangle, CheckCircle, BarChart3, PieChart, Download, Share, Brain, Target, BookOpen, Zap, Award, FileText, GraduationCap, Play } from 'lucide-react'
+import React, { useState, useEffect, useRef } from 'react'
+import { TrendingUp, TrendingDown, AlertTriangle, CheckCircle, BarChart3, PieChart, Download, Share, Brain, Target, BookOpen, Zap, Award, FileText, GraduationCap, PlayCircle, Loader2 } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -16,7 +16,9 @@ import {
   exportGapAnalysisToSheets,
   fetchContentOutlines,
   fetchRecommendedCourses,
-  triggerCourseGeneration
+  generateSkillCourse,
+  fetchCourseStatus,
+  fetchGeneratedCourses
 } from '@/lib/assess-api'
 import { toast } from 'sonner'
 
@@ -26,6 +28,15 @@ interface GapAnalysisDashboardProps {
   onBack?: () => void
   onExportToSheets?: () => void
 }
+
+const VideoPlayer = ({ url }: { url: string }) => (
+  <div className="mt-4">
+    <video key={url} controls className="w-full rounded-lg" preload="metadata">
+      <source src={url} type="video/mp4" />
+      Your browser does not support video playback.
+    </video>
+  </div>
+)
 
 export function GapAnalysisDashboard({
   workflowId,
@@ -41,7 +52,11 @@ export function GapAnalysisDashboard({
   const [loadingCourses, setLoadingCourses] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [exportingToSheets, setExportingToSheets] = useState(false)
-  const [generatingCourses, setGeneratingCourses] = useState<Set<string>>(new Set())
+  const [generatingCourseId, setGeneratingCourseId] = useState<string | null>(null)
+  const [courseProgress, setCourseProgress] = useState<Record<string, number>>({})
+  const [courseVideos, setCourseVideos] = useState<Record<string, string>>({})
+  const [courseIds, setCourseIds] = useState<Record<string, string>>({})
+  const pollTimers = useRef<Record<string, number>>({})
 
   const fetchData = async () => {
     try {
@@ -70,11 +85,15 @@ export function GapAnalysisDashboard({
   }
 
   const fetchRecommendedCoursesData = async () => {
-    if (recommendedCourses.length > 0) return // Already loaded
+    if (recommendedCourses.length > 0) {
+      await syncGeneratedCourses(recommendedCourses)
+      return
+    }
     try {
       setLoadingCourses(true)
       const data = await fetchRecommendedCourses(workflowId)
       setRecommendedCourses(data)
+      await syncGeneratedCourses(data)
     } catch (err) {
       console.error('Failed to fetch recommended courses:', err)
       toast.error('Failed to load recommended courses')
@@ -83,39 +102,179 @@ export function GapAnalysisDashboard({
     }
   }
 
-  const handleGenerateCourse = async (courseId: string) => {
+  const syncGeneratedCourses = async (courses: RecommendedCourse[]) => {
+    if (!courses.length) return
     try {
-      setGeneratingCourses(prev => new Set(prev).add(courseId))
-      const result = await triggerCourseGeneration(courseId)
+      const generated = await fetchGeneratedCourses(workflowId)
 
-      if (result.success) {
-        toast.success(`Course generation started: ${result.message}`)
-        // Update the course status in state
+      const nextIds: Record<string, string> = {}
+      const nextProgress: Record<string, number> = {}
+      const nextVideos: Record<string, string> = {}
+
+      generated.forEach((course) => {
+        nextIds[course.skill_id] = course.course_id
+        const progressValue = course.status === 'completed' ? 100 : course.progress ?? 0
+        nextProgress[course.skill_id] = progressValue
+        if (course.video_url) {
+          nextVideos[course.skill_id] = course.video_url
+        }
+      })
+
+      if (Object.keys(nextIds).length) {
+        setCourseIds(nextIds)
+      }
+      if (Object.keys(nextProgress).length) {
+        setCourseProgress((prev) => ({ ...prev, ...nextProgress }))
+      }
+      if (Object.keys(nextVideos).length) {
+        setCourseVideos((prev) => ({ ...prev, ...nextVideos }))
+      }
+
+      if (generated.length) {
+        setRecommendedCourses((prev) =>
+          prev.map((course) => {
+            const generatedCourse = generated.find((gc) => gc.skill_id === course.skill_id)
+            if (!generatedCourse) return course
+            return {
+              ...course,
+              generation_status: generatedCourse.status,
+            }
+          })
+        )
+      }
+    } catch (error) {
+      console.warn('Failed to sync generated courses', error)
+    }
+  }
+
+  const clearPollTimer = (skillId: string) => {
+    const timerId = pollTimers.current[skillId]
+    if (timerId) {
+      window.clearTimeout(timerId)
+      delete pollTimers.current[skillId]
+    }
+  }
+
+  const pollCourseStatus = (skillId: string, courseId: string, attempt = 0) => {
+    setCourseIds((prev) => ({ ...prev, [skillId]: courseId }))
+    const MAX_ATTEMPTS = 120
+    const POLL_INTERVAL_MS = 2000
+
+    clearPollTimer(skillId)
+    const timerId = window.setTimeout(async () => {
+      try {
+        const status = await fetchCourseStatus(workflowId, courseId)
+
+        const progressValue = status.status === 'completed' ? 100 : status.progress ?? 0
+        setCourseProgress(prev => ({ ...prev, [skillId]: progressValue }))
         setRecommendedCourses(prev =>
           prev.map(course =>
-            course.id === courseId
-              ? { ...course, generation_status: 'in_progress' }
+            course.skill_id === skillId
+              ? { ...course, generation_status: status.status }
               : course
           )
         )
-      } else {
-        toast.error('Failed to start course generation')
+
+        if (status.status === 'completed') {
+          clearPollTimer(skillId)
+          setGeneratingCourseId(current => (current === skillId ? null : current))
+        if (typeof status.video_url === 'string' && status.video_url.length > 0) {
+          setCourseVideos(prev => ({ ...prev, [skillId]: status.video_url as string }))
+        }
+          toast.success('Course generated!')
+          return
+        }
+
+        if (status.status === 'failed') {
+          clearPollTimer(skillId)
+          setGeneratingCourseId(current => (current === skillId ? null : current))
+          toast.error(status.error_message || 'Course generation failed')
+          return
+        }
+
+        if (attempt + 1 >= MAX_ATTEMPTS) {
+          clearPollTimer(skillId)
+          setGeneratingCourseId(current => (current === skillId ? null : current))
+          toast.error('Timed out waiting for course generation to finish')
+          return
+        }
+
+        pollCourseStatus(skillId, courseId, attempt + 1)
+      } catch (error) {
+        console.error('Failed to poll course status:', error)
+        if (attempt + 1 >= MAX_ATTEMPTS) {
+          clearPollTimer(skillId)
+          setGeneratingCourseId(current => (current === skillId ? null : current))
+          toast.error('Failed to retrieve course status')
+          return
+        }
+        pollCourseStatus(skillId, courseId, attempt + 1)
       }
-    } catch (err) {
-      console.error('Failed to trigger course generation:', err)
+    }, attempt === 0 ? 0 : POLL_INTERVAL_MS)
+
+    pollTimers.current[skillId] = timerId
+  }
+
+  const handleGenerateCourse = async (skillId: string) => {
+    if (!workflowId) return
+
+    clearPollTimer(skillId)
+    setGeneratingCourseId(skillId)
+    setCourseProgress(prev => ({ ...prev, [skillId]: 0 }))
+    setCourseVideos(prev => {
+      const next = { ...prev }
+      delete next[skillId]
+      return next
+    })
+
+    try {
+      const response = await generateSkillCourse(workflowId, skillId)
+
+      setCourseIds((prev) => ({ ...prev, [skillId]: response.course_id }))
+      const initialProgress = response.status === 'completed' ? 100 : response.progress ?? 0
+      setCourseProgress(prev => ({ ...prev, [skillId]: initialProgress }))
+      setRecommendedCourses(prev =>
+        prev.map(course =>
+          course.skill_id === skillId
+            ? { ...course, generation_status: response.status }
+            : course
+        )
+      )
+
+      if (response.status === 'completed') {
+        if (typeof response.video_url === 'string' && response.video_url.length > 0) {
+          setCourseVideos(prev => ({ ...prev, [skillId]: response.video_url as string }))
+        }
+        toast.success('Course already generated!')
+        setGeneratingCourseId(null)
+        return
+      }
+
+      if (response.status === 'failed') {
+        toast.error(response.course_title ? `${response.course_title} generation previously failed` : 'Course generation failed')
+        setGeneratingCourseId(null)
+        return
+      }
+
+      pollCourseStatus(skillId, response.course_id)
+      toast.success('Course generation started')
+    } catch (error) {
+      console.error('Failed to trigger course generation:', error)
       toast.error('Failed to start course generation')
-    } finally {
-      setGeneratingCourses(prev => {
-        const next = new Set(prev)
-        next.delete(courseId)
-        return next
-      })
+      setGeneratingCourseId(null)
     }
   }
 
   useEffect(() => {
     fetchData()
   }, [workflowId])
+
+  useEffect(() => {
+    return () => {
+      Object.values(pollTimers.current).forEach(timerId => window.clearTimeout(timerId))
+      pollTimers.current = {}
+    }
+  }, [])
 
   if (loading) {
     return (
@@ -755,114 +914,120 @@ export function GapAnalysisDashboard({
               </CardContent>
             </Card>
           ) : (
-            recommendedCourses.map((course) => (
-              <Card key={course.skill_id} className={course.generation_status === 'in_progress' ? 'border-blue-500' : ''}>
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <CardTitle className="text-base flex items-center gap-2">
-                        <GraduationCap className="h-4 w-4 text-purple-600" />
-                        {course.course_title}
-                      </CardTitle>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        {course.skill_name} • {course.exam_domain}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 ml-2">
-                      <Badge
-                        variant={course.priority >= 7 ? 'destructive' : course.priority >= 4 ? 'default' : 'secondary'}
-                      >
-                        Priority: {course.priority}/10
-                      </Badge>
-                      <Badge variant="outline" className="capitalize">
-                        {course.difficulty_level}
-                      </Badge>
-                    </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <p className="text-sm text-gray-700">{course.course_description}</p>
+            recommendedCourses.map((course) => {
+              const isGenerating = generatingCourseId === course.skill_id
+              const progressValue = courseProgress[course.skill_id] ?? (course.generation_status === 'completed' ? 100 : 0)
+              const videoUrl = courseVideos[course.skill_id]
 
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <div className="flex items-center gap-1">
-                        <Target className="h-4 w-4" />
-                        <span>{course.estimated_duration_minutes} minutes</span>
+              return (
+                <Card key={`${course.skill_id}-${course.exam_domain}`} className={isGenerating ? 'border-blue-500' : ''}>
+                  <CardHeader>
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <CardTitle className="text-base flex items-center gap-2">
+                          <GraduationCap className="h-4 w-4 text-purple-600" />
+                          {course.course_title}
+                        </CardTitle>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          {course.skill_name} • {course.exam_domain}
+                        </p>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <Award className="h-4 w-4" />
-                        <span className="capitalize">{course.difficulty_level}</span>
-                      </div>
-                    </div>
-
-                    {course.learning_objectives && course.learning_objectives.length > 0 && (
-                      <div>
-                        <h4 className="text-sm font-medium mb-2">Learning Objectives</h4>
-                        <ul className="space-y-1">
-                          {course.learning_objectives.map((objective, idx) => (
-                            <li key={idx} className="text-sm text-gray-600 flex items-start">
-                              <CheckCircle className="h-4 w-4 text-green-600 mr-2 mt-0.5 flex-shrink-0" />
-                              <span>{objective}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                    <div className="flex items-center justify-between pt-3 border-t">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 ml-2">
                         <Badge
-                          variant={
-                            course.generation_status === 'completed'
-                              ? 'default'
-                              : course.generation_status === 'in_progress'
-                              ? 'secondary'
-                              : 'outline'
-                          }
+                          variant={course.priority >= 7 ? 'destructive' : course.priority >= 4 ? 'default' : 'secondary'}
                         >
-                          {course.generation_status === 'completed' && 'Generated'}
-                          {course.generation_status === 'in_progress' && 'Generating...'}
-                          {course.generation_status === 'pending' && 'Not Generated'}
-                          {course.generation_status === 'failed' && 'Failed'}
+                          Priority: {course.priority}/10
+                        </Badge>
+                        <Badge variant="outline" className="capitalize">
+                          {course.difficulty_level}
                         </Badge>
                       </div>
-
-                      <Button
-                        size="sm"
-                        onClick={() => handleGenerateCourse(course.id)}
-                        disabled={
-                          course.generation_status === 'completed' ||
-                          course.generation_status === 'in_progress' ||
-                          generatingCourses.has(course.id)
-                        }
-                      >
-                        {generatingCourses.has(course.id) ? (
-                          <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
-                            Generating...
-                          </>
-                        ) : course.generation_status === 'completed' ? (
-                          <>
-                            <CheckCircle className="h-4 w-4 mr-2" />
-                            View Course
-                          </>
-                        ) : course.generation_status === 'in_progress' ? (
-                          <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-600 mr-2" />
-                            In Progress
-                          </>
-                        ) : (
-                          <>
-                            <Play className="h-4 w-4 mr-2" />
-                            Generate Course
-                          </>
-                        )}
-                      </Button>
                     </div>
-                  </div>
-                </CardContent>
-              </Card>
-            ))
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <p className="text-sm text-gray-700">{course.course_description}</p>
+
+                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                        <div className="flex items-center gap-1">
+                          <Target className="h-4 w-4" />
+                          <span>{course.estimated_duration_minutes} minutes</span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Award className="h-4 w-4" />
+                          <span className="capitalize">{course.difficulty_level}</span>
+                        </div>
+                      </div>
+
+                      {course.learning_objectives && course.learning_objectives.length > 0 && (
+                        <div>
+                          <h4 className="text-sm font-medium mb-2">Learning Objectives</h4>
+                          <ul className="space-y-1">
+                            {course.learning_objectives.map((objective, idx) => (
+                              <li key={idx} className="text-sm text-gray-600 flex items-start">
+                                <CheckCircle className="h-4 w-4 text-green-600 mr-2 mt-0.5 flex-shrink-0" />
+                                <span>{objective}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      <div className="space-y-3 pt-3 border-t">
+                        <div className="flex items-center justify-between">
+                          <Badge
+                            variant={
+                              progressValue === 100
+                                ? 'default'
+                                : course.generation_status === 'failed'
+                                ? 'destructive'
+                                : course.generation_status === 'in_progress' || isGenerating
+                                ? 'secondary'
+                                : 'outline'
+                            }
+                          >
+                            {progressValue === 100 && 'Completed'}
+                            {course.generation_status === 'failed' && 'Failed'}
+                            {(course.generation_status === 'in_progress' || isGenerating) && 'Generating'}
+                            {course.generation_status === 'pending' && progressValue === 0 && 'Not Generated'}
+                          </Badge>
+
+                          <Button size="sm" onClick={() => handleGenerateCourse(course.skill_id)} disabled={isGenerating}>
+                            {isGenerating ? (
+                              <>
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                Generating…
+                              </>
+                            ) : (
+                              <>
+                                <PlayCircle className="h-4 w-4 mr-2" />
+                                Generate Course
+                              </>
+                            )}
+                          </Button>
+                        </div>
+
+                        <div>
+                          <div className="flex items-center justify-between text-xs text-muted-foreground mb-1">
+                            <span>Progress</span>
+                            <span>{progressValue}%</span>
+                          </div>
+                          <Progress value={progressValue} className="h-2" />
+                        </div>
+
+                        {course.generation_status === 'failed' && !isGenerating && (
+                          <p className="text-xs text-red-600">
+                            Last attempt failed. Click "Generate Course" to retry.
+                          </p>
+                        )}
+                      </div>
+
+                      {videoUrl && <VideoPlayer url={videoUrl} />}
+                    </div>
+                  </CardContent>
+                </Card>
+              )
+            })
           )}
         </TabsContent>
 

@@ -6,7 +6,7 @@
 
 The PresGen-Assess assessment workflow project has successfully completed Sprint 3+ implementation with full end-to-end workflow automation: Gap Analysis → Content Outlines → Recommended Courses → Presentations. Critical bugs resolved including question-answer matching validation, order-based response grading, and workflow progression.
 
-**Sprint 4 Update (2025-10-05)**: Individual Skill Course Generation with PresGen-Avatar integration. Phases 1–4 (schema, avatar client, logging, API endpoints) are complete with TDD validation; Phase 5 UI integration/testing next.
+**Sprint 4 Update (2025-10-05)**: Individual Skill Course Generation with PresGen-Avatar integration. Phases 1–5 (schema, avatar client, logging, API endpoints, UI integration) are complete with TDD validation; Phase 6 custom prompt enhancements next.
 
 ## 🎯 Project Objectives Completed
 
@@ -16,7 +16,7 @@ The PresGen-Assess assessment workflow project has successfully completed Sprint
 - **Sprint 1**: Gap Analysis Dashboard Enhancement - **COMPLETE**
 - **Sprint 2**: Google Sheets Export (4-Tab On-Demand) - **COMPLETE** ✅
 - **Sprint 3**: PresGen-Core Integration - **COMPLETE** ✅
-- **Sprint 4**: PresGen-Avatar Integration - **IN PROGRESS** 🚀 (Phases 1-4 complete; Phase 5 handoff pending)
+- **Sprint 4**: PresGen-Avatar Integration - **IN PROGRESS** 🚀 (Phases 1-5 complete; Phase 6 custom prompt enhancements upcoming)
 - **Sprint 5**: Hardening & Production Readiness - **PLANNED**
 
 ### ✅ 2. Critical Bug Resolution
