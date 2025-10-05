@@ -55,7 +55,6 @@ export function GapAnalysisDashboard({
   const [generatingCourseId, setGeneratingCourseId] = useState<string | null>(null)
   const [courseProgress, setCourseProgress] = useState<Record<string, number>>({})
   const [courseVideos, setCourseVideos] = useState<Record<string, string>>({})
-  const [courseIds, setCourseIds] = useState<Record<string, string>>({})
   const pollTimers = useRef<Record<string, number>>({})
 
   const fetchData = async () => {
@@ -107,12 +106,10 @@ export function GapAnalysisDashboard({
     try {
       const generated = await fetchGeneratedCourses(workflowId)
 
-      const nextIds: Record<string, string> = {}
       const nextProgress: Record<string, number> = {}
       const nextVideos: Record<string, string> = {}
 
       generated.forEach((course) => {
-        nextIds[course.skill_id] = course.course_id
         const progressValue = course.status === 'completed' ? 100 : course.progress ?? 0
         nextProgress[course.skill_id] = progressValue
         if (course.video_url) {
@@ -120,9 +117,6 @@ export function GapAnalysisDashboard({
         }
       })
 
-      if (Object.keys(nextIds).length) {
-        setCourseIds(nextIds)
-      }
       if (Object.keys(nextProgress).length) {
         setCourseProgress((prev) => ({ ...prev, ...nextProgress }))
       }
@@ -156,7 +150,6 @@ export function GapAnalysisDashboard({
   }
 
   const pollCourseStatus = (skillId: string, courseId: string, attempt = 0) => {
-    setCourseIds((prev) => ({ ...prev, [skillId]: courseId }))
     const MAX_ATTEMPTS = 120
     const POLL_INTERVAL_MS = 2000
 
@@ -178,9 +171,9 @@ export function GapAnalysisDashboard({
         if (status.status === 'completed') {
           clearPollTimer(skillId)
           setGeneratingCourseId(current => (current === skillId ? null : current))
-        if (typeof status.video_url === 'string' && status.video_url.length > 0) {
-          setCourseVideos(prev => ({ ...prev, [skillId]: status.video_url as string }))
-        }
+          if (typeof status.video_url === 'string' && status.video_url.length > 0) {
+            setCourseVideos(prev => ({ ...prev, [skillId]: status.video_url as string }))
+          }
           toast.success('Course generated!')
           return
         }
@@ -229,8 +222,6 @@ export function GapAnalysisDashboard({
 
     try {
       const response = await generateSkillCourse(workflowId, skillId)
-
-      setCourseIds((prev) => ({ ...prev, [skillId]: response.course_id }))
       const initialProgress = response.status === 'completed' ? 100 : response.progress ?? 0
       setCourseProgress(prev => ({ ...prev, [skillId]: initialProgress }))
       setRecommendedCourses(prev =>

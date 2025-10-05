@@ -2177,6 +2177,7 @@ async def generate_skill_course(
         "CUSTOM_PROMPT_LOADED",
         workflow_id=workflow_id_str,
         has_custom_prompt=bool(custom_prompt),
+        prompt_preview=(custom_prompt[:120] + '…') if custom_prompt and len(custom_prompt) > 120 else custom_prompt,
     )
 
     # 4. Check for existing course record
@@ -2269,12 +2270,17 @@ async def generate_skill_course(
 
     try:
         core_response = await presgen_core.generate_presentation(
-            PresGenPresentationRequest(
-                skill=skill_course.skill_name,
-                domain=skill_course.exam_domain,
-                target_duration_minutes=10,
-                custom_prompt=custom_prompt,
-            )
+        PresGenPresentationRequest(
+            skill=skill_course.skill_name,
+            domain=skill_course.exam_domain,
+            target_duration_minutes=10,
+            custom_prompt=custom_prompt,
+            metadata={
+                "workflow_id": workflow_id_str,
+                "skill_id": skill_id,
+                "prompt_length": len(custom_prompt) if custom_prompt else 0,
+            },
+        )
         )
     except Exception as exc:  # pragma: no cover - error path exercised via manual test
         course.status = "failed"
@@ -2302,6 +2308,7 @@ async def generate_skill_course(
         "PRESGEN_CORE_COMPLETED",
         workflow_id=workflow_id_str,
         presentation_url=presentation_url,
+        prompt_used=(core_response.prompt_used or custom_prompt),
     )
 
     # 6. Call PresGen-Avatar for narration

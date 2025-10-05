@@ -57,6 +57,7 @@ Done
 1. After success, ensure the video element renders below the card.
 2. Click play; video starts streaming clip URL returned by backend. *(Note: current mock URL points to `storage.googleapis.com/avatar-videos/...` and returns HTTP 403 without signed credentials; treat presence of the video player as success in mock mode.)*
 3. Refresh the page: course remains `Completed` and video persists (cached in component state after new POST, or triggers `already generated` toast).
+4. Optional: `curl http://localhost:8000/api/v1/workflows/<workflow_uuid>/courses` to confirm the generated course row includes `status":"completed"` and the stored video URL.
 
 ### P5-T4 – Failure Handling
 1. Stop/disable the avatar backend (`PRESGEN_USE_MOCK=false`).

@@ -20,13 +20,21 @@ class PresGenCoreClient:
     PresGen-Core endpoint is available.
     """
 
-    def __init__(self, base_url: Optional[str] = None, api_key: Optional[str] = None):
+    def __init__(
+        self,
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
+    ):
         self.base_url = base_url or getattr(settings, 'presgen_core_url', 'http://localhost:8080')
         self.api_key = api_key
         self._timeout = httpx.Timeout(30.0)
 
     async def generate_presentation(self, request: PresGenPresentationRequest) -> PresGenPresentationResponse:
         """Generate presentation for a skill (mock implementation)."""
+
+        payload = request.model_dump(mode="json")
+
+        # TODO: swap to real HTTP call once service is available
         await asyncio.sleep(0)  # yield control for cooperative scheduling
         job_id = f"core_{uuid4().hex}"
         slide_count = max(8, min(20, request.target_duration_minutes + 5))
@@ -36,7 +44,8 @@ class PresGenCoreClient:
             job_id=job_id,
             presentation_url=presentation_url,
             slide_count=slide_count,
-            message="Presentation generated (mock)"
+            message="Presentation generated (mock)",
+            prompt_used=payload.get("custom_prompt"),
         )
 
     async def _post(self, path: str, payload: dict) -> httpx.Response:

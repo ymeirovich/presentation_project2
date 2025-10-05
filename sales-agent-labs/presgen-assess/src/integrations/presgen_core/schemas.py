@@ -22,3 +22,4 @@ class PresGenPresentationResponse(BaseModel):
     presentation_url: Optional[str] = None
     slide_count: Optional[int] = None
     message: Optional[str] = None
+    prompt_used: Optional[str] = None

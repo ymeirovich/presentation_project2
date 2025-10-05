@@ -454,6 +454,8 @@ const VideoPlayer = ({ url }: { url: string }) => (
 
 ### Phase 6: PresGen-Core Custom Prompt Integration (Week 2, Day 1)
 
+**Status**: ✅ Complete (prompt overrides flowing to PresGen-Core; Phase 6 TDD validated)
+
 #### Task 6.1: Modify PresGenCoreClient
 **File**: `src/integrations/presgen_core/client.py`
 
