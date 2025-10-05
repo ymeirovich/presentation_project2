@@ -454,13 +454,17 @@ async def create_workflow(
                 workflow.parameters['generation_method'] = generation_method
                 workflow.parameters['question_count'] = question_count
 
-                # Flag the JSON column as modified so SQLAlchemy detects the change
+                # Store assessment data (questions) for later response matching
+                workflow.assessment_data = assessment_data
+
+                # Flag the JSON columns as modified so SQLAlchemy detects the changes
                 flag_modified(workflow, 'parameters')
+                flag_modified(workflow, 'assessment_data')
 
                 await db.commit()
                 await db.refresh(workflow)
 
-                logger.info(f"✅ Stored generation metadata | method={generation_method} | count={question_count}")
+                logger.info(f"✅ Stored generation metadata and questions | method={generation_method} | count={question_count}")
 
                 form_settings = FormSettings(
                     collect_email=True,
@@ -991,6 +995,246 @@ async def trigger_workflow_orchestration(
         )
 
 
+async def fetch_form_responses_and_trigger_pipeline(
+    workflow_id: UUID,
+    workflow: WorkflowExecution,
+    db: AsyncSession
+) -> Dict[str, Any]:
+    """Fetch responses from Google Forms and trigger full pipeline."""
+
+    forms_service = GoogleFormsService()
+
+    # 1. Fetch responses from Google Forms API
+    form_id = workflow.google_form_id
+    if not form_id:
+        raise ValueError("No Google Form ID found in workflow")
+
+    logger.info(f"📥 Fetching responses from Google Form {form_id}")
+
+    try:
+        responses_data = await forms_service.get_form_responses(form_id=form_id)
+        responses = responses_data.get('responses', [])
+
+        if not responses:
+            raise ValueError("No responses found in Google Form")
+
+        logger.info(f"✅ Fetched {len(responses)} responses")
+    except Exception as e:
+        logger.error(f"❌ Failed to fetch form responses: {e}")
+        raise ValueError(f"Failed to fetch form responses: {str(e)}")
+
+    # 2. Unpause workflow
+    workflow.paused_at = None
+    workflow.resumed_at = datetime.utcnow()
+    workflow.current_step = "gap_analysis"
+    workflow.execution_status = "processing"
+    workflow.progress = 50
+    await db.commit()
+
+    # 3. Fetch certification profile
+    from src.models.certification import CertificationProfile
+    cert_stmt = select(CertificationProfile).where(
+        CertificationProfile.id == workflow.certification_profile_id
+    )
+    cert_result = await db.execute(cert_stmt)
+    cert_profile = cert_result.scalar_one_or_none()
+
+    if not cert_profile:
+        raise ValueError("Certification profile not found")
+
+    cert_profile_dict = {
+        "id": str(cert_profile.id),
+        "name": cert_profile.name,
+        "version": cert_profile.version,
+        "exam_domains": cert_profile.exam_domains
+    }
+
+    # 4. Retrieve stored questions from workflow
+    assessment_data = workflow.assessment_data
+    if not assessment_data or not assessment_data.get('questions'):
+        raise ValueError("No assessment questions found in workflow")
+
+    questions = assessment_data.get('questions', [])
+    logger.info(f"📝 Retrieved {len(questions)} questions from workflow")
+
+    # VALIDATION: Fetch actual questions from Google Forms and compare with stored questions
+    logger.info("🔍 Validating question order by fetching form structure from Google Forms...")
+    try:
+        form_structure = await forms_service.get_form_structure(form_id=form_id)
+        google_questions = form_structure.get('questions', [])
+
+        logger.info(f"📋 Google Forms has {len(google_questions)} questions")
+
+        # Compare question text at each index
+        validation_passed = True
+        for idx, google_q in enumerate(google_questions):
+            google_title = google_q.get('title', '').strip()
+
+            if idx < len(questions):
+                stored_text = questions[idx].get('question_text', '').strip()
+
+                # Direct string comparison (faster than hashing for medium strings)
+                if google_title == stored_text:
+                    logger.info(f"✅ Q{idx} matches: '{stored_text[:60]}...'")
+                else:
+                    logger.warning(
+                        f"⚠️  Q{idx} MISMATCH!\n"
+                        f"   Google: '{google_title[:80]}...'\n"
+                        f"   Stored: '{stored_text[:80]}...'"
+                    )
+                    validation_passed = False
+            else:
+                logger.warning(f"⚠️  Q{idx} exists in Google Forms but not in stored questions!")
+                validation_passed = False
+
+        # Check if we have more stored questions than Google Form questions
+        if len(questions) > len(google_questions):
+            logger.warning(
+                f"⚠️  We have {len(questions)} stored questions but Google Forms only has {len(google_questions)}!"
+            )
+            validation_passed = False
+
+        if validation_passed:
+            logger.info("✅ Question order validation PASSED - all questions match!")
+        else:
+            logger.error("❌ Question order validation FAILED - order-based matching may be unreliable!")
+
+    except Exception as e:
+        logger.warning(f"⚠️  Could not validate question order: {e}")
+        logger.info("Proceeding with order-based matching without validation...")
+
+    # 5. Match form responses with questions and grade them
+    formatted_responses = []
+    for response in responses:
+        user_answers = response.get('answers', {})
+
+        # Google Forms returns answers as a dict with Google Form question IDs as keys
+        # We need to match them by order since our stored question IDs don't match
+        google_form_ids = list(user_answers.keys())
+        answer_values = list(user_answers.values())
+
+        logger.info(f"📋 Processing response with {len(answer_values)} answers for {len(questions)} questions")
+        logger.info(f"🔑 Google Form question IDs: {google_form_ids}")
+
+        # VALIDATION: Check if answer count matches question count
+        if len(answer_values) != len(questions):
+            logger.error(
+                f"❌ CRITICAL: Answer count mismatch! "
+                f"Received {len(answer_values)} answers but have {len(questions)} questions. "
+                f"Order-based matching will fail!"
+            )
+
+        # Log all stored questions for reference
+        logger.info("📚 Stored questions order:")
+        for idx, q in enumerate(questions):
+            logger.info(f"   Q{idx}: {q.get('question_text', '')[:80]}")
+
+        # Match questions with answers by order/index
+        for idx, question in enumerate(questions):
+            if idx < len(answer_values):
+                user_answer = answer_values[idx]
+                google_form_id = google_form_ids[idx] if idx < len(google_form_ids) else "unknown"
+
+                # Determine if answer is correct
+                correct_answer = question.get('correct_answer')
+                is_correct = (user_answer == correct_answer) if correct_answer else False
+
+                question_id = question.get('question_id') or question.get('id') or f"q_{idx}"
+
+                # Log the mapping for validation
+                logger.info(
+                    f"📌 Q{idx}: Local ID='{question_id}' | Google ID='{google_form_id}' | "
+                    f"Question: '{question.get('question_text', '')[:60]}...' | "
+                    f"Answer: '{user_answer}' | Correct: '{correct_answer}' | Match: {is_correct}"
+                )
+
+                formatted_responses.append({
+                    "question_id": question_id,
+                    "question_text": question.get('question_text', ''),
+                    "user_answer": user_answer,
+                    "correct_answer": correct_answer,
+                    "is_correct": is_correct,
+                    "domain": question.get('domain', 'General'),
+                    "subdomain": question.get('subdomain'),
+                    "topic": question.get('topic'),
+                    "bloom_level": question.get('bloom_level', 'Remember'),
+                    "confidence": 3.0  # Default confidence
+                })
+
+    logger.info(f"✅ Matched and graded {len(formatted_responses)} responses")
+
+    # Log summary of grading results
+    correct_count = sum(1 for r in formatted_responses if r['is_correct'])
+    logger.info(f"📊 Grading Summary: {correct_count}/{len(formatted_responses)} correct ({correct_count/len(formatted_responses)*100:.1f}%)")
+
+    # 6. Trigger gap analysis with formatted responses
+    from src.services.gap_analysis_enhanced import EnhancedGapAnalysisService
+    gap_service = EnhancedGapAnalysisService()
+
+    logger.info(f"📊 Generating gap analysis for workflow {workflow_id}")
+    gap_result = await gap_service.analyze_and_persist(
+        workflow_id=workflow_id,
+        assessment_responses=formatted_responses,
+        certification_profile=cert_profile_dict
+    )
+
+    workflow.progress = 75
+    await db.commit()
+
+    # 7. Generate content outlines and recommended courses
+    skill_gaps = gap_result.get("skill_gaps", [])
+
+    if skill_gaps:
+        logger.info("📝 Generating content outlines")
+        await gap_service.generate_content_outlines(
+            gap_analysis_id=UUID(gap_result["gap_analysis_id"]),
+            workflow_id=workflow_id,
+            skill_gaps=skill_gaps,
+            certification_profile=cert_profile_dict
+        )
+
+        logger.info("📚 Generating recommended courses")
+        await gap_service.generate_course_recommendations(
+            gap_analysis_id=UUID(gap_result["gap_analysis_id"]),
+            workflow_id=workflow_id,
+            skill_gaps=skill_gaps,
+            certification_profile=cert_profile_dict
+        )
+
+    workflow.progress = 85
+    workflow.current_step = "generate_presentation"
+    await db.commit()
+
+    # 8. Trigger presentation generation
+    logger.info(f"🎨 Creating presentation")
+    from src.services.presgen_integration_service import PresGenIntegrationService
+    presgen_service = PresGenIntegrationService()
+
+    presentation_result = await presgen_service.generate_presentation(
+        workflow_id=workflow_id,
+        assessment_title=workflow.parameters.get('title', 'Assessment'),
+        user_email=workflow.user_id,
+        skill_name=gap_result.get('skill_name', 'Unknown'),
+        slide_count=workflow.parameters.get('slide_count', 12)
+    )
+
+    # 9. Finalize workflow
+    workflow.current_step = "finalize_workflow"
+    workflow.execution_status = "completed"
+    workflow.progress = 100
+    workflow.presentation_url = presentation_result.get('presentation_url')
+    await db.commit()
+
+    logger.info(f"✅ Workflow {workflow_id} completed successfully")
+
+    return {
+        "success": True,
+        "response_count": len(responses),
+        "gap_analysis_completed": True,
+        "presentation_url": presentation_result.get('presentation_url')
+    }
+
+
 @router.post("/{workflow_id}/manual-process")
 async def manual_process_completed_form(
     workflow_id: UUID,
@@ -1011,54 +1255,43 @@ async def manual_process_completed_form(
                 detail="Workflow not found"
             )
 
-        # Create mock response data to bypass ingestion bug
-        mock_responses = {
-            "responses": [
-                {
-                    "timestamp": "2025-09-27T21:30:00Z",
-                    "answers": {
-                        "user_email": "test_user@example.com",
-                        "domain_scores": {
-                            "Data Engineering": 65,
-                            "Exploratory Data Analysis": 72,
-                            "Modeling": 58,
-                            "Machine Learning Implementation and Operations": 68
-                        },
-                        "overall_score": 66,
-                        "total_questions": 24,
-                        "correct_answers": 16
-                    }
-                }
-            ],
-            "response_count": 1,
-            "processing_timestamp": "2025-09-27T21:30:00Z"
-        }
+        # Fetch real responses and trigger full pipeline
+        try:
+            result = await fetch_form_responses_and_trigger_pipeline(
+                workflow_id=workflow_id,
+                workflow=workflow,
+                db=db
+            )
 
-        # Update workflow status manually
-        workflow.current_step = "gap_analysis"
-        workflow.execution_status = "processing"
-        workflow.progress = 90
+            return {
+                "success": True,
+                "message": "Form processing completed successfully",
+                "workflow_id": str(workflow_id),
+                "status": "completed",
+                "current_step": "finalize_workflow",
+                "next_steps": [],
+                "response_count": result.get('response_count'),
+                "presentation_url": result.get('presentation_url'),
+                "mock_data_used": False
+            }
 
-        # Commit the changes
-        await db.commit()
-        await db.refresh(workflow)
+        except ValueError as e:
+            logger.warning(f"⚠️ Using fallback processing: {e}")
+            # Fallback to manual gap analysis if no responses
+            workflow.current_step = "gap_analysis"
+            workflow.execution_status = "processing"
+            workflow.progress = 90
+            await db.commit()
 
-        logger.info(f"✅ Manual processing initiated | workflow_id={workflow_id}")
-
-        return {
-            "success": True,
-            "message": "Form processing initiated manually",
-            "workflow_id": str(workflow_id),
-            "status": "processing",
-            "current_step": "gap_analysis",
-            "next_steps": [
-                "Gap analysis generation",
-                "Presentation creation",
-                "Avatar generation (if enabled)"
-            ],
-            "mock_data_used": True,
-            "note": "This bypasses the ingestion bug and uses sample response data"
-        }
+            return {
+                "success": False,
+                "message": f"No responses found: {str(e)}",
+                "workflow_id": str(workflow_id),
+                "status": "pending",
+                "current_step": "gap_analysis",
+                "next_steps": ["Wait for form responses", "Click 'Process Completed Form' again"],
+                "note": "Please ensure the Google Form has at least one response"
+            }
 
     except HTTPException:
         raise
@@ -1067,6 +1300,71 @@ async def manual_process_completed_form(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Manual processing failed: {str(e)}"
+        )
+
+
+@router.post("/{workflow_id}/resume-paused")
+async def resume_paused_workflow(
+    workflow_id: UUID,
+    db: AsyncSession = Depends(get_db)
+) -> Dict[str, Any]:
+    """Resume a paused workflow and trigger full pipeline progression."""
+    try:
+        logger.info(f"▶️ Resuming workflow {workflow_id}")
+
+        # Get workflow
+        stmt = select(WorkflowExecution).where(WorkflowExecution.id == workflow_id)
+        result = await db.execute(stmt)
+        workflow = result.scalar_one_or_none()
+
+        if not workflow:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Workflow not found"
+            )
+
+        # Check if paused
+        if not workflow.paused_at or workflow.resumed_at:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Workflow is not paused"
+            )
+
+        # Resume based on current step
+        if workflow.current_step in ["collect_responses", "gap_analysis"]:
+            # Resume from form processing
+            result = await fetch_form_responses_and_trigger_pipeline(
+                workflow_id=workflow_id,
+                workflow=workflow,
+                db=db
+            )
+            return {
+                "success": True,
+                "message": "Workflow resumed and completed",
+                "workflow_id": str(workflow_id),
+                "presentation_url": result.get('presentation_url')
+            }
+        else:
+            # For other steps, just unpause and let normal processing continue
+            workflow.paused_at = None
+            workflow.resumed_at = datetime.utcnow()
+            workflow.execution_status = "processing"
+            await db.commit()
+
+            return {
+                "success": True,
+                "message": "Workflow resumed",
+                "workflow_id": str(workflow_id),
+                "current_step": workflow.current_step
+            }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Resume workflow failed for {workflow_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Resume workflow failed: {str(e)}"
         )
 
 

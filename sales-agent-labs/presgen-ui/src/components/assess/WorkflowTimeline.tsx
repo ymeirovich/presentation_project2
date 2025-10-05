@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
 import { WorkflowDetail, WorkflowStep } from '@/lib/assess-schemas'
-import { fetchWorkflowDetail, retryWorkflow, manualProcessWorkflow, autoProgressWorkflow } from '@/lib/assess-api'
+import { fetchWorkflowDetail, retryWorkflow, manualProcessWorkflow, autoProgressWorkflow, resumeWorkflow } from '@/lib/assess-api'
 
 interface WorkflowTimelineProps {
   workflowId: string
@@ -127,8 +127,8 @@ export function WorkflowTimeline({ workflowId, className, onRetry }: WorkflowTim
 
     try {
       setResuming(true)
-      // Resume workflow by calling manual process endpoint
-      await manualProcessWorkflow(workflow.id)
+      // Resume workflow by calling the resume endpoint
+      await resumeWorkflow(workflow.id)
       onRetry?.()
       await fetchData() // Refresh the data
     } catch (err) {

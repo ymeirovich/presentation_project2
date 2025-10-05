@@ -512,11 +512,12 @@ class WorkflowOrchestrator:
 
                 # Sprint 1: Perform Gap Analysis with Database Persistence
                 if is_feature_enabled("enable_gap_dashboard_enhancements"):
-                    gap_analysis_result = await self._perform_gap_analysis(
+                    gap_analysis_result = await self.gap_analysis_service.analyze_and_persist(
                         workflow_id=workflow_id,
-                        workflow=workflow,
-                        responses=responses,
-                        scoring_results=scoring_results
+                        assessment_responses=responses,
+                        certification_profile=workflow.assessment_data.get('certification_profile', {})
+                        if isinstance(workflow.assessment_data, dict)
+                        else {}
                     )
 
                     if gap_analysis_result["success"]:

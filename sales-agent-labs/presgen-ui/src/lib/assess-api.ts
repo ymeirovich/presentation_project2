@@ -213,6 +213,21 @@ export async function manualProcessWorkflow(workflowId: string): Promise<any> {
   }))
 }
 
+export async function resumeWorkflow(workflowId: string): Promise<any> {
+  const response = await fetch(buildUrl(`/workflows/${workflowId}/resume`), {
+    method: 'POST',
+    headers: getHeaders('application/json'),
+  })
+
+  return parseResponse(response, z.object({
+    success: z.boolean(),
+    message: z.string(),
+    workflow_id: z.string(),
+    current_step: z.string().optional(),
+    presentation_url: z.string().optional()
+  }))
+}
+
 export async function autoProgressWorkflow(workflowId: string): Promise<any> {
   const response = await fetch(buildUrl(`/workflows/${workflowId}/auto-progress`), {
     method: 'POST',

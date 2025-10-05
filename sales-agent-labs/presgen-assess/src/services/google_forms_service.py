@@ -213,6 +213,37 @@ class GoogleFormsService:
 
         return {"success": True, "form_id": form_id, "settings_applied": applied_settings, "raw_response": result}
 
+    async def get_form_structure(
+        self,
+        *,
+        form_id: str,
+    ) -> Dict[str, Any]:
+        """Retrieve the form structure including questions."""
+
+        async def _fetch_form():
+            request = self.forms_service.forms().get(formId=form_id)
+            return request.execute()
+
+        form_data = await self.error_handler.execute_with_retry(_fetch_form)
+
+        # Extract questions from form
+        questions = []
+        items = form_data.get("items", [])
+        for item in items:
+            question_item = item.get("questionItem", {})
+            question = question_item.get("question", {})
+            question_id = question.get("questionId")
+            title = item.get("title", "")
+
+            if question_id:
+                questions.append({
+                    "question_id": question_id,
+                    "title": title,
+                    "index": item.get("index", 0)
+                })
+
+        return {"success": True, "questions": questions, "form_id": form_id}
+
     async def get_form_responses(
         self,
         *,
