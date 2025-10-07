@@ -12,6 +12,7 @@ from googleapiclient.errors import HttpError
 from google.oauth2.credentials import Credentials
 
 from src.services.google_auth_manager import GoogleAuthManager
+from src.common.config import settings
 from src.common.enhanced_logging import get_enhanced_logger
 
 
@@ -23,6 +24,7 @@ class DriveFolderManager:
         self.auth_manager = GoogleAuthManager()
         self.drive_service = None
         self._folder_cache: Dict[str, str] = {}  # folder_path -> folder_id
+        self.default_parent_folder_id: Optional[str] = settings.google_drive_parent_folder_id
 
     async def _get_drive_service(self):
         """Get authenticated Google Drive service."""
@@ -41,6 +43,8 @@ class DriveFolderManager:
         """Create organized folder structure for assessment workflow."""
         try:
             drive_service = await self._get_drive_service()
+
+            parent_folder_id = parent_folder_id or self.default_parent_folder_id
 
             # Create main assessment folder
             timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")

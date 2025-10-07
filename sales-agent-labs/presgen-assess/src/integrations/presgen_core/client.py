@@ -114,6 +114,8 @@ class PresGenCoreClient:
     ) -> PresGenPresentationResponse:
         """Mocked generation with optional forced failure for testing."""
 
+        logger.warning("⚠️ PresGen-Core mock path used")
+
         if os.getenv("PRESGEN_CORE_FORCE_FAIL", "false").lower() == "true":
             raise RuntimeError("Forced PresGen-Core failure via PRESGEN_CORE_FORCE_FAIL")
         if request.metadata.get("force_failure"):

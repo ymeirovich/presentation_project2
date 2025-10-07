@@ -518,7 +518,7 @@ presgen_result = await presgen_core.generate_presentation(
 
 ### Phase 7: Error Handling & Resilience (Week 2, Day 2)
 
-**Status**: 🚧 In Progress (retry/backoff + circuit breakers implemented; running Phase 7 TDD)
+**Status**: ✅ Complete (retry/backoff + circuit breakers implemented; Phase 7 TDD validated)
 
 #### Task 7.1: Add Retry Logic
 ```python
@@ -552,6 +552,58 @@ except Exception as e:
     log_course_event("COURSE_GENERATION_FAILED", error=str(e))
     raise
 ```
+
+---
+
+### Phase 8: Local MP4 Output & Downloads (Week 2, Day 3)
+
+**Status**: 🚧 In Progress (timestamp job IDs, local avatar storage, and UI download link implementation underway)
+
+#### Task 8.1: Timestamped Job Identifiers
+```python
+from datetime import datetime
+
+timestamp_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+course_id = timestamp_id
+```
+
+#### Task 8.2: Persist Avatar Outputs Locally
+```python
+from datetime import datetime
+
+timestamp = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+safe_skill = skill_id.lower().replace(" ", "-")
+
+output_dir = settings.avatar_output_dir / workflow_id_str / "jobs" / avatar_result.job_id
+output_dir.mkdir(parents=True, exist_ok=True)
+mp4_path = output_dir / f"avatar-{safe_skill}-{timestamp}.mp4"
+
+async with httpx.AsyncClient(timeout=None) as client:
+    async with client.stream("GET", final_status.video_url) as stream:
+        stream.raise_for_status()
+        with mp4_path.open("wb") as fh:
+            async for chunk in stream.aiter_bytes():
+                fh.write(chunk)
+
+course.local_video_path = str(mp4_path)
+course.video_url = f"/api/v1/workflows/{workflow_id_str}/courses/{course_id}/video"
+```
+
+#### Task 8.3: Download Endpoint & UI Link
+```python
+# backend
+return FileResponse(Path(course.local_video_path), media_type="video/mp4")
+
+# frontend (React)
+<Button asChild variant="ghost" size="sm">
+  <a href={`/api/presgen-assess/workflows/${workflowId}/courses/${courseIds[course.skill_id]}/video`}>
+    Download Video
+  </a>
+</Button>
+```
+
+#### Task 8.4: Phase 8 TDD
+- See `Oct5_Avatar_SPRINT_4_PHASE8_TDD_MANUAL_TESTING.md` for manual verification steps covering timestamp IDs, local storage, and UI download link.
 
 ---
 

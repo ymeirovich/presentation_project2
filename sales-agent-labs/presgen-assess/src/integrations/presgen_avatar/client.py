@@ -207,6 +207,7 @@ class PresGenAvatarClient:
         self._circuit_reset_at = None
 
     async def _mock_generate(self, request: AvatarGenerationRequest) -> AvatarGenerationResponse:
+        logger.warning("⚠️ PresGen-Avatar mock path used")
         if os.getenv("PRESGEN_AVATAR_FORCE_FAIL", "false").lower() == "true":
             raise RuntimeError("Forced PresGen-Avatar failure via PRESGEN_AVATAR_FORCE_FAIL")
         if request.metadata and request.metadata.get("force_failure"):

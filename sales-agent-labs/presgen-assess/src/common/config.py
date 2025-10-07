@@ -45,6 +45,7 @@ class Settings:
     google_cloud_project: Optional[str] = os.getenv("GOOGLE_CLOUD_PROJECT")
     oauth_client_json: Optional[str] = os.getenv("OAUTH_CLIENT_JSON")
     google_user_token_path: Optional[str] = os.getenv("GOOGLE_USER_TOKEN_PATH")
+    google_drive_parent_folder_id: Optional[str] = os.getenv("GOOGLE_DRIVE_PARENT_FOLDER_ID")
 
     # Google Sheets Authentication Method
     use_oauth_for_sheets: bool = os.getenv("USE_OAUTH_FOR_SHEETS", "false").lower() == "true"
@@ -69,6 +70,9 @@ class Settings:
         if os.getenv("PRESGEN_USE_MOCK") is None
         else os.getenv("PRESGEN_USE_MOCK").lower() == "true"
     )
+    avatar_output_dir: Path = Path(
+        os.getenv("AVATAR_OUTPUT_DIR", PROJECT_ROOT / "presgen-assess" / "avatar-output")
+    ).resolve()
 
     # Workflow Settings (Async-aware)
     max_concurrent_workflows: int = int(os.getenv("MAX_CONCURRENT_WORKFLOWS", "10"))

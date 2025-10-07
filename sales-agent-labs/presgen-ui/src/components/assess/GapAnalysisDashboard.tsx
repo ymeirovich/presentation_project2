@@ -1013,7 +1013,16 @@ export function GapAnalysisDashboard({
                         )}
                       </div>
 
-                      {videoUrl && <VideoPlayer url={videoUrl} />}
+                      {videoUrl && (
+                        <div className="space-y-2">
+                          <Button asChild variant="ghost" size="sm">
+                            <a href={videoUrl} target="_blank" rel="noopener noreferrer">
+                              Download Video
+                            </a>
+                          </Button>
+                          <VideoPlayer url={videoUrl} />
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

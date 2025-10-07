@@ -22,8 +22,8 @@ Phase 7 validates the new retry/backoff logic and circuit breaker safeguards add
 
 2. **Workflow + skill** – Use the prompt-enabled workflow validated in Phase 6:
    ```bash
-   WORKFLOW=52014fe9-6b77-4e91-b770-ff20b24d7ff7
-   SKILL=data_engineering
+   export WORKFLOW=52014fe9-6b77-4e91-b770-ff20b24d7ff7
+   export SKILL=data_engineering
    ```
 
 3. **Clean logs (optional)**
@@ -53,6 +53,11 @@ Phase 7 validates the new retry/backoff logic and circuit breaker safeguards add
    ```bash
    curl -X POST "http://localhost:8000/api/v1/workflows/$WORKFLOW/skills/$SKILL/generate-course" \
      -H "Content-Type: application/json"
+
+     --
+     (.venv) yitzchak@MacBookPro sales-agent-labs % curl -X POST "http://localhost:8000/api/v1/workflows/$WORKFLOW/skills/$SKILL/generate-course" \
+     -H "Content-Type: application/json"
+{"course_id":"bf55ea8d206b4e27ba2fa4acc940fe14","workflow_id":"52014fe9-6b77-4e91-b770-ff20b24d7ff7","skill_id":"data_engineering","skill_name":"Data Engineering","course_title":"Mastering Data Engineering","presentation_url":"https://drive.google.com/presentation/d/core_f6a32623bc68425391f3fae9fcb223a5/edit","video_url":"https://storage.googleapis.com/avatar-videos/avatar_c97b65871b4f48ab9ac5e7c086540c28.mp4","status":"completed","progress":100,"created_at":"2025-10-05T16:22:47.150474","updated_at":"2025-10-05T16:22:47.177008","completed_at":"2025-10-05T16:22:47.176754"}%      
    ```
 2. Confirm response `status":"completed"` and log entries show normal flow.
 3. Clear course record if desired (`sqlite3 ... DELETE FROM generated_courses WHERE workflow_id='<hex>' AND skill_id='$SKILL';`).

@@ -4,10 +4,13 @@ from datetime import datetime
 import csv
 from io import StringIO
 import os
+import shutil
 import uuid
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,13 +36,21 @@ from src.services.ai_question_generator import AIQuestionGenerator
 from src.services.response_ingestion_service import ResponseIngestionService
 from src.services.google_sheets_service import GoogleSheetsService, EnhancedGapAnalysisExporter
 from src.services.google_forms_service import GoogleFormsService
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, FileResponse
 
 logger = get_workflow_logger()
 api_logger = get_api_logger()
 assessment_logger = get_assessment_logger()
 
 router = APIRouter()
+
+
+def _slugify_skill_name(value: str) -> str:
+    """Convert a skill name to a filesystem-friendly slug."""
+
+    slug = ''.join(ch.lower() if ch.isalnum() else '-' for ch in value)
+    slug = '-'.join(part for part in slug.split('-') if part)
+    return slug or 'skill'
 
 
 async def _build_gap_analysis_data(
@@ -2180,6 +2191,9 @@ async def generate_skill_course(
         prompt_preview=(custom_prompt[:120] + '…') if custom_prompt and len(custom_prompt) > 120 else custom_prompt,
     )
 
+    timestamp_course_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    skill_slug = _slugify_skill_name(skill_course.skill_name)
+
     # 4. Check for existing course record
     existing_course_result = await db.execute(
         select(GeneratedCourse).where(
@@ -2232,7 +2246,7 @@ async def generate_skill_course(
         await db.refresh(course)
         course_id = course.id
     else:
-        course_id = str(uuid.uuid4().hex)
+        course_id = timestamp_course_id
         course = GeneratedCourse(
             id=course_id,
             workflow_id=workflow_id_normalized,
@@ -2419,13 +2433,33 @@ async def generate_skill_course(
 
             raise HTTPException(status_code=502, detail="PresGen-Avatar generation failed")
 
-        video_url = (
-            str(final_status.video_url)
-            if final_status.video_url
-            else course.video_url
-            or f"https://storage.googleapis.com/avatar-videos/{avatar_result.job_id}.mp4"
-        )
-        course.video_url = video_url
+        job_output_dir = settings.avatar_output_dir / workflow_id_str / "jobs" / course_id
+        job_output_dir.mkdir(parents=True, exist_ok=True)
+        output_filename = f"avatar-{skill_slug}-{course_id}.mp4"
+        mp4_path = job_output_dir / output_filename
+
+        if final_status.video_url:
+            try:
+                if str(final_status.video_url).startswith("http"):
+                    async with httpx.AsyncClient(timeout=None) as client:
+                        async with client.stream("GET", str(final_status.video_url)) as stream:
+                            stream.raise_for_status()
+                            with mp4_path.open("wb") as fh:
+                                async for chunk in stream.aiter_bytes():
+                                    fh.write(chunk)
+                else:
+                    source_path = Path(str(final_status.video_url))
+                    if source_path.exists():
+                        shutil.copy2(source_path, mp4_path)
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.warning(
+                    "Failed to copy avatar output from %s | error=%s",
+                    final_status.video_url,
+                    exc,
+                )
+
+        course.video_url = f"{settings.api_v1_prefix}/workflows/{workflow_id_str}/courses/{course_id}/video"
+        course.local_video_path = str(mp4_path)
         course.status = "completed"
         course.progress = final_status.progress or 100
         course.completed_at = datetime.utcnow()
@@ -2435,8 +2469,9 @@ async def generate_skill_course(
         log_course_event(
             "COURSE_GENERATION_COMPLETED",
             workflow_id=workflow_id_str,
-            video_url=video_url,
+            video_url=course.video_url,
             job_id=avatar_result.job_id,
+            local_path=str(mp4_path),
         )
     finally:
         await avatar_client.close()
@@ -2455,6 +2490,46 @@ async def generate_skill_course(
         updated_at=course.updated_at,
         completed_at=course.completed_at
     )
+@router.get(
+    "/{workflow_id}/courses/{course_id}/video",
+    summary="Download course video",
+)
+async def download_course_video(
+    workflow_id: UUID,
+    course_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Stream the locally stored avatar MP4 for a generated course."""
+
+    workflow_id_str = str(workflow_id)
+    workflow_id_normalized = workflow_id.hex
+
+    result = await db.execute(
+        select(GeneratedCourse).where(
+            and_(
+                GeneratedCourse.workflow_id == workflow_id_normalized,
+                GeneratedCourse.id == course_id,
+            )
+        )
+    )
+    course = result.scalar_one_or_none()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    job_dir = settings.avatar_output_dir / workflow_id_str / "jobs" / course_id
+    if not job_dir.exists():
+        raise HTTPException(status_code=404, detail="Video file not available")
+
+    expected_path = job_dir / f"avatar-{_slugify_skill_name(course.skill_name)}-{course_id}.mp4"
+    if not expected_path.exists():
+        mp4_candidates = sorted(job_dir.glob("*.mp4"))
+        if not mp4_candidates:
+            raise HTTPException(status_code=404, detail="Video file missing")
+        expected_path = mp4_candidates[0]
+
+    return FileResponse(expected_path, media_type="video/mp4", filename=expected_path.name)
+
+
 @router.get(
     "/{workflow_id}/courses",
     response_model=List[CourseGenerationResponse],

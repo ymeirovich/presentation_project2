@@ -161,3 +161,35 @@ Oct 5
 {"workflow_id":"52014fe9-6b77-4e91-b770-ff20b24d7ff7","overall_score":66,"overall_confidence":75,"overconfidence_indicator":true,"domain_performance":[{"domain":"Data Engineering","score":65,"question_count":6,"correct_count":4,"confidence_score":78,"overconfidence_ratio":1.2,"bloom_levels":[{"level":"remember","label":"Remember","score":70,"question_count":2,"correct_count":1},{"level":"understand","label":"Understand","score":68,"question_count":2,"correct_count":1},{"level":"apply","label":"Apply","score":60,"question_count":2,"correct_count":2}]},{"domain":"Exploratory Data Analysis","score":72,"question_count":6,"correct_count":4,"confidence_score":71,"overconfidence_ratio":0.99,"bloom_levels":[{"level":"remember","label":"Remember","score":80,"question_count":2,"correct_count":2},{"level":"analyze","label":"Analyze","score":70,"question_count":2,"correct_count":1},{"level":"evaluate","label":"Evaluate","score":65,"question_count":2,"correct_count":1}]},{"domain":"Modeling","score":58,"question_count":6,"correct_count":3,"confidence_score":82,"overconfidence_ratio":1.41,"bloom_levels":[{"level":"understand","label":"Understand","score":62,"question_count":2,"correct_count":1},{"level":"apply","label":"Apply","score":55,"question_count":2,"correct_count":1},{"level":"create","label":"Create","score":50,"question_count":2,"correct_count":1}]},{"domain":"Machine Learning Implementation and Operations","score":68,"question_count":6,"correct_count":4,"confidence_score":69,"overconfidence_ratio":1.01,"bloom_levels":[{"level":"remember","label":"Remember","score":75,"question_count":2,"correct_count":2},{"level":"apply","label":"Apply","score":68,"question_count":2,"correct_count":1},{"level":"analyze","label":"Analyze","score":60,"question_count":2,"correct_count":1}]}],"learning_gaps":[{"domain":"Modeling","gap_severity":"critical","confidence_gap":24,"skill_gap":22,"recommended_study_hours":12,"priority_topics":["Model Selection","Hyperparameter Tuning","Model Evaluation"],"remediation_resources":[{"title":"AWS ML Model Selection Guide","type":"documentation","url":"https://docs.aws.amazon.com/machine-learning/","estimated_time_minutes":90}]},{"domain":"Data Engineering","gap_severity":"high","confidence_gap":-13,"skill_gap":15,"recommended_study_hours":8,"priority_topics":["Data Pipeline Architecture","ETL Processes"],"remediation_resources":[{"title":"AWS Data Engineering Best Practices","type":"article","url":"https://aws.amazon.com/data-engineering/","estimated_time_minutes":60}]}],"bloom_taxonomy_breakdown":[{"level":"remember","label":"Remember","score":85,"question_count":6,"correct_count":5},{"level":"understand","label":"Understand","score":78,"question_count":6,"correct_count":4},{"level":"apply","label":"Apply","score":65,"question_count":6,"correct_count":4},{"level":"analyze","label":"Analyze","score":55,"question_count":4,"correct_count":2},{"level":"evaluate","label":"Evaluate","score":45,"question_count":2,"correct_count":1},{"level":"create","label":"Create","score":35,"question_count":2,"correct_count":1}],"recommended_study_plan":{"total_estimated_hours":24,"priority_domains":["Modeling","Data Engineering"],"study_sequence":["Model Selection and Evaluation","Feature Engineering","Data Pipeline Architecture","ML Model Deployment"]},"generated_at":"2025-10-05T07:48:53"}%       
 
 {"course_id":"d1fdcffee5cf4e6cb88a02b8b53986d1","workflow_id":"52014fe9-6b77-4e91-b770-ff20b24d7ff7","skill_id":"modeling","skill_name":"Modeling","course_title":"Mastering Modeling","presentation_url":"https://drive.google.com/presentation/d/core_8be278bff49e40e5a4313c1f14624bdb/edit","video_url":"https://storage.googleapis.com/videos/d1fdcffee5cf4e6cb88a02b8b53986d1.mp4","status":"completed","progress":100,"created_at":"2025-10-05T12:12:56.191691","updated_at":null,"completed_at":"2025-10-05T12:12:56.199200"}%  
+
+--
+Oct 5
+
+{
+  "ok": true,
+  "message": "Assessment workflow submitted successfully",
+  "workflow_id": "75585c72-cce4-4c60-9c3c-c23cc69a45f2",
+  "status": "pending",
+  "resume_token": "f937a337-0087-42e6-8221-977b5b6ea6ae",
+  "progress": 0,
+  "parameters": {
+    "title": "MLEA 7a",
+    "summary_markdown": "Learner is a beginner in MLOPs",
+    "difficulty_level": "beginner",
+    "question_count": 5,
+    "passing_score": 70,
+    "time_limit_minutes": 90,
+    "slide_count": 12,
+    "domain_distribution": {
+      "Data Engineering": 2,
+      "Exploratory Data Analysis": 1,
+      "Modeling": 1,
+      "Machine Learning Implementation and Operations": 1
+    },
+    "include_avatar": true,
+    "notes_markdown": "",
+    "generation_method": "ai_generated"
+  },
+  "created_at": "2025-10-05T20:30:54",
+  "updated_at": "2025-10-05T20:31:33.226653"
+}
