@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional, Callable, Any
 from datetime import datetime
 from uuid import uuid4
+import os
 
 # Add sales-agent-labs directory to path for Google Slides imports
 # This file is at: .../sales-agent-labs/presgen-assess/src/service/presgen_core_client.py
@@ -135,6 +136,8 @@ class PresGenCoreClient:
                 else:
                     progress_callback(progress, step)
 
+        presentation_id = presentation_url = None
+        slides_content: list[str] = []
         try:
             # ========== STEP 1: Create Google Slides Presentation ==========
             await call_progress(5, "Creating Google Slides presentation")
@@ -152,31 +155,68 @@ class PresGenCoreClient:
                     sys.path.insert(0, str(sales_agent_labs_dir))
                 from src.agent.slides_google import create_presentation, create_main_slide_with_content
 
-            # Build presentation content
             presentation_title = content_spec.title
-
-            # Create title slide content
             title_content = f"{content_spec.title}\n{content_spec.subtitle or ''}"
 
-            # Build content for slides from outline
             slides_content = []
             if content_spec.content_outline and isinstance(content_spec.content_outline, dict):
-                content_items = content_spec.content_outline.get('content_items', [])
+                content_items = content_spec.content_outline.get("content_items", [])
+                log_slides = os.getenv("PRESGEN_LOG_SLIDE_OUTLINE", "false").lower() == "true"
+                logger.info("log_slides: %s", log_slides)
+                if log_slides:
+                    logger.info(
+                        "📝 Slide outline logging enabled | workflow_id=%s | skill_id=%s | total_items=%s",
+                        getattr(content_spec, "workflow_id", "unknown"),
+                        getattr(content_spec, "skill_id", "unknown"),
+                        len(content_items),
+                    )
+
                 for item in content_items:
-                    topic = item.get('topic', '')
-                    source = item.get('source', '')
+                    topic = item.get("topic", "")
+                    source = item.get("source", "")
                     slides_content.append(f"{topic}\n\nSource: {source}")
 
-            logger.info(f"📊 Creating Google Slides | title={presentation_title} | slides={len(slides_content)}")
+                if log_slides and content_items:
+                    for idx, item in enumerate(content_items, start=1):
+                        topic = (item.get("topic") or "").strip()
+                        source = (item.get("source") or "").strip()
+                        summary = (item.get("summary") or item.get("description") or "").strip()
+                        if summary and len(summary) > 300:
+                            summary = summary[:297] + "..."
+                        key_points = item.get("key_points")
+                        if isinstance(key_points, list):
+                            key_points_str = "; ".join(str(point) for point in key_points[:8])
+                            if len(key_points) > 8:
+                                key_points_str += "; …"
+                        else:
+                            key_points_str = None
+                        page_ref = (item.get("page_ref") or "").strip()
 
-            # Create the presentation
+                        logger.info(
+                            "📝 Slide outline | idx=%s | topic=%s | source=%s | page_ref=%s | summary=%s | key_points=%s",
+                            idx,
+                            topic or "N/A",
+                            source or "N/A",
+                            page_ref or "N/A",
+                            summary or "N/A",
+                            key_points_str or "N/A",
+                        )
+                elif log_slides and not content_items:
+                    logger.info(
+                        "📝 Slide outline | workflow_id=%s | skill_id=%s | message=No content items available",
+                        getattr(content_spec, "workflow_id", "unknown"),
+                        getattr(content_spec, "skill_id", "unknown"),
+                    )
+
+            logger.info("📊 Creating Google Slides | title=%s | slides=%s", presentation_title, len(slides_content))
+
             presentation_id, presentation_url = create_presentation(
                 title=presentation_title,
-                content="\n\n".join(slides_content) if slides_content else "Presentation content"
+                content="\n\n".join(slides_content) if slides_content else "Presentation content",
             )
 
             await call_progress(30, "Google Slides created")
-            logger.info(f"✅ Slides created | id={presentation_id} | url={presentation_url}")
+            logger.info("✅ Slides created | id=%s | url=%s", presentation_id, presentation_url)
 
             # ========== STEP 2: Set public permissions ==========
             await call_progress(35, "Setting public permissions")
@@ -185,16 +225,15 @@ class PresGenCoreClient:
             from googleapiclient.discovery import build
 
             creds = _load_credentials()
-            drive_service = build('drive', 'v3', credentials=creds)
+            drive_service = build("drive", "v3", credentials=creds)
 
-            # Make presentation publicly readable
             drive_service.permissions().create(
                 fileId=presentation_id,
-                body={'type': 'anyone', 'role': 'reader'}
+                body={"type": "anyone", "role": "reader"},
             ).execute()
 
             await call_progress(40, "Public permissions set")
-            logger.info(f"🌐 Presentation is now public | url={presentation_url}")
+            logger.info("🌐 Presentation is now public | url=%s", presentation_url)
 
             # ========== STEP 3: Generate video with PresGen-Core ==========
             await call_progress(45, "Generating presentation video")
