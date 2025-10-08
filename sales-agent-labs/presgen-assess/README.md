@@ -58,6 +58,23 @@ AI-powered certification assessment and presentation generation with RAG-enhance
    # Edit .env with your configuration
    ```
 
+### Google Slides OAuth setup
+
+PresGen-Core now authenticates to Google Slides with an OAuth client + user token pair:
+
+1. Place your OAuth desktop credentials at `oauth_slides_client.json` (or update `OAUTH_CLIENT_JSON` in `.env`).
+2. Generate/refresh the token before running the services:
+   ```bash
+   source .venv/bin/activate
+   export PYTHONPATH=/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs:$PYTHONPATH
+   python src/agent/slides_google.py --auth
+   ```
+3. Confirm `token.json` exists at the path referenced by `OAUTH_TOKEN_PATH`.
+4. Optional overrides:
+   - `PRESGEN_CORE_VOICE_PROFILE` (default: `OpenAI Demo Voice (Your Audio)`)
+   - `PRESGEN_CORE_QUALITY_LEVEL` (default: `fast`)
+   - `PRESGEN_CORE_USE_CACHE` (default: `false`)
+
 3. **Setup database**:
    ```bash
    # Create PostgreSQL database
@@ -71,6 +88,54 @@ AI-powered certification assessment and presentation generation with RAG-enhance
    ```bash
    uvicorn src.service.app:app --host 0.0.0.0 --port 8080 --reload
    ```
+
+### Ensure `src.agent.slides_google` is Importable
+
+The production presentation pipeline calls into the shared `src.agent.slides_google` module. If that import fails, PresGen-Core drops into mock mode and logs `⚠️ PresGen-Core mock path used`.
+
+Before starting Uvicorn:
+
+```bash
+cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs
+source .venv/bin/activate
+export PRESGEN_USE_MOCK=false
+echo $PRESGEN_USE_MOCK
+export PYTHONPATH=/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs:$PYTHONPATH
+python -c "import src.agent.slides_google"  
+cd presgen-assess
+uvicorn src.service.app:app --reload --port 8000
+
+cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs
+source .venv/bin/activate
+export PRESGEN_USE_MOCK=false
+echo $PRESGEN_USE_MOCK
+export PYTHONPATH=/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs:$PYTHONPATH
+python -c "import src.agent.slides_google"  
+cd presgen-assess
+uvicorn src.service.app:app --reload --port 8002
+
+cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs
+source .venv/bin/activate
+export PRESGEN_USE_MOCK=false
+echo $PRESGEN_USE_MOCK
+export PYTHONPATH=/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs:$PYTHONPATH
+python -c "import src.agent.slides_google"  
+uvicorn src.service.http:app --reload --port 8080
+
+cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/presgen-ui
+npm run dev
+
+# no output means success
+```
+
+Then launch the API from the same shell:
+
+```bash
+cd presgen-assess
+uvicorn src.service.app:app --reload --port 8000
+```
+
+Running outside the virtualenv or without the repository root on `PYTHONPATH` causes the slides module to be missing, so the service reverts to the mock PresGen-Core workflow.
 
 ## Authentication
 

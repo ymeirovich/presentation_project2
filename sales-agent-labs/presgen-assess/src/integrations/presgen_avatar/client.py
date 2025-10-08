@@ -205,6 +205,13 @@ class PresGenAvatarClient:
                 f"{self.base_url}/api/v1/workflows/"
                 f"{quote(workflow_id)}/skills/{quote(skill_id)}/generate-course"
             )
+            start_time = datetime.utcnow()
+            logger.info(
+                "🎯 avatar_client_pipeline | stage=request_start | workflow_id=%s | skill_id=%s | endpoint=%s",
+                workflow_id,
+                skill_id,
+                endpoint,
+            )
             response = await client.post(
                 endpoint,
                 json=request.model_dump(mode="json"),
@@ -214,9 +221,10 @@ class PresGenAvatarClient:
             data = response.json()
             result = self._parse_generate_response(workflow_id, skill_id, data)
             logger.info(
-                "✅ Avatar generation request accepted | job_id=%s | status=%s",
+                "✅ Avatar generation request accepted | job_id=%s | status=%s | duration_ms=%s",
                 result.job_id,
                 result.status,
+                int((datetime.utcnow() - start_time).total_seconds() * 1000),
             )
             return result
         except httpx.HTTPError as exc:

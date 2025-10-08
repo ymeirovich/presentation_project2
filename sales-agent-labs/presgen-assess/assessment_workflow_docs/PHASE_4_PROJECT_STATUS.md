@@ -4,6 +4,11 @@ _Last updated: 2025-10-03 20:30_
 
 ## Current Status – Sprint 3-4 Implementation In Progress ⏳
 
+### Sprint 4 Phase 9 Update (2025-10-08) – Planning Complete, Integration Pending
+- ✅ Authored the PresGen-Core HTTP integration plan and companion manual TDD checklist (Phase 9).
+- ✅ Documented outstanding requirements (real API contract, auth, status polling, error semantics) needed to move beyond the mock client.
+- ⏳ Implementation is blocked until PresGen-Core service owners confirm the HTTP contract; mock mode remains active in PresGen-Assess.
+
 ### Sprint 3 Deliverables (Gap Analysis → Presentations) – COMPLETE ✅
 - ✅ **Database Schema**: `generated_presentations` table with 30 fields
 - ✅ **Background Job System**: Async presentation generation with independent database sessions

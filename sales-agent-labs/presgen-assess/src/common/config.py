@@ -70,6 +70,9 @@ class Settings:
         if os.getenv("PRESGEN_USE_MOCK") is None
         else os.getenv("PRESGEN_USE_MOCK").lower() == "true"
     )
+    presgen_core_voice_profile: str = os.getenv("PRESGEN_CORE_VOICE_PROFILE", "OpenAI Demo Voice (Your Audio)")
+    presgen_core_quality_level: str = os.getenv("PRESGEN_CORE_QUALITY_LEVEL", "fast")
+    presgen_core_use_cache: bool = os.getenv("PRESGEN_CORE_USE_CACHE", "false").lower() == "true"
     avatar_output_dir: Path = Path(
         os.getenv("AVATAR_OUTPUT_DIR", PROJECT_ROOT / "presgen-assess" / "avatar-output")
     ).resolve()

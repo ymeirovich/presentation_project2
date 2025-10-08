@@ -1,5 +1,6 @@
 """Async workflow management API endpoints."""
 
+import asyncio
 from datetime import datetime
 import csv
 from io import StringIO
@@ -8,6 +9,7 @@ import shutil
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import sys
 from uuid import UUID
 
 import httpx
@@ -44,6 +46,13 @@ assessment_logger = get_assessment_logger()
 
 router = APIRouter()
 
+REPO_ROOT = Path(__file__).resolve().parents[6]
+SRC_ROOT = REPO_ROOT / "src"
+for path in (REPO_ROOT, SRC_ROOT):
+    str_path = str(path)
+    if str_path not in sys.path:
+        sys.path.insert(0, str_path)
+
 
 def _slugify_skill_name(value: str) -> str:
     """Convert a skill name to a filesystem-friendly slug."""
@@ -51,6 +60,141 @@ def _slugify_skill_name(value: str) -> str:
     slug = ''.join(ch.lower() if ch.isalnum() else '-' for ch in value)
     slug = '-'.join(part for part in slug.split('-') if part)
     return slug or 'skill'
+
+
+def _summarize_learning_objectives(obj: Any, limit: int = 5) -> List[str]:
+    """Normalize learning objectives into a short bullet list."""
+
+    bullets: List[str] = []
+    if isinstance(obj, list):
+        for item in obj:
+            if isinstance(item, str):
+                text = item.strip()
+                if text:
+                    bullets.append(text[:180])
+            elif isinstance(item, dict):
+                text = str(item.get("title") or item.get("text") or "").strip()
+                if text:
+                    bullets.append(text[:180])
+            if len(bullets) >= limit:
+                break
+    return bullets
+
+
+def _create_public_presentation(
+    *,
+    title: str,
+    subtitle: Optional[str],
+    bullets: List[str],
+    workflow_id: str,
+    skill_name: str,
+) -> str:
+    """Create and share a Google Slides deck, returning its edit URL."""
+
+    project_root = Path(__file__).resolve().parents[6]
+    src_root = project_root / "src"
+    for candidate in (project_root, src_root):
+        str_path = str(candidate)
+        if str_path not in sys.path:
+            sys.path.insert(0, str_path)
+
+    from src.agent.slides_google import (
+        create_presentation,
+        delete_default_slide,
+        create_main_slide_with_content,
+        _load_credentials,
+    )
+    from googleapiclient.discovery import build
+
+    logger.info(
+        "🎯 slides_generation | stage=create_start | workflow_id=%s | skill=%s",
+        workflow_id,
+        skill_name,
+    )
+
+    presentation = create_presentation(title)
+    presentation_id = presentation.get("presentationId")
+    if not presentation_id:
+        raise RuntimeError("Failed to obtain presentationId from Google Slides response")
+
+    presentation_url = presentation.get("presentationLink") or f"https://docs.google.com/presentation/d/{presentation_id}/edit"
+
+    try:
+        delete_default_slide(presentation_id)
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.debug(
+            "🎯 slides_generation | stage=delete_default_slide_failed | workflow_id=%s | skill=%s | error=%s",
+            workflow_id,
+            skill_name,
+            exc,
+        )
+
+    try:
+        create_main_slide_with_content(
+            presentation_id,
+            title=title,
+            subtitle=subtitle or "",
+            bullets=bullets or [f"Key concepts for {skill_name}"],
+            image_url=None,
+            script=None,
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        logger.warning(
+            "🎯 slides_generation | stage=create_slide_failed | workflow_id=%s | skill=%s | error=%s",
+            workflow_id,
+            skill_name,
+            exc,
+        )
+
+    creds = _load_credentials()
+    drive_service = build("drive", "v3", credentials=creds)
+    drive_service.permissions().create(
+        fileId=presentation_id,
+        body={"type": "anyone", "role": "reader"},
+    ).execute()
+
+    logger.info(
+        "🎯 slides_generation | stage=create_complete | workflow_id=%s | skill=%s | presentation_url=%s",
+        workflow_id,
+        skill_name,
+        presentation_url,
+    )
+
+    return presentation_url
+
+
+async def _ensure_presentation_deck(
+    course: GeneratedCourse,
+    skill_course: RecommendedCourse,
+    *,
+    workflow_id: str,
+    assessment_title: Optional[str],
+) -> str:
+    """Guarantee a Google Slides deck exists and return its URL."""
+
+    if course.presentation_url:
+        return course.presentation_url
+
+    title = course.course_title or f"Mastering {skill_course.skill_name}"
+    subtitle = assessment_title or skill_course.exam_domain
+    bullets = _summarize_learning_objectives(skill_course.learning_objectives)
+    skill_name = skill_course.skill_name
+    if not bullets and skill_course.course_description:
+        bullets = [skill_course.course_description.strip()[:180]]
+
+    loop = asyncio.get_running_loop()
+    presentation_url = await loop.run_in_executor(
+        None,
+        lambda: _create_public_presentation(
+            title=title,
+            subtitle=subtitle,
+            bullets=bullets,
+            workflow_id=workflow_id,
+            skill_name=skill_name,
+        ),
+    )
+
+    return presentation_url
 
 
 async def _build_gap_analysis_data(
@@ -2143,6 +2287,13 @@ async def generate_skill_course(
     from src.integrations.presgen_core.client import PresGenCoreClient, CircuitOpenError as CoreCircuitOpenError
     from src.integrations.presgen_core.schemas import PresGenPresentationRequest
 
+    request_started_at = datetime.utcnow()
+    logger.info(
+        "🎯 generate_course_pipeline | stage=request_received | workflow_id=%s | skill_id=%s",
+        workflow_id,
+        skill_id,
+    )
+
     workflow_id_str = str(workflow_id)
     workflow_id_normalized = workflow_id.hex
 
@@ -2154,6 +2305,11 @@ async def generate_skill_course(
     )
     workflow = result.scalar_one_or_none()
     if not workflow:
+        logger.warning(
+            "🎯 generate_course_pipeline | stage=workflow_missing | workflow_id=%s | skill_id=%s",
+            workflow_id,
+            skill_id,
+        )
         raise HTTPException(status_code=404, detail="Workflow not found")
 
     # 2. Fetch skill gap from recommended_courses
@@ -2174,6 +2330,12 @@ async def generate_skill_course(
         workflow_id=workflow_id_str,
         skill_name=skill_course.skill_name,
     )
+    logger.info(
+        "🎯 generate_course_pipeline | stage=course_loaded | workflow_id=%s | skill_id=%s | recommended_course_id=%s",
+        workflow_id,
+        skill_id,
+        skill_course.id,
+    )
 
     # 3. Get certification profile's custom prompt
     result = await db.execute(
@@ -2189,6 +2351,12 @@ async def generate_skill_course(
         workflow_id=workflow_id_str,
         has_custom_prompt=bool(custom_prompt),
         prompt_preview=(custom_prompt[:120] + '…') if custom_prompt and len(custom_prompt) > 120 else custom_prompt,
+    )
+    logger.info(
+        "🎯 generate_course_pipeline | stage=content_spec_prepared | workflow_id=%s | skill_id=%s | has_custom_prompt=%s",
+        workflow_id,
+        skill_id,
+        bool(custom_prompt),
     )
 
     timestamp_course_id = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
@@ -2238,6 +2406,8 @@ async def generate_skill_course(
         course.video_url = None
         course.error_message = None
         course.presgen_core_job_id = None
+        course.presgen_core_download_url = None
+        course.presgen_core_processing_time_ms = None
         course.presgen_avatar_job_id = None
         course.status = "pending"
         course.progress = 0
@@ -2262,6 +2432,54 @@ async def generate_skill_course(
 
         log_course_event("COURSE_RECORD_CREATED", workflow_id=workflow_id_str, course_id=course_id)
 
+    # Ensure a Google Slides deck exists before calling PresGen-Core
+    try:
+        presentation_url = await _ensure_presentation_deck(
+            course,
+            skill_course,
+            workflow_id=workflow_id_str,
+            assessment_title=getattr(workflow, "assessment_title", None),
+        )
+        if course.presentation_url != presentation_url:
+            course.presentation_url = presentation_url
+            await db.commit()
+            await db.refresh(course)
+
+        log_course_event(
+            "PRESENTATION_DECK_READY",
+            workflow_id=workflow_id_str,
+            course_id=course_id,
+            presentation_url=course.presentation_url,
+        )
+        logger.info(
+            "🎯 generate_course_pipeline | stage=slides_ready | workflow_id=%s | skill_id=%s | course_id=%s | presentation_url=%s",
+            workflow_id,
+            skill_id,
+            course_id,
+            course.presentation_url,
+        )
+    except Exception as exc:  # pylint: disable=broad-except
+        course.status = "failed"
+        course.progress = 0
+        course.error_message = f"Google Slides deck creation failed: {exc}"
+        await db.commit()
+        await db.refresh(course)
+
+        log_course_event(
+            "PRESENTATION_DECK_FAILED",
+            workflow_id=workflow_id_str,
+            course_id=course_id,
+            error=str(exc),
+        )
+        logger.warning(
+            "🎯 generate_course_pipeline | stage=slides_failed | workflow_id=%s | skill_id=%s | course_id=%s | error=%s",
+            workflow_id,
+            skill_id,
+            course_id,
+            exc,
+        )
+        raise HTTPException(status_code=502, detail="Failed to create Google Slides presentation") from exc
+
     # 5. Call PresGen-Core for presentation
     presgen_core = PresGenCoreClient(base_url=os.getenv("PRESGEN_CORE_URL"))
 
@@ -2271,6 +2489,12 @@ async def generate_skill_course(
     await db.refresh(course)
 
     log_course_event("PRESGEN_CORE_STARTED", workflow_id=workflow_id_str, course_id=course_id)
+    logger.info(
+        "🎯 generate_course_pipeline | stage=core_generation_start | workflow_id=%s | skill_id=%s | course_id=%s",
+        workflow_id,
+        skill_id,
+        course_id,
+    )
 
     # TODO: Implement actual PresGen-Core call
     # presgen_result = await presgen_core.generate_presentation(
@@ -2289,6 +2513,8 @@ async def generate_skill_course(
                 domain=skill_course.exam_domain,
                 target_duration_minutes=10,
                 custom_prompt=custom_prompt,
+                presentation_url=course.presentation_url,
+                content_text=skill_course.course_description,
                 metadata={
                     "workflow_id": workflow_id_str,
                     "skill_id": skill_id,
@@ -2309,6 +2535,13 @@ async def generate_skill_course(
             course_id=course_id,
             error=str(exc),
         )
+        logger.warning(
+            "🎯 generate_course_pipeline | stage=core_circuit_open | workflow_id=%s | skill_id=%s | course_id=%s | error=%s",
+            workflow_id,
+            skill_id,
+            course_id,
+            exc,
+        )
 
         raise HTTPException(status_code=503, detail="PresGen-Core temporarily unavailable") from exc
     except Exception as exc:  # pragma: no cover - error path exercised via manual test
@@ -2324,20 +2557,64 @@ async def generate_skill_course(
             course_id=course_id,
             error=str(exc),
         )
+        logger.warning(
+            "🎯 generate_course_pipeline | stage=core_failure | workflow_id=%s | skill_id=%s | course_id=%s | error=%s",
+            workflow_id,
+            skill_id,
+            course_id,
+            exc,
+        )
 
         raise HTTPException(status_code=502, detail="PresGen-Core generation failed") from exc
 
-    presentation_url = core_response.presentation_url
-    course.presentation_url = presentation_url
+    course.presgen_core_job_id = core_response.job_id
+    course.presgen_core_download_url = core_response.download_url
+    if core_response.duration_ms is not None:
+        course.presgen_core_processing_time_ms = core_response.duration_ms
+
+    presentation_url = core_response.presentation_url or course.presentation_url
+    if presentation_url:
+        course.presentation_url = presentation_url
+
+    if not core_response.success or core_response.error:
+        course.status = "failed"
+        course.progress = 0
+        course.error_message = core_response.error or "PresGen-Core reported failure"
+        await db.commit()
+        await db.refresh(course)
+
+        log_course_event(
+            "PRESGEN_CORE_FAILED",
+            workflow_id=workflow_id_str,
+            course_id=course_id,
+            job_id=core_response.job_id,
+            error=course.error_message,
+        )
+        logger.warning(
+            "🎯 generate_course_pipeline | stage=core_failure | workflow_id=%s | skill_id=%s | course_id=%s | job_id=%s | error=%s",
+            workflow_id,
+            skill_id,
+            course_id,
+            core_response.job_id,
+            course.error_message,
+        )
+        raise HTTPException(status_code=502, detail="PresGen-Core generation failed")
+
+    course.status = "generating_presentation"
     course.progress = 50
+    course.error_message = None
     await db.commit()
     await db.refresh(course)
 
     log_course_event(
         "PRESGEN_CORE_COMPLETED",
         workflow_id=workflow_id_str,
-        presentation_url=presentation_url,
+        course_id=course_id,
+        presentation_url=course.presentation_url,
         prompt_used=(core_response.prompt_used or custom_prompt),
+        job_id=core_response.job_id,
+        download_url=core_response.download_url,
+        processing_time_ms=core_response.duration_ms,
     )
 
     # 6. Call PresGen-Avatar for narration
@@ -2352,6 +2629,13 @@ async def generate_skill_course(
         "PRESGEN_AVATAR_STARTED",
         workflow_id=workflow_id_str,
         presentation_url=presentation_url,
+    )
+    logger.info(
+        "🎯 generate_course_pipeline | stage=avatar_generation_start | workflow_id=%s | skill_id=%s | course_id=%s | presentation_url=%s",
+        workflow_id,
+        skill_id,
+        course_id,
+        presentation_url,
     )
 
     try:
@@ -2377,6 +2661,13 @@ async def generate_skill_course(
             course_id=course_id,
             error=str(exc),
         )
+        logger.warning(
+            "🎯 generate_course_pipeline | stage=avatar_circuit_open | workflow_id=%s | skill_id=%s | course_id=%s | error=%s",
+            workflow_id,
+            skill_id,
+            course_id,
+            exc,
+        )
 
         raise HTTPException(status_code=503, detail="PresGen-Avatar temporarily unavailable") from exc
     except Exception as exc:  # pylint: disable=broad-except
@@ -2391,6 +2682,13 @@ async def generate_skill_course(
             workflow_id=workflow_id_str,
             course_id=course_id,
             error=course.error_message,
+        )
+        logger.warning(
+            "🎯 generate_course_pipeline | stage=avatar_failure | workflow_id=%s | skill_id=%s | course_id=%s | error=%s",
+            workflow_id,
+            skill_id,
+            course_id,
+            exc,
         )
 
         raise HTTPException(status_code=502, detail="PresGen-Avatar generation failed") from exc
@@ -2499,7 +2797,16 @@ async def generate_skill_course(
                 job_id=avatar_result.job_id,
                 local_path=str(mp4_path),
             )
+            logger.info(
+                "🎯 generate_course_pipeline | stage=course_completed | workflow_id=%s | skill_id=%s | course_id=%s | video_url=%s | total_duration_ms=%s",
+                workflow_id,
+                skill_id,
+                course_id,
+                course.video_url,
+                int((datetime.utcnow() - request_started_at).total_seconds() * 1000),
+            )
     finally:
+        await presgen_core.close()
         await avatar_client.close()
 
     return CourseGenerationResponse(
@@ -2510,11 +2817,15 @@ async def generate_skill_course(
         course_title=course.course_title,
         presentation_url=course.presentation_url,
         video_url=course.video_url,
+        presgen_core_job_id=course.presgen_core_job_id,
+        presgen_core_download_url=course.presgen_core_download_url,
+        presgen_avatar_job_id=course.presgen_avatar_job_id,
+        local_video_path=course.local_video_path,
         status=course.status,
         progress=course.progress,
         created_at=course.created_at,
         updated_at=course.updated_at,
-        completed_at=course.completed_at
+        completed_at=course.completed_at,
     )
 @router.get(
     "/{workflow_id}/courses/{course_id}/video",
@@ -2585,6 +2896,10 @@ async def list_generated_courses(
             course_title=course.course_title,
             presentation_url=course.presentation_url,
             video_url=course.video_url,
+            presgen_core_job_id=course.presgen_core_job_id,
+            presgen_core_download_url=course.presgen_core_download_url,
+            presgen_avatar_job_id=course.presgen_avatar_job_id,
+            local_video_path=course.local_video_path,
             status=course.status,
             progress=course.progress,
             created_at=course.created_at,
@@ -2627,5 +2942,7 @@ async def get_course_status(
         progress=course.progress,
         presentation_url=course.presentation_url,
         video_url=course.video_url,
+        presgen_core_job_id=course.presgen_core_job_id,
+        presgen_avatar_job_id=course.presgen_avatar_job_id,
         error_message=course.error_message
     )

@@ -6,8 +6,9 @@ import asyncio
 import logging
 import os
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Dict, Optional
 from uuid import uuid4
+from urllib.parse import urljoin
 
 import httpx
 
@@ -22,6 +23,14 @@ class CircuitOpenError(RuntimeError):
     """Raised when the circuit breaker is open for the client."""
 
 
+class PresGenCoreHTTPError(RuntimeError):
+    """Raised when PresGen-Core returns a non-success HTTP status."""
+
+
+class PresGenCoreTimeoutError(RuntimeError):
+    """Raised when PresGen-Core times out."""
+
+
 class PresGenCoreClient:
     """Client for PresGen-Core presentation generation with retry + circuit breaker."""
 
@@ -29,14 +38,38 @@ class PresGenCoreClient:
         self,
         base_url: Optional[str] = None,
         api_key: Optional[str] = None,
+        use_mock: Optional[bool] = None,
+        voice_profile_name: Optional[str] = None,
+        quality_level: Optional[str] = None,
+        use_cache: Optional[bool] = None,
         max_attempts: int = 3,
         base_backoff_seconds: float = 1.0,
         failure_threshold: int = 3,
         recovery_seconds: int = 60,
     ) -> None:
-        self.base_url = base_url or getattr(settings, "presgen_core_url", "http://localhost:8080")
-        self.api_key = api_key
+        configured_base = base_url or getattr(settings, "presgen_core_url", "http://localhost:8080")
+        self.base_url = configured_base.rstrip("/")
+        configured_key = api_key or os.getenv("PRESGEN_CORE_API_KEY")
+        self.api_key = configured_key
         self._timeout = httpx.Timeout(30.0)
+
+        default_mock = getattr(settings, "presgen_use_mock", None)
+        if default_mock is None:
+            default_mock = False
+        self.use_mock = use_mock if use_mock is not None else default_mock
+        self.voice_profile_name = voice_profile_name or getattr(
+            settings,
+            "presgen_core_voice_profile",
+            "OpenAI Demo Voice (Your Audio)",
+        )
+        self.quality_level = quality_level or getattr(
+            settings,
+            "presgen_core_quality_level",
+            "fast",
+        )
+        default_cache = getattr(settings, "presgen_core_use_cache", False)
+        self.use_cache = use_cache if use_cache is not None else default_cache
+        self._client: Optional[httpx.AsyncClient] = None
 
         self._max_attempts = max(1, max_attempts)
         self._base_backoff = base_backoff_seconds
@@ -51,19 +84,29 @@ class PresGenCoreClient:
         request: PresGenPresentationRequest,
     ) -> PresGenPresentationResponse:
         """Generate presentation for a skill with retry + circuit breaker."""
-
-        payload = request.model_dump(mode="json")
         last_exc: Optional[Exception] = None
 
         for attempt in range(1, self._max_attempts + 1):
             self._ensure_circuit_closed()
             try:
-                response = await self._mock_generate(request, payload)
+                if self.use_mock:
+                    response = await self._mock_generate(request)
+                else:
+                    response = await self._generate_via_http(request)
                 self._reset_failure_state()
                 return response
             except Exception as exc:  # pylint: disable=broad-except
                 last_exc = exc
                 self._record_failure(exc)
+                self._log_core_stage(
+                    "core_request_failed",
+                    request,
+                    {
+                        "attempt": attempt,
+                        "error": str(exc),
+                        "use_mock": self.use_mock,
+                    },
+                )
                 if attempt >= self._max_attempts:
                     logger.error(
                         "PresGen-Core generation failed after %s attempts | error=%s",
@@ -110,7 +153,6 @@ class PresGenCoreClient:
     async def _mock_generate(
         self,
         request: PresGenPresentationRequest,
-        payload: dict,
     ) -> PresGenPresentationResponse:
         """Mocked generation with optional forced failure for testing."""
 
@@ -125,21 +167,135 @@ class PresGenCoreClient:
         job_id = f"core_{uuid4().hex}"
         slide_count = max(8, min(20, request.target_duration_minutes + 5))
         presentation_url = f"https://drive.google.com/presentation/d/{job_id}/edit"
-        return PresGenPresentationResponse(
+        response = PresGenPresentationResponse(
             success=True,
             job_id=job_id,
             presentation_url=presentation_url,
             slide_count=slide_count,
             message="Presentation generated (mock)",
-            prompt_used=payload.get("custom_prompt"),
+            prompt_used=request.custom_prompt,
+        )
+        response.duration_ms = 0
+        self._log_core_stage(
+            "core_request_complete",
+            request,
+            {"job_id": job_id, "use_mock": True},
+        )
+        return response
+
+    async def _generate_via_http(
+        self,
+        request: PresGenPresentationRequest,
+    ) -> PresGenPresentationResponse:
+        payload = self._build_training_video_request(request)
+        self._log_core_stage(
+            "core_request_start",
+            request,
+            {
+                "voice_profile": payload.get("voice_profile_name"),
+                "quality_level": payload.get("quality_level"),
+                "use_cache": payload.get("use_cache"),
+                "has_slides": bool(payload.get("google_slides_url")),
+                "has_content_text": bool(payload.get("content_text")),
+            },
         )
 
-    async def _post(self, path: str, payload: dict) -> httpx.Response:
-        """Reserved for future real integration HTTP call."""
+        start = datetime.utcnow()
+        try:
+            response = await self._post_presentations("/training/presentation-only", payload)
+        except httpx.TimeoutException as exc:
+            raise PresGenCoreTimeoutError("PresGen-Core request timed out") from exc
+        except httpx.HTTPStatusError as exc:
+            raise PresGenCoreHTTPError(
+                f"PresGen-Core returned {exc.response.status_code}: {exc.response.text}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise PresGenCoreHTTPError(f"PresGen-Core transport error: {exc}") from exc
 
-        headers = {"Content-Type": "application/json"}
-        if self.api_key:
-            headers["Authorization"] = f"Bearer {self.api_key}"
+        data = response.json()
+        normalised = self._normalise_response(data)
+        result = PresGenPresentationResponse.model_validate(normalised)
+        result.prompt_used = result.prompt_used or request.custom_prompt
+        elapsed_ms = int((datetime.utcnow() - start).total_seconds() * 1000)
+        result.duration_ms = result.duration_ms or elapsed_ms
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            return await client.post(f"{self.base_url}{path}", json=payload, headers=headers)
+        self._log_core_stage(
+            "core_request_complete",
+            request,
+            {
+                "job_id": result.job_id,
+                "success": result.success,
+                "duration_ms": result.duration_ms,
+                "download_url": result.download_url,
+            },
+        )
+        return result
+
+    def _build_training_video_request(self, request: PresGenPresentationRequest) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "mode": request.metadata.get("mode") or "presentation_only",
+            "voice_profile_name": request.voice_profile_name or self.voice_profile_name,
+            "quality_level": request.quality_level or self.quality_level,
+            "use_cache": request.use_cache if request.use_cache is not None else self.use_cache,
+        }
+
+        slides_url = request.presentation_url or request.metadata.get("presentation_url")
+        if slides_url:
+            payload["google_slides_url"] = slides_url
+
+        content_text = request.content_text or request.custom_prompt
+        if content_text:
+            payload["content_text"] = content_text
+
+        reference_video = request.metadata.get("reference_video_path")
+        if reference_video:
+            payload["reference_video_path"] = reference_video
+
+        return payload
+
+    async def _post_presentations(self, path: str, payload: Dict[str, Any]) -> httpx.Response:
+        client = await self._get_client()
+        response = await client.post(path, json=payload)
+        response.raise_for_status()
+        return response
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            headers = {"Content-Type": "application/json"}
+            if self.api_key:
+                headers["Authorization"] = f"Bearer {self.api_key}"
+            self._client = httpx.AsyncClient(
+                base_url=self.base_url,
+                timeout=self._timeout,
+                headers=headers,
+            )
+        return self._client
+
+    def _normalise_response(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        result = dict(data)
+        download_url = result.get("download_url")
+        if download_url:
+            if download_url.startswith("/"):
+                result["download_url"] = urljoin(f"{self.base_url}/", download_url.lstrip("/"))
+        return result
+
+    def _log_core_stage(
+        self,
+        stage: str,
+        request: PresGenPresentationRequest,
+        extra: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        extra = extra or {}
+        workflow_id = request.metadata.get("workflow_id")
+        logger.info(
+            "PresGen-Core %s | workflow_id=%s | skill=%s | details=%s",
+            stage,
+            workflow_id,
+            request.skill,
+            extra,
+        )
+
+    async def close(self) -> None:
+        if self._client is not None:
+            await self._client.aclose()
+            self._client = None

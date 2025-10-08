@@ -127,6 +127,11 @@ class PresGenCoreClient:
         4. Return presentation URL and video URL (90-100%)
         """
         start_time = datetime.utcnow()
+        logger.info(
+            "🎬 core_client_pipeline | stage=start | workflow_id=%s | skill_id=%s",
+            getattr(content_spec, "workflow_id", "unknown"),
+            getattr(content_spec, "skill_id", "unknown"),
+        )
 
         # Helper to call progress callback (sync or async)
         async def call_progress(progress: int, step: str):
@@ -304,6 +309,13 @@ class PresGenCoreClient:
                         f"video_path={video_output_path} | "
                         f"video_success={success} | "
                         f"duration={actual_duration_ms}ms"
+                    )
+                    logger.info(
+                        "🎬 core_client_pipeline | stage=complete | workflow_id=%s | skill_id=%s | slides_url=%s | duration_ms=%s",
+                        getattr(content_spec, "workflow_id", "unknown"),
+                        getattr(content_spec, "skill_id", "unknown"),
+                        presentation_url,
+                        actual_duration_ms,
                     )
 
                     # Final progress update

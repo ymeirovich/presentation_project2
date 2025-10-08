@@ -351,6 +351,7 @@ export async function generateSkillCourse(
   workflowId: string,
   skillId: string
 ): Promise<CourseGenerationResponse> {
+  const startedAt = Date.now()
   const response = await fetch(
     buildUrl(`/workflows/${workflowId}/skills/${skillId}/generate-course`),
     {
@@ -359,7 +360,19 @@ export async function generateSkillCourse(
     }
   )
 
-  return parseResponse<CourseGenerationResponse>(response, CourseGenerationResponseSchema)
+  const result = await parseResponse<CourseGenerationResponse>(response, CourseGenerationResponseSchema)
+  console.info(
+    JSON.stringify({
+      scope: 'ui.generateCourse',
+      stage: 'api_response_parsed',
+      workflowId,
+      skillId,
+      status: result.status,
+      courseId: result.course_id,
+      duration_ms: Date.now() - startedAt,
+    })
+  )
+  return result
 }
 
 export async function fetchGeneratedCourses(workflowId: string): Promise<CourseGenerationResponse[]> {
@@ -376,6 +389,7 @@ export async function fetchCourseStatus(
   workflowId: string,
   courseId: string
 ): Promise<CourseStatusResponse> {
+  const startedAt = Date.now()
   const response = await fetch(
     buildUrl(`/workflows/${workflowId}/courses/${courseId}/status`),
     {
@@ -384,5 +398,16 @@ export async function fetchCourseStatus(
     }
   )
 
-  return parseResponse<CourseStatusResponse>(response, CourseStatusResponseSchema)
+  const result = await parseResponse<CourseStatusResponse>(response, CourseStatusResponseSchema)
+  console.info(
+    JSON.stringify({
+      scope: 'ui.courseStatus',
+      workflowId,
+      courseId,
+      status: result.status,
+      progress: result.progress,
+      duration_ms: Date.now() - startedAt,
+    })
+  )
+  return result
 }

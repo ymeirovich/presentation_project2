@@ -289,6 +289,10 @@ class CourseGenerationResponse(BaseModel):
     course_title: Optional[str] = None
     presentation_url: Optional[str] = None
     video_url: Optional[str] = None
+    presgen_core_job_id: Optional[str] = None
+    presgen_core_download_url: Optional[str] = None
+    presgen_avatar_job_id: Optional[str] = None
+    local_video_path: Optional[str] = None
     status: str
     progress: int = Field(..., ge=0, le=100)
     created_at: datetime
@@ -322,6 +326,8 @@ class CourseStatusResponse(BaseModel):
     progress: int = Field(..., ge=0, le=100, description="Progress percentage")
     presentation_url: Optional[str] = None
     video_url: Optional[str] = None
+    presgen_core_job_id: Optional[str] = None
+    presgen_avatar_job_id: Optional[str] = None
     error_message: Optional[str] = None
 
     class Config:
