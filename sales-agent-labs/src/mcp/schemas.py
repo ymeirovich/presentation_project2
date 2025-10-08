@@ -80,7 +80,7 @@ class SlidesCreateParams(BaseModel):
 
     aspect: Literal["16:9", "4:3"] = "16:9"
     share_image_public: bool = True
-    use_cache: bool = PRESGEN_USE_CACHE  # Use environment variable for cache control
+    use_cache: bool = Field(default_factory=_get_cache_setting)  # Use environment variable for cache control
 
 
 class SlidesCreateResult(BaseModel):

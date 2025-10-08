@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from typing import Any, Dict, Optional, Tuple, List
 
@@ -141,18 +142,24 @@ def slides_create_tool(params: dict) -> dict:
     """
     p = SlidesCreateParams.model_validate(params)
 
+    env_cache_override = os.getenv("PRESGEN_USE_CACHE")
+    if env_cache_override is not None:
+        effective_use_cache = env_cache_override.lower() == "true"
+    else:
+        effective_use_cache = p.use_cache
+
     jlog(
         log,
         logging.INFO,
         tool="slides.create",
         event="use_cache_value",
-        use_cache=p.use_cache,
+        use_cache=effective_use_cache,
         client_request_id=p.client_request_id,
     )
 
     # 1) Idempotency: check file-backed cache (only if use_cache=True)
     cache = load_cache()
-    if p.use_cache and p.client_request_id and p.client_request_id in cache:
+    if effective_use_cache and p.client_request_id and p.client_request_id in cache:
         pres_id, slide_id, url = cache[p.client_request_id]
         jlog(
             log,
@@ -284,6 +291,41 @@ def slides_create_tool(params: dict) -> dict:
     # 5) Build content slide
     bullets: List[str] = list(p.bullets or [])
     script_text: str = p.script or ""
+
+    log_slides = os.getenv("PRESGEN_LOG_SLIDE_OUTLINE", "false").lower() == "true"
+    jlog(
+        log,
+        logging.INFO,
+        tool="slides.create",
+        event="outline_logging_enabled",
+        enabled=log_slides,
+        req_id=p.client_request_id,
+    )
+
+    if log_slides:
+        jlog(
+            log,
+            logging.INFO,
+            tool="slides.create",
+            event="outline_summary",
+            title=(p.title or "").strip(),
+            subtitle=(p.subtitle or "").strip(),
+            bullets="; ".join(bullets) if bullets else "N/A",
+            script_length=len(script_text),
+            req_id=p.client_request_id,
+        )
+        if script_text:
+            preview = script_text.strip()
+            if len(preview) > 200:
+                preview = preview[:197] + "..."
+            jlog(
+                log,
+                logging.INFO,
+                tool="slides.create",
+                event="outline_script_preview",
+                script_preview=preview,
+                req_id=p.client_request_id,
+            )
     
     jlog(log, logging.INFO, tool="slides.create", event="slides_api_begin", 
          presentation_id=pres_id, has_image=bool(image_url), req_id=p.client_request_id)

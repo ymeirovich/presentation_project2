@@ -196,6 +196,34 @@ class GoogleSlidesProcessor:
                     processed_slides.append(slide_data)
                     total_duration += slide_data.estimated_duration
 
+            log_slides = os.getenv("PRESGEN_LOG_SLIDE_OUTLINE", "false").lower() == "true"
+            self.logger.info("log_slides: ", log_slides)
+            if log_slides:
+                self.logger.info(
+                    "📝 Slide outline logging enabled | presentation_id=%s | title=%s | slide_count=%s",
+                    presentation_id,
+                    presentation_title,
+                    len(processed_slides),
+                )
+                if processed_slides:
+                    for slide_entry in processed_slides:
+                        notes = (slide_entry.notes_text or "").strip()
+                        if notes and len(notes) > 300:
+                            notes = notes[:297] + "..."
+                        self.logger.info(
+                            "📝 Slide outline | idx=%s | title=%s | duration=%.2fs | image_url=%s | notes=%s",
+                            slide_entry.slide_order,
+                            (slide_entry.title or "Untitled").strip() or "Untitled",
+                            slide_entry.estimated_duration,
+                            slide_entry.slide_image_url or "N/A",
+                            notes or "N/A",
+                        )
+                else:
+                    self.logger.info(
+                        "📝 Slide outline | presentation_id=%s | message=No slides processed",
+                        presentation_id,
+                    )
+
             processing_time = time.time() - start_time
 
             self.logger.info(f"Google Slides processing completed in {processing_time:.2f}s")

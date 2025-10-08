@@ -15,6 +15,7 @@ from ..schemas import SummarizeParams, SummarizeResult
 from src.common.config import cfg
 from src.common.jsonlog import jlog
 from src.agent.prompts import MULTI_SLIDE_SYSTEM_PROMPT
+from .imagen import _load_vertex_credentials
 
 log = logging.getLogger("mcp.tools.llm")
 
@@ -40,7 +41,7 @@ def _call_gemini_once(p: SummarizeParams) -> Dict[str, Any]:
     if not project:
         raise RuntimeError("GOOGLE_CLOUD_PROJECT is not set")
 
-    vertex_init(project=project, location=region)
+    vertex_init(project=project, location=region, credentials=_load_vertex_credentials())
 
     model_name = cfg("llm", "model", default="models/gemini-2.0-flash-001")
     temperature = cfg("llm", "temperature", default=0.2)
