@@ -2356,6 +2356,8 @@ async def generate_skill_course(
 
     try:
         avatar_result = await avatar_client.generate_video(
+            workflow_id=workflow_id_str,
+            skill_id=skill_id,
             presentation_url=presentation_url,
             mode="presentation-only",
             quality="fast",
@@ -2393,8 +2395,9 @@ async def generate_skill_course(
 
         raise HTTPException(status_code=502, detail="PresGen-Avatar generation failed") from exc
     else:
+        avatar_api_mode = (avatar_result.context or {}).get("api_mode")
         course.presgen_avatar_job_id = avatar_result.job_id
-        course.progress = max(course.progress, avatar_result.progress or 70)
+        course.progress = max(course.progress, avatar_result.progress or course.progress or 70)
         await db.commit()
         await db.refresh(course)
 
@@ -2407,7 +2410,7 @@ async def generate_skill_course(
         )
 
         final_status = avatar_result
-        if avatar_result.status not in {"completed", "failed"}:
+        if avatar_api_mode != "course" and avatar_result.status not in {"completed", "failed"}:
             final_status = await avatar_client.poll_until_complete(avatar_result.job_id)
             log_course_event(
                 "PRESGEN_AVATAR_PROGRESS",
@@ -2417,7 +2420,29 @@ async def generate_skill_course(
                 progress=final_status.progress,
             )
 
-        if final_status.status == "failed":
+        if avatar_api_mode == "course":
+            if final_status.status == "failed":
+                course.status = "failed"
+                course.progress = final_status.progress or course.progress
+                course.error_message = final_status.error_message or "PresGen-Avatar generation failed"
+                await db.commit()
+                await db.refresh(course)
+
+                log_course_event(
+                    "COURSE_GENERATION_FAILED",
+                    workflow_id=workflow_id_str,
+                    job_id=avatar_result.job_id,
+                    error=course.error_message,
+                )
+
+                raise HTTPException(status_code=502, detail="PresGen-Avatar generation failed")
+
+            course.progress = final_status.progress or course.progress
+            if final_status.video_url and not course.video_url:
+                course.video_url = str(final_status.video_url)
+            await db.commit()
+            await db.refresh(course)
+        elif final_status.status == "failed":
             course.status = "failed"
             course.progress = final_status.progress or course.progress
             course.error_message = final_status.error_message or "PresGen-Avatar generation failed"
@@ -2433,46 +2458,47 @@ async def generate_skill_course(
 
             raise HTTPException(status_code=502, detail="PresGen-Avatar generation failed")
 
-        job_output_dir = settings.avatar_output_dir / workflow_id_str / "jobs" / course_id
-        job_output_dir.mkdir(parents=True, exist_ok=True)
-        output_filename = f"avatar-{skill_slug}-{course_id}.mp4"
-        mp4_path = job_output_dir / output_filename
+        if avatar_api_mode != "course":
+            job_output_dir = settings.avatar_output_dir / workflow_id_str / "jobs" / course_id
+            job_output_dir.mkdir(parents=True, exist_ok=True)
+            output_filename = f"avatar-{skill_slug}-{course_id}.mp4"
+            mp4_path = job_output_dir / output_filename
 
-        if final_status.video_url:
-            try:
-                if str(final_status.video_url).startswith("http"):
-                    async with httpx.AsyncClient(timeout=None) as client:
-                        async with client.stream("GET", str(final_status.video_url)) as stream:
-                            stream.raise_for_status()
-                            with mp4_path.open("wb") as fh:
-                                async for chunk in stream.aiter_bytes():
-                                    fh.write(chunk)
-                else:
-                    source_path = Path(str(final_status.video_url))
-                    if source_path.exists():
-                        shutil.copy2(source_path, mp4_path)
-            except Exception as exc:  # pylint: disable=broad-except
-                logger.warning(
-                    "Failed to copy avatar output from %s | error=%s",
-                    final_status.video_url,
-                    exc,
-                )
+            if final_status.video_url:
+                try:
+                    if str(final_status.video_url).startswith("http"):
+                        async with httpx.AsyncClient(timeout=None) as client:
+                            async with client.stream("GET", str(final_status.video_url)) as stream:
+                                stream.raise_for_status()
+                                with mp4_path.open("wb") as fh:
+                                    async for chunk in stream.aiter_bytes():
+                                        fh.write(chunk)
+                    else:
+                        source_path = Path(str(final_status.video_url))
+                        if source_path.exists():
+                            shutil.copy2(source_path, mp4_path)
+                except Exception as exc:  # pylint: disable=broad-except
+                    logger.warning(
+                        "Failed to copy avatar output from %s | error=%s",
+                        final_status.video_url,
+                        exc,
+                    )
 
-        course.video_url = f"{settings.api_v1_prefix}/workflows/{workflow_id_str}/courses/{course_id}/video"
-        course.local_video_path = str(mp4_path)
-        course.status = "completed"
-        course.progress = final_status.progress or 100
-        course.completed_at = datetime.utcnow()
-        await db.commit()
-        await db.refresh(course)
+            course.video_url = f"{settings.api_v1_prefix}/workflows/{workflow_id_str}/courses/{course_id}/video"
+            course.local_video_path = str(mp4_path)
+            course.status = "completed"
+            course.progress = final_status.progress or 100
+            course.completed_at = datetime.utcnow()
+            await db.commit()
+            await db.refresh(course)
 
-        log_course_event(
-            "COURSE_GENERATION_COMPLETED",
-            workflow_id=workflow_id_str,
-            video_url=course.video_url,
-            job_id=avatar_result.job_id,
-            local_path=str(mp4_path),
-        )
+            log_course_event(
+                "COURSE_GENERATION_COMPLETED",
+                workflow_id=workflow_id_str,
+                video_url=course.video_url,
+                job_id=avatar_result.job_id,
+                local_path=str(mp4_path),
+            )
     finally:
         await avatar_client.close()
 

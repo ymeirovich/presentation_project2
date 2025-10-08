@@ -9,123 +9,15 @@ import time
 from typing import Dict, Optional, Tuple, Any
 
 from googleapiclient.errors import HttpError
+from google.api_core import exceptions as gexc  # we'll use this in Fix 2 as well
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials as UserCredentials
 from vertexai import init as vertex_init
 from vertexai.preview.vision_models import ImageGenerationModel
 
 from ..schemas import GenerateImageParams, GenerateImageResult  # repo schemas
 from src.agent.slides_google import upload_image_to_drive
 from src.common.config import cfg
-from google.api_core import exceptions as gexc  # we'll use this in Fix 2 as well
-
-
-log = logging.getLogger("mcp.tools.imagen")
-
-# ------------ Safe defaults / fallbacks ---------------------------------------
-
-_FALLBACK_ASPECT_TO_SIZE: Dict[str, Tuple[int, int]] = {
-    "16:9": (1280, 720),
-    "4:3": (1024, 768),
-    "1:1": (1024, 1024),
-}
-
-
-def _parse_size(s: Optional[str]) -> Optional[Tuple[int, int]]:
-    """Accept '1280x720' or '1280×720'. Returns (w, h) or None."""
-    if not s:
-        return None
-    m = re.match(r"^\s*(\d+)\s*[x×]\s*(\d+)\s*$", s)
-    if not m:
-        return None
-    return int(m.group(1)), int(m.group(2))
-
-
-def _get_sizes_map() -> Dict[str, Tuple[int, int]]:
-    """
-    Pull sizes from config if present; else use fallback.
-    Expecting cfg('defaults','imagen_sizes') like {'16:9':[1280,720], ...}.
-    """
-    try:
-        sizes_cfg = cfg("defaults", "imagen_sizes")
-        if isinstance(sizes_cfg, dict) and sizes_cfg:
-            out: Dict[str, Tuple[int, int]] = {}
-            for k, v in sizes_cfg.items():
-                if isinstance(v, (list, tuple)) and len(v) == 2:
-                    try:
-                        out[str(k)] = (int(v[0]), int(v[1]))
-                    except Exception:
-                        continue
-            if out:
-                return out
-    except Exception:
-        pass
-    return _FALLBACK_ASPECT_TO_SIZE
-
-
-# ------------ Retry helpers ---------------------------------------------------
-
-
-def _retryable_http(e: Exception) -> bool:
-    # Vertex / HTTP retryables
-    status = getattr(getattr(e, "resp", None), "status", None)
-    if status in (429, 500, 502, 503, 504):
-        return True
-    # gRPC/Vertex typed exceptions that should NOT be retried
-    if isinstance(
-        e, (gexc.FailedPrecondition, gexc.PermissionDenied, gexc.InvalidArgument)
-    ):
-        return False
-    return False
-
-
-def _backoff_retry(fn, *, attempts: int = 4, base: float = 0.6):
-    for i in range(attempts):
-        try:
-            return fn()
-        except Exception as e:
-            if i >= attempts - 1 or not _retryable_http(e):
-                raise
-            delay = base * (2**i)
-            log.warning(
-                "Retryable HTTP error: %s; sleeping %.2fs", type(e).__name__, delay
-            )
-            time.sleep(delay)
-
-
-# ------------ API compatibility helpers --------------------------------------
-
-
-def _normalize_safety(tier: Optional[str]) -> str:
-    """
-    Schema values → Imagen allowed values.
-    - default, block_only_high  -> block_some  (widely allowed)
-    - block_most                -> block_most
-    Anything else               -> block_some
-    """
-    t = (tier or "default").strip().lower()
-    if t in ("default", "block_only_high"):
-        return "block_some"
-    if t == "block_most":
-        return "block_most"
-    return "block_some"
-
-
-# src/mcp/tools/imagen.py
-import inspect
-import logging
-import os
-import pathlib
-import re
-import time
-from typing import Dict, Optional, Tuple, Any
-
-from googleapiclient.errors import HttpError
-from vertexai import init as vertex_init
-from vertexai.preview.vision_models import ImageGenerationModel
-
-from ..schemas import GenerateImageParams, GenerateImageResult  # repo schemas
-from src.agent.slides_google import upload_image_to_drive
-from src.common.config import cfg
-from google.api_core import exceptions as gexc  # we'll use this in Fix 2 as well
 
 
 log = logging.getLogger("mcp.tools.imagen")
@@ -171,6 +63,41 @@ def _get_sizes_map() -> Dict[str, Tuple[int, int]]:
     except Exception:
         pass
     return _FALLBACK_ASPECT_TO_SIZE
+
+
+VERTEX_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
+
+
+def _load_vertex_credentials():
+    """Load OAuth credentials for Vertex with quota project support."""
+    token_path = pathlib.Path(os.getenv("OAUTH_TOKEN_PATH", "token.json"))
+    quota_project = os.getenv("GOOGLE_QUOTA_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT")
+    creds: Optional[UserCredentials] = None
+
+    if token_path.exists():
+        creds = UserCredentials.from_authorized_user_file(str(token_path))
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        if not creds or not creds.has_scopes([VERTEX_SCOPE]):
+            raise RuntimeError(
+                "OAuth token missing required 'cloud-platform' scope. "
+                "Re-run generate_unified_token.py and approve the Google Cloud access prompt."
+            )
+    else:
+        # Fallback to default ADC if token missing; rely on quota env
+        import google.auth
+
+        creds, _ = google.auth.default(
+            scopes=[VERTEX_SCOPE],
+            quota_project_id=quota_project
+        )
+
+    if quota_project and creds and hasattr(creds, "with_quota_project"):
+        try:
+            creds = creds.with_quota_project(quota_project)
+        except Exception as exc:
+            log.warning("Failed to attach quota project %s to Vertex creds: %s", quota_project, exc)
+    return creds
 
 
 # ------------ Retry helpers ---------------------------------------------------
@@ -289,7 +216,7 @@ def image_generate_tool(params: dict) -> dict:
     if not project:
         raise RuntimeError("GOOGLE_CLOUD_PROJECT is not set")
 
-    vertex_init(project=project, location=region)
+    vertex_init(project=project, location=region, credentials=_load_vertex_credentials())
 
     # Determine dimensions
     aspect = (p.aspect or "16:9").strip()
@@ -367,7 +294,7 @@ def image_generate_tool(params: dict) -> dict:
     if not project:
         raise RuntimeError("GOOGLE_CLOUD_PROJECT is not set")
 
-    vertex_init(project=project, location=region)
+    vertex_init(project=project, location=region, credentials=_load_vertex_credentials())
 
     # Determine dimensions
     aspect = (p.aspect or "16:9").strip()

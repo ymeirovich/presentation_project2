@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, Optional
 from pathlib import Path
+import os
 
 try:
     from google.oauth2 import service_account
@@ -63,7 +64,7 @@ class GoogleAuthManager:
 
             logger.debug("Loaded Google OAuth credentials from %s (scopes: %s)",
                         self.user_token_path, credentials.scopes)
-            return credentials
+            return self._apply_quota_project(credentials)
 
         # Fall back to service account credentials if configured.
         if self.credentials_path:
@@ -75,7 +76,7 @@ class GoogleAuthManager:
                 scopes=self.scopes,
             )
             logger.debug("Loaded Google service account credentials from %s", self.credentials_path)
-            return credentials
+            return self._apply_quota_project(credentials)
 
         raise FileNotFoundError(
             "No Google OAuth token or service account credentials available"
@@ -103,3 +104,12 @@ class GoogleAuthManager:
         except Exception as exc:  # pragma: no cover
             logger.error("Unexpected error while validating permissions: %s", exc)
             return {"valid": False, "error": str(exc)}
+
+    def _apply_quota_project(self, credentials):
+        quota_project = os.getenv("GOOGLE_QUOTA_PROJECT") or settings.google_cloud_project
+        if quota_project and hasattr(credentials, "with_quota_project"):
+            try:
+                credentials = credentials.with_quota_project(quota_project)
+            except Exception as exc:  # pragma: no cover - diagnostic logging only
+                logger.warning("Failed to attach quota project %s: %s", quota_project, exc)
+        return credentials

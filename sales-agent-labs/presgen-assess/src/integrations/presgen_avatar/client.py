@@ -7,6 +7,7 @@ import logging
 import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
+from urllib.parse import quote
 from uuid import uuid4
 
 import httpx
@@ -52,6 +53,7 @@ class PresGenAvatarClient:
         self._recovery_delta = timedelta(seconds=max(1, recovery_seconds))
         self._failure_count = 0
         self._circuit_reset_at: Optional[datetime] = None
+        self._job_context: Dict[str, Dict[str, Any]] = {}
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -60,6 +62,9 @@ class PresGenAvatarClient:
 
     async def generate_video(
         self,
+        *,
+        workflow_id: str,
+        skill_id: str,
         presentation_url: str,
         mode: str = "presentation-only",
         quality: str = "fast",
@@ -70,6 +75,17 @@ class PresGenAvatarClient:
     ) -> AvatarGenerationResponse:
         """Trigger video generation via PresGen-Avatar with retry + circuit breaker."""
 
+        workflow_id = str(workflow_id).strip()
+        skill_id = str(skill_id).strip()
+        if not workflow_id:
+            raise ValueError("workflow_id is required for PresGen-Avatar generation")
+        if not skill_id:
+            raise ValueError("skill_id is required for PresGen-Avatar generation")
+
+        request_metadata: Dict[str, Any] = dict(metadata or {})
+        request_metadata.setdefault("workflow_id", workflow_id)
+        request_metadata.setdefault("skill_id", skill_id)
+
         request = AvatarGenerationRequest(
             presentation_url=presentation_url,
             mode=mode,
@@ -79,15 +95,16 @@ class PresGenAvatarClient:
                 voice_id=voice_id,
                 language=language,
             ),
-            metadata=metadata or {},
+            metadata=request_metadata,
         )
 
         last_exc: Optional[Exception] = None
         for attempt in range(1, self._max_attempts + 1):
             self._ensure_circuit_closed()
             try:
-                response = await self._send_generate_request(request)
+                response = await self._send_generate_request(workflow_id, skill_id, request)
                 self._reset_failure_state()
+                self._register_job_context(response, workflow_id, skill_id)
                 return response
             except Exception as exc:  # pylint: disable=broad-except
                 last_exc = exc
@@ -117,6 +134,19 @@ class PresGenAvatarClient:
         if self.use_mock:
             return await self._mock_status(job_id)
 
+        context = self._job_context.get(job_id)
+        if context and context.get("api_mode") == "course":
+            workflow_id = context.get("workflow_id")
+            course_id = context.get("course_id") or job_id
+            try:
+                return await self._fetch_course_status(workflow_id, course_id)
+            except httpx.HTTPError as exc:
+                logger.warning(
+                    "PresGen-Avatar course status check failed (%s); falling back to mock completion",
+                    exc,
+                )
+                return await self._mock_status(job_id)
+
         try:
             client = await self._get_client()
             response = await client.get(
@@ -125,7 +155,11 @@ class PresGenAvatarClient:
             )
             response.raise_for_status()
             data = response.json()
-            return AvatarJobStatus.model_validate(data)
+            status = AvatarJobStatus.model_validate(data)
+            status.status = self._normalize_status(status.status)
+            status.progress = self._coerce_progress(status.progress)
+            status.raw_response = data if isinstance(data, dict) else {"value": data}
+            return status
         except httpx.HTTPError as exc:
             logger.warning("PresGen-Avatar status check failed (%s); returning mock completion", exc)
             return await self._mock_status(job_id)
@@ -158,6 +192,8 @@ class PresGenAvatarClient:
 
     async def _send_generate_request(
         self,
+        workflow_id: str,
+        skill_id: str,
         request: AvatarGenerationRequest,
     ) -> AvatarGenerationResponse:
         if self.use_mock:
@@ -165,19 +201,24 @@ class PresGenAvatarClient:
 
         try:
             client = await self._get_client()
+            endpoint = (
+                f"{self.base_url}/api/v1/workflows/"
+                f"{quote(workflow_id)}/skills/{quote(skill_id)}/generate-course"
+            )
             response = await client.post(
-                f"{self.base_url}/api/v1/avatar/generate",
+                endpoint,
                 json=request.model_dump(mode="json"),
                 headers=self._headers,
             )
             response.raise_for_status()
             data = response.json()
+            result = self._parse_generate_response(workflow_id, skill_id, data)
             logger.info(
                 "✅ Avatar generation request accepted | job_id=%s | status=%s",
-                data.get("job_id"),
-                data.get("status", "unknown"),
+                result.job_id,
+                result.status,
             )
-            return AvatarGenerationResponse.model_validate(data)
+            return result
         except httpx.HTTPError as exc:
             logger.warning("PresGen-Avatar HTTP error (%s); switching to mock", exc)
             return await self._mock_generate(request)
@@ -215,7 +256,7 @@ class PresGenAvatarClient:
 
         await asyncio.sleep(0)
         job_id = f"avatar_{uuid4().hex}"
-        return AvatarGenerationResponse(
+        response = AvatarGenerationResponse(
             success=True,
             job_id=job_id,
             status="pending",
@@ -223,15 +264,25 @@ class PresGenAvatarClient:
             progress=10,
             estimated_duration_seconds=120,
         )
+        response.context = {
+            "api_mode": "mock",
+            "workflow_id": request.metadata.get("workflow_id"),
+            "skill_id": request.metadata.get("skill_id"),
+            "course_id": job_id,
+        }
+        response.raw_response = {"mock": True}
+        return response
 
     async def _mock_status(self, job_id: str) -> AvatarJobStatus:
         await asyncio.sleep(0)
-        return AvatarJobStatus(
+        status = AvatarJobStatus(
             job_id=job_id,
             status="completed",
             progress=100,
             video_url=f"https://storage.googleapis.com/avatar-videos/{job_id}.mp4",
         )
+        status.raw_response = {"mock": True}
+        return status
 
     async def close(self) -> None:
         """Close the underlying HTTP client."""
@@ -239,3 +290,148 @@ class PresGenAvatarClient:
         if self._client is not None:
             await self._client.aclose()
             self._client = None
+
+    def _parse_generate_response(
+        self,
+        workflow_id: str,
+        skill_id: str,
+        data: Any,
+    ) -> AvatarGenerationResponse:
+        if isinstance(data, dict) and "course_id" in data:
+            return self._convert_course_response(workflow_id, skill_id, data)
+
+        result = AvatarGenerationResponse.model_validate(data)
+        result.status = self._normalize_status(result.status)
+        result.progress = self._coerce_progress(result.progress)
+        result.raw_response = data if isinstance(data, dict) else {"value": data}
+        result.context = {
+            "workflow_id": workflow_id,
+            "skill_id": skill_id,
+            "course_id": result.course_id or result.job_id,
+            "api_mode": "legacy",
+        }
+        if not result.job_id:
+            result.job_id = result.course_id or uuid4().hex
+        return result
+
+    def _convert_course_response(
+        self,
+        workflow_id: str,
+        skill_id: str,
+        data: Dict[str, Any],
+    ) -> AvatarGenerationResponse:
+        course_id_raw = str(data.get("course_id") or "").strip()
+        course_id = course_id_raw or None
+        job_id = (
+            str(data.get("presgen_avatar_job_id") or "").strip()
+            or str(data.get("job_id") or "").strip()
+            or course_id_raw
+            or uuid4().hex
+        )
+        normalized_status = self._normalize_status(data.get("status"))
+        progress = self._coerce_progress(data.get("progress"))
+        video_url = data.get("video_url")
+        if not isinstance(video_url, str):
+            video_url = None
+        else:
+            video_url = video_url.strip() or None
+
+        response = AvatarGenerationResponse(
+            success=normalized_status != "failed",
+            job_id=job_id,
+            status=normalized_status,
+            message=data.get("message") or data.get("error_message"),
+            progress=progress,
+            video_url=video_url,
+            estimated_duration_seconds=data.get("estimated_duration_seconds"),
+            course_id=course_id,
+            workflow_id=str(data.get("workflow_id") or workflow_id),
+            skill_id=str(data.get("skill_id") or skill_id),
+        )
+        response.context = {
+            "workflow_id": workflow_id,
+            "skill_id": skill_id,
+            "course_id": course_id or job_id,
+            "api_mode": "course",
+        }
+        response.raw_response = data
+        return response
+
+    def _register_job_context(
+        self,
+        response: AvatarGenerationResponse,
+        workflow_id: str,
+        skill_id: str,
+    ) -> None:
+        if not response.job_id:
+            return
+
+        context = dict(response.context or {})
+        context.setdefault("workflow_id", workflow_id)
+        context.setdefault("skill_id", skill_id)
+        context.setdefault("course_id", response.course_id or response.job_id)
+        context.setdefault("api_mode", "course" if response.course_id else context.get("api_mode", "legacy"))
+        response.context = context
+        self._job_context[response.job_id] = context
+
+    async def _fetch_course_status(self, workflow_id: str, course_id: str) -> AvatarJobStatus:
+        client = await self._get_client()
+        endpoint = (
+            f"{self.base_url}/api/v1/workflows/"
+            f"{quote(str(workflow_id))}/courses/{quote(str(course_id))}/status"
+        )
+        response = await client.get(endpoint, headers=self._headers)
+        response.raise_for_status()
+        data = response.json()
+        normalized_status = self._normalize_status(data.get("status"))
+        progress = self._coerce_progress(data.get("progress"))
+        video_url = data.get("video_url")
+        if not isinstance(video_url, str):
+            video_url = None
+        else:
+            video_url = video_url.strip() or None
+
+        job_status = AvatarJobStatus(
+            job_id=str(course_id),
+            status=normalized_status,
+            progress=progress,
+            video_url=video_url,
+            error_message=data.get("error_message"),
+        )
+        job_status.raw_response = data if isinstance(data, dict) else {"value": data}
+        return job_status
+
+    @staticmethod
+    def _normalize_status(status: Optional[str]) -> str:
+        if status is None:
+            return "pending"
+        value = str(status).strip().lower()
+        if not value:
+            return "pending"
+
+        if value in {"pending", "queued", "queued_initialization"}:
+            return "pending"
+        if value in {
+            "running",
+            "in_progress",
+            "processing",
+            "generating",
+            "generating_video",
+            "polling",
+        }:
+            return "running"
+        if value in {"completed", "done", "success", "succeeded"}:
+            return "completed"
+        if value in {"failed", "error", "errored"} or "fail" in value or "error" in value:
+            return "failed"
+        return "running"
+
+    @staticmethod
+    def _coerce_progress(progress: Any) -> Optional[int]:
+        if progress is None:
+            return None
+        try:
+            value = int(progress)
+        except (TypeError, ValueError):
+            return None
+        return max(0, min(100, value))

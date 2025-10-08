@@ -32,6 +32,15 @@ def _gen_id(prefix: str) -> str:
     # Slides objectIds must be <= 50 chars, letters/numbers/_
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
 
+def _apply_quota_project(creds: Credentials) -> Credentials:
+    quota_project = os.getenv("GOOGLE_QUOTA_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT")
+    if quota_project and hasattr(creds, "with_quota_project"):
+        try:
+            creds = creds.with_quota_project(quota_project)
+        except Exception as exc:  # pragma: no cover - logging helps diagnose quota issues
+            log.warning("Failed to attach quota project %s: %s", quota_project, exc)
+    return creds
+
 def _load_credentials() -> Credentials:
     SLIDES_SCOPE = "https://www.googleapis.com/auth/presentations"
     DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file"
@@ -54,7 +63,7 @@ def _load_credentials() -> Credentials:
                 scopes=SCOPES
             )
             log.info("✅ Successfully authenticated with service account")
-            return creds
+            return _apply_quota_project(creds)
         except Exception as e:
             if force_service_account:
                 log.error(f"❌ Service account authentication failed and OAuth fallback disabled: {e}")
@@ -79,7 +88,7 @@ def _load_credentials() -> Credentials:
         if creds and creds.valid and creds.has_scopes(SCOPES):
             log.debug("Using cached OAuth token from %s", TOKEN_PATH)
             log.debug("Active OAuth scopes: %s", getattr(creds, "scopes", None))
-            return creds
+            return _apply_quota_project(creds)
         else:
             # Either invalid or missing scopes — discard and re-consent
             try:
@@ -101,7 +110,7 @@ def _load_credentials() -> Credentials:
     TOKEN_PATH.write_text(creds.to_json(), encoding="utf-8")
     log.info("Saved OAuth token to %s", TOKEN_PATH)
     log.debug("Active OAuth scopes: %s", getattr(creds, "scopes", None))
-    return creds
+    return _apply_quota_project(creds)
 
 
 def _slides_service(creds: Credentials):

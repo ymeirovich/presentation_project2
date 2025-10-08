@@ -7,10 +7,13 @@ from pathlib import Path
 
 # All scopes needed by all services
 ALL_SCOPES = [
-    'https://www.googleapis.com/auth/spreadsheets',      # Google Sheets
-    'https://www.googleapis.com/auth/drive.file',         # Google Drive
-    'https://www.googleapis.com/auth/presentations',      # Google Slides
-    'https://www.googleapis.com/auth/script.projects'     # Apps Script
+    "https://www.googleapis.com/auth/spreadsheets",        # Google Sheets
+    "https://www.googleapis.com/auth/drive.file",          # Google Drive
+    "https://www.googleapis.com/auth/presentations",       # Google Slides
+    "https://www.googleapis.com/auth/forms.body",          # Google Forms
+    "https://www.googleapis.com/auth/forms.responses.readonly",  # Forms responses
+    "https://www.googleapis.com/auth/cloud-platform",      # Vertex / general GCP APIs
+    "https://www.googleapis.com/auth/script.projects",     # Apps Script
 ]
 
 OAUTH_CLIENT_PATH = '/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/oauth_slides_client.json'
