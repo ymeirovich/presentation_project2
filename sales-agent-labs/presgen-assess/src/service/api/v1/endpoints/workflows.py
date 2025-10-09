@@ -91,19 +91,15 @@ def _create_public_presentation(
 ) -> str:
     """Create and share a Google Slides deck, returning its edit URL."""
 
-    project_root = Path(__file__).resolve().parents[6]
-    src_root = project_root / "src"
-    for candidate in (project_root, src_root):
-        str_path = str(candidate)
-        if str_path not in sys.path:
-            sys.path.insert(0, str_path)
+    # Import Google Slides module using helper to handle namespace collision
+    from common.google_slides_import_v2 import get_slides_google
+    slides_google = get_slides_google()
 
-    from src.agent.slides_google import (
-        create_presentation,
-        delete_default_slide,
-        create_main_slide_with_content,
-        _load_credentials,
-    )
+    create_presentation = slides_google.create_presentation
+    delete_default_slide = slides_google.delete_default_slide
+    create_main_slide_with_content = slides_google.create_main_slide_with_content
+    _load_credentials = slides_google._load_credentials
+
     from googleapiclient.discovery import build
 
     logger.info(

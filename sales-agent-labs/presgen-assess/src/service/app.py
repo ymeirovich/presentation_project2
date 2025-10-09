@@ -27,6 +27,16 @@ async def lifespan(app: FastAPI):
 
     logger.info("🚀 Starting PresGen-Assess application")
 
+    # Run startup validation checks
+    from src.service.startup_checks import log_startup_diagnostics
+    startup_ok = log_startup_diagnostics()
+    if not startup_ok:
+        logger.warning(
+            "⚠️  Startup validation checks failed. "
+            "Service will continue but may encounter errors. "
+            "Set PRESGEN_USE_MOCK=true to use mock mode."
+        )
+
     # Initialize database
     try:
         await init_db()

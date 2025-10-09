@@ -85,57 +85,65 @@ PresGen-Core now authenticates to Google Slides with an OAuth client + user toke
    ```
 
 4. **Start application**:
+
+   **Option A: Using the convenience script (recommended)**
+
    ```bash
-   uvicorn src.service.app:app --host 0.0.0.0 --port 8080 --reload
+   cd presgen-assess
+   source .venv/bin/activate  # Activate virtualenv
+   ./run_server.sh            # Development mode with auto-reload
+   # OR
+   ./run_server.sh --production  # Production mode without auto-reload
    ```
 
-### Ensure `src.agent.slides_google` is Importable
+   **Option B: Manual start with PYTHONPATH**
 
-The production presentation pipeline calls into the shared `src.agent.slides_google` module. If that import fails, PresGen-Core drops into mock mode and logs `⚠️ PresGen-Core mock path used`.
+   ```bash
+   cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs
+   source .venv/bin/activate
+   export PRESGEN_USE_MOCK=false
+   export PYTHONPATH=/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs:$PYTHONPATH
+   cd presgen-assess
+   uvicorn main:app --reload --port 8000
+   ```
 
-Before starting Uvicorn:
+### Important: PYTHONPATH Requirement
+
+The production presentation pipeline requires `src.agent.slides_google` from the parent `sales-agent-labs` directory.
+
+**Key Points:**
+
+- ✅ Use [run_server.sh](run_server.sh) - automatically sets PYTHONPATH
+- ✅ Set PYTHONPATH before starting uvicorn manually
+- ❌ Starting without PYTHONPATH causes `No module named 'src.agent'` errors
+
+**Verify Google Slides module is importable:**
 
 ```bash
 cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs
 source .venv/bin/activate
-export PRESGEN_USE_MOCK=false
-echo $PRESGEN_USE_MOCK
 export PYTHONPATH=/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs:$PYTHONPATH
-python -c "import src.agent.slides_google"  
-cd presgen-assess
-uvicorn src.service.app:app --reload --port 8000
+python -c "import src.agent.slides_google"  # Should complete without error
+```
 
+**Multi-service startup for full stack:**
+
+```bash
+# Terminal 1: PresGen-Assess (port 8000)
+cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/presgen-assess
+source ../. venv/bin/activate
+./run_server.sh
+
+# Terminal 2: PresGen-Core (port 8080)
 cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs
 source .venv/bin/activate
-export PRESGEN_USE_MOCK=false
-echo $PRESGEN_USE_MOCK
 export PYTHONPATH=/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs:$PYTHONPATH
-python -c "import src.agent.slides_google"  
-cd presgen-assess
-uvicorn src.service.app:app --reload --port 8002
-
-cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs
-source .venv/bin/activate
-export PRESGEN_USE_MOCK=false
-echo $PRESGEN_USE_MOCK
-export PYTHONPATH=/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs:$PYTHONPATH
-python -c "import src.agent.slides_google"  
 uvicorn src.service.http:app --reload --port 8080
 
+# Terminal 3: Frontend UI
 cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/presgen-ui
 npm run dev
-
-# no output means success
 ```
-
-Then launch the API from the same shell:
-
-```bash
-cd presgen-assess
-uvicorn src.service.app:app --reload --port 8000
-```
-
-Running outside the virtualenv or without the repository root on `PYTHONPATH` causes the slides module to be missing, so the service reverts to the mock PresGen-Core workflow.
 
 ## Authentication
 

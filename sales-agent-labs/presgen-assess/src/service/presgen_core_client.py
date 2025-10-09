@@ -147,18 +147,13 @@ class PresGenCoreClient:
             # ========== STEP 1: Create Google Slides Presentation ==========
             await call_progress(5, "Creating Google Slides presentation")
 
-            # Dynamic import to ensure sales-agent-labs is in path
-            try:
-                from src.agent.slides_google import create_presentation, create_main_slide_with_content
-            except ModuleNotFoundError:
-                # Path wasn't set correctly, try adding it now
-                import sys
-                from pathlib import Path
-                presgen_assess_dir = Path(__file__).parent.parent.parent.parent
-                sales_agent_labs_dir = presgen_assess_dir.parent
-                if str(sales_agent_labs_dir) not in sys.path:
-                    sys.path.insert(0, str(sales_agent_labs_dir))
-                from src.agent.slides_google import create_presentation, create_main_slide_with_content
+            # Import Google Slides module using helper to handle namespace collision
+            import sys
+            sys.path.insert(0, str(Path(__file__).parent.parent))  # Add src to path for common imports
+            from common.google_slides_import_v2 import get_slides_google
+            slides_google = get_slides_google()
+            create_presentation = slides_google.create_presentation
+            create_main_slide_with_content = slides_google.create_main_slide_with_content
 
             presentation_title = content_spec.title
             title_content = f"{content_spec.title}\n{content_spec.subtitle or ''}"
@@ -226,7 +221,7 @@ class PresGenCoreClient:
             # ========== STEP 2: Set public permissions ==========
             await call_progress(35, "Setting public permissions")
 
-            from src.agent.slides_google import _load_credentials
+            _load_credentials = slides_google._load_credentials
             from googleapiclient.discovery import build
 
             creds = _load_credentials()
