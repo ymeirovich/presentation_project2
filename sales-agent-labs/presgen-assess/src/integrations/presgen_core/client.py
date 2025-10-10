@@ -46,12 +46,18 @@ class PresGenCoreClient:
         base_backoff_seconds: float = 1.0,
         failure_threshold: int = 3,
         recovery_seconds: int = 60,
+        timeout_seconds: Optional[float] = None,
     ) -> None:
         configured_base = base_url or getattr(settings, "presgen_core_url", "http://localhost:8080")
         self.base_url = configured_base.rstrip("/")
         configured_key = api_key or os.getenv("PRESGEN_CORE_API_KEY")
         self.api_key = configured_key
-        self._timeout = httpx.Timeout(30.0)
+
+        # Configure timeout: default 600 seconds (10 minutes) for video generation
+        # Can be overridden via settings or parameter
+        default_timeout = getattr(settings, "presgen_core_timeout_seconds", 600.0)
+        configured_timeout = timeout_seconds if timeout_seconds is not None else default_timeout
+        self._timeout = httpx.Timeout(configured_timeout)
 
         default_mock = getattr(settings, "presgen_use_mock", None)
         if default_mock is None:
@@ -188,6 +194,21 @@ class PresGenCoreClient:
         request: PresGenPresentationRequest,
     ) -> PresGenPresentationResponse:
         payload = self._build_training_video_request(request)
+
+        # Enhanced logging of request payload
+        logger.info("=" * 80)
+        logger.info("📤 PresGen-Core REQUEST")
+        logger.info("  URL: %s%s", self.base_url, "/training/presentation-only")
+        logger.info("  Payload:")
+        for key, value in payload.items():
+            if key == "content_text" and value:
+                logger.info("    %s: %s... (%d chars)", key, str(value)[:100], len(value))
+            elif key == "google_slides_url" and value:
+                logger.info("    %s: %s", key, value)
+            else:
+                logger.info("    %s: %s", key, value)
+        logger.info("=" * 80)
+
         self._log_core_stage(
             "core_request_start",
             request,
@@ -204,20 +225,44 @@ class PresGenCoreClient:
         try:
             response = await self._post_presentations("/training/presentation-only", payload)
         except httpx.TimeoutException as exc:
+            logger.error("❌ PresGen-Core TIMEOUT after %s seconds", (datetime.utcnow() - start).total_seconds())
             raise PresGenCoreTimeoutError("PresGen-Core request timed out") from exc
         except httpx.HTTPStatusError as exc:
+            logger.error("❌ PresGen-Core HTTP ERROR %s: %s", exc.response.status_code, exc.response.text)
             raise PresGenCoreHTTPError(
                 f"PresGen-Core returned {exc.response.status_code}: {exc.response.text}"
             ) from exc
         except httpx.HTTPError as exc:
+            logger.error("❌ PresGen-Core TRANSPORT ERROR: %s", exc)
             raise PresGenCoreHTTPError(f"PresGen-Core transport error: {exc}") from exc
 
         data = response.json()
+
+        # Enhanced logging of response
+        logger.info("=" * 80)
+        logger.info("📥 PresGen-Core RESPONSE")
+        logger.info("  Status: %s", response.status_code)
+        logger.info("  Response data:")
+        for key, value in data.items():
+            if key == "message" and value and len(str(value)) > 200:
+                logger.info("    %s: %s... (%d chars)", key, str(value)[:200], len(str(value)))
+            else:
+                logger.info("    %s: %s", key, value)
+        logger.info("=" * 80)
+
         normalised = self._normalise_response(data)
         result = PresGenPresentationResponse.model_validate(normalised)
         result.prompt_used = result.prompt_used or request.custom_prompt
         elapsed_ms = int((datetime.utcnow() - start).total_seconds() * 1000)
         result.duration_ms = result.duration_ms or elapsed_ms
+
+        # Enhanced logging of parsed result
+        if not result.success or result.error:
+            logger.warning("⚠️  PresGen-Core returned success=False or error:")
+            logger.warning("  success: %s", result.success)
+            logger.warning("  error: %s", result.error)
+            logger.warning("  job_id: %s", result.job_id)
+            logger.warning("  message: %s", result.message)
 
         self._log_core_stage(
             "core_request_complete",
@@ -227,6 +272,8 @@ class PresGenCoreClient:
                 "success": result.success,
                 "duration_ms": result.duration_ms,
                 "download_url": result.download_url,
+                "error": result.error,
+                "slide_count": result.slide_count,
             },
         )
         return result
