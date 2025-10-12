@@ -2650,12 +2650,12 @@ async def generate_skill_course(
         or 20
     )
 
-    def _format_prompt_template(template: Optional[str]) -> Optional[str]:
+    async def _format_prompt_template(template: Optional[str]) -> Optional[str]:
         """Format presentation prompt template with available variables.
 
-        Note: This formats simple instruction prompts for PresGen-Core, NOT complex LLM templates.
-        If template contains many unresolved variables, a default prompt is returned.
-        See PHASE_10_CRITICAL_FINDINGS.md for details on prompt architecture.
+        Now supports full variable substitution including course data and RAG context.
+        Uses simplified variable names (e.g., {skill_name} instead of {course_record.skill_name}).
+        Retrieves filtered RAG context based on learning objectives (1-2s retrieval cost acceptable).
         """
         if not template:
             # Return sensible default for PresGen-Core
@@ -2669,15 +2669,112 @@ Narration should be conversational and ≤ 75 seconds per slide."""
             def __missing__(self, key):
                 return "{" + key + "}"
 
-        # ✅ Phase 10 Task 3.1 Extension - Log variables BEFORE substitution
+        # ✅ Phase 10 Full Implementation - Retrieve RAG context filtered by learning objectives
+        rag_retrieval_start = datetime.utcnow()
+        knowledge_base_context = ""
+        rag_citations = []
+
+        try:
+            from src.knowledge.base import RAGKnowledgeBase
+            rag_kb = RAGKnowledgeBase()
+
+            # Use learning objectives as queries to filter source transcripts
+            learning_objectives = skill_course.learning_objectives or []
+            queries = [q for q in learning_objectives if isinstance(q, str)]
+            if not queries:
+                queries = [skill_course.skill_name]
+
+            combined_context_parts = []
+
+            for query in queries[:3]:  # Top 3 learning objectives
+                result = await rag_kb.retrieve_context_for_assessment(
+                    query=query,
+                    certification_id=str(workflow.certification_profile_id),
+                    k=6,  # 6 chunks per query
+                    balance_sources=True
+                )
+                context_text = result.get("combined_context")
+                if context_text:
+                    combined_context_parts.append(f"### Context for '{query}'\n{context_text}")
+                rag_citations.extend(result.get("citations", []) or [])
+
+            knowledge_base_context = "\n\n".join(combined_context_parts)
+
+            rag_retrieval_duration = (datetime.utcnow() - rag_retrieval_start).total_seconds()
+
+            # ✅ Phase 10 Task 2.1 - Log RAG context collection
+            logger.info(
+                json.dumps({
+                    "event": "rag_context_collected_for_presentation_prompt",
+                    "workflow_id": workflow_id_str,
+                    "course_id": str(skill_course.id),
+                    "skill_name": skill_course.skill_name,
+                    "queries_used": queries[:3],
+                    "chunks_retrieved": len(rag_citations),
+                    "total_chars": len(knowledge_base_context),
+                    "retrieval_duration_seconds": rag_retrieval_duration,
+                    "citations": [
+                        {
+                            "source": c.get("source"),
+                            "relevance_score": c.get("score"),
+                            "chunk_preview": c.get("text", "")[:100] + "...",
+                        }
+                        for c in rag_citations[:5]  # Top 5 most relevant
+                    ],
+                })
+            )
+
+        except Exception as exc:
+            logger.warning(
+                f"⚠️ RAG context retrieval failed: {exc}",
+                extra={"workflow_id": workflow_id_str}
+            )
+            knowledge_base_context = ""
+
+        # ✅ Phase 10 Full Implementation - Populate all course data with simplified variable names
         import re
         variables_in_template = re.findall(r"\{([^}]+)\}", template)
 
-        values = _SafeDict({"slide_count": requested_slide_count})
-        question_count_param = workflow_parameters.get("question_count")
-        if question_count_param:
-            values["question_count"] = question_count_param
+        # Build values dict with all available course data
+        content_outline = skill_course.content_outline or {}
+        sections = content_outline.get("sections", []) if isinstance(content_outline, dict) else []
 
+        values = _SafeDict({
+            # Slide configuration
+            "slide_count": requested_slide_count,
+            "question_count": workflow_parameters.get("question_count"),
+
+            # Course metadata (simplified variable names)
+            "skill_name": skill_course.skill_name,
+            "course_title": skill_course.course_title,
+            "course_description": skill_course.course_description or "",
+            "estimated_duration_minutes": skill_course.estimated_duration_minutes or 60,
+            "difficulty_level": skill_course.difficulty_level or "intermediate",
+            "exam_domain": skill_course.exam_domain or "",
+
+            # Course structure
+            "learning_objectives": json.dumps(learning_objectives, indent=2),
+            "content_outline_sections": json.dumps(sections, indent=2),
+
+            # RAG context (filtered by learning objectives)
+            "knowledge_base_context": knowledge_base_context,
+
+            # Assessment data
+            "assessment_score": workflow.assessment_data.get("score") if isinstance(workflow.assessment_data, dict) else None,
+
+            # Gap analysis data
+            "priority_learning_areas": json.dumps(
+                workflow.gap_analysis_results.get("priority_learning_areas", [])
+                if isinstance(workflow.gap_analysis_results, dict) else []
+            ),
+            "overall_readiness_score": workflow.gap_analysis_results.get("overall_readiness_score")
+                if isinstance(workflow.gap_analysis_results, dict) else None,
+        })
+
+        # Remove None values to avoid "None" strings in output
+        values = _SafeDict({k: v for k, v in values.items() if v is not None})
+
+        # ✅ Phase 10 Task 3.1 - Log variables BEFORE substitution
         logger.info(
             json.dumps({
                 "event": "presentation_prompt_variable_check",
@@ -2685,13 +2782,15 @@ Narration should be conversational and ≤ 75 seconds per slide."""
                 "variables_found_in_template": variables_in_template,
                 "variables_available_for_substitution": list(values.keys()),
                 "unsubstituted_variables": [v for v in variables_in_template if v not in values],
+                "rag_context_available": len(knowledge_base_context) > 0,
+                "rag_context_chars": len(knowledge_base_context),
             })
         )
 
         try:
             formatted = template.format_map(values)
 
-            # ✅ Phase 10 Task 3.1 Extension - Validate AFTER substitution
+            # ✅ Phase 10 Task 3.1 - Validate AFTER substitution
             remaining_placeholders = re.findall(r"\{([^}]+)\}", formatted)
             logger.info(
                 json.dumps({
@@ -2699,29 +2798,17 @@ Narration should be conversational and ≤ 75 seconds per slide."""
                     "workflow_id": workflow_id_str,
                     "remaining_unresolved_variables": remaining_placeholders,
                     "substitution_complete": len(remaining_placeholders) == 0,
+                    "prompt_length_chars": len(formatted),
                 })
             )
 
-            # ✅ Phase 10 Critical Fix - Detect LLM templates with too many unresolved variables
-            if len(remaining_placeholders) > 5:
-                logger.warning(
-                    f"⚠️ Presentation prompt has {len(remaining_placeholders)} unresolved variables - likely an LLM template. "
-                    f"Using default PresGen-Core instructions instead. "
-                    f"See PHASE_10_CRITICAL_FINDINGS.md for details."
-                )
-                # Return default instead of broken template
-                return f"""Create a professional training presentation with {requested_slide_count} slides.
-Focus on clear explanations, practical examples, and learner engagement.
-Structure: Introduction → Core Concepts → Practical Applications → Review.
-Each slide should have 3-5 concise bullet points and instructor notes.
-Narration should be conversational and ≤ 75 seconds per slide."""
-
-            elif remaining_placeholders:
+            if remaining_placeholders:
                 logger.warning(
                     f"⚠️ Presentation prompt has {len(remaining_placeholders)} unresolved variables: {remaining_placeholders}"
                 )
 
             return formatted
+
         except Exception as exc:  # pragma: no cover - formatting errors surfaced via logs
             logger.warning(
                 "⚠️ Prompt formatting failed with exception; using default prompt",
@@ -2737,7 +2824,7 @@ Structure: Introduction → Core Concepts → Practical Applications → Review.
 Each slide should have 3-5 concise bullet points and instructor notes.
 Narration should be conversational and ≤ 75 seconds per slide."""
 
-    formatted_prompt = _format_prompt_template(custom_prompt)
+    formatted_prompt = await _format_prompt_template(custom_prompt)
     custom_prompt = formatted_prompt
 
     log_course_event(
