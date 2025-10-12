@@ -3,6 +3,7 @@
 ## Issue Summary
 
 **Date**: 2025-10-12
+**Updated**: 2025-10-12 (False-positive detection fix)
 **Severity**: High
 **Status**: ✅ Fixed
 
@@ -273,6 +274,90 @@ WHERE id = '455dae60065c4038b3df6d769b955dbb';
 
 ---
 
+## UPDATE: False-Positive Detection Fix (2025-10-12)
+
+### Issue: "OUTPUT FORMAT" Causing False Positives
+
+**Problem**: User created a revised non-YAML prompt with proper variable naming, but it still triggered LLM detection because it contained the text "OUTPUT FORMAT" as a section heading.
+
+**Log Evidence**:
+```json
+{
+  "event": "llm_prompt_template_detected",
+  "detected_indicators": ["OUTPUT FORMAT"],
+  "message": "Certification profile contains LLM prompt template (YAML-structured). Using default PresGen-Core instructions instead."
+}
+```
+
+**Impact**:
+- User's carefully crafted prompt was ignored
+- RAG retrieval skipped (no `rag_context_collected_for_presentation_prompt` event)
+- Variable substitution skipped (no `presentation_prompt_variable_check` event)
+- Default prompt used instead
+
+### Root Cause
+
+The detection logic was **too aggressive**:
+```python
+# Original (too broad)
+llm_prompt_indicators = ["description:", "inputs:", "roles:", "role: system", "OUTPUT FORMAT"]
+```
+
+"OUTPUT FORMAT" is a **common section heading** in instruction prompts, NOT a YAML structure indicator. Many legitimate non-YAML prompts use this heading to show expected output structure.
+
+### Solution
+
+Changed detection to only look for **actual YAML structure indicators**:
+
+```python
+# Updated (more accurate)
+yaml_structure_indicators = ["description:", "inputs:", "roles:", "role: system"]
+```
+
+**Rationale**: Only YAML keys like `description:`, `inputs:`, `roles:`, and `role: system` indicate true LLM prompt templates (YAML-structured, multi-part prompts designed for ChatGPT/Claude). Section headings like "OUTPUT FORMAT" are normal in instruction text.
+
+### Testing Results
+
+**Before Fix**:
+- ❌ User's non-YAML prompt triggered detection
+- ❌ "OUTPUT FORMAT" heading caused false positive
+- ❌ RAG retrieval and variable substitution skipped
+- ❌ Default prompt used (wasting user's work)
+
+**After Fix** (Expected):
+- ✅ Non-YAML prompts with "OUTPUT FORMAT" heading NOT detected
+- ✅ RAG retrieval happens (`rag_context_collected_for_presentation_prompt` event)
+- ✅ Variable substitution happens (`presentation_prompt_variable_check` event)
+- ✅ User's prompt actually used
+- ✅ Only true YAML prompts trigger detection
+
+### Updated Detection Criteria
+
+| Text in Prompt | Triggers Detection? | Reason |
+|----------------|---------------------|--------|
+| `description:` as YAML key | ✅ Yes | YAML structure |
+| `inputs:` as YAML key | ✅ Yes | YAML structure |
+| `roles:` as YAML key | ✅ Yes | YAML structure |
+| `role: system` as YAML key | ✅ Yes | YAML structure |
+| `OUTPUT FORMAT` as heading | ❌ No | Common section heading |
+| `Expected Output` | ❌ No | Plain text |
+| `JSON Structure` | ❌ No | Plain text |
+
+### Code Changes
+
+**File**: `src/service/api/v1/endpoints/workflows.py:2672-2685`
+
+```python
+# ✅ Detect LLM prompt templates (YAML/structured prompts for LLM use, not PresGen-Core)
+# Only detect actual YAML structure indicators, not common section headings like "OUTPUT FORMAT"
+yaml_structure_indicators = ["description:", "inputs:", "roles:", "role: system"]
+if any(indicator in template for indicator in yaml_structure_indicators):
+    logger.info(...)
+    return _get_default_prompt()
+```
+
+---
+
 **Date**: 2025-10-12
-**Status**: ✅ Fixed and tested
-**Next Step**: Deploy and verify `llm_prompt_template_detected` event appears in logs
+**Status**: ✅ Fixed (both YAML detection and false-positive issue)
+**Next Step**: Test with user's revised non-YAML prompt to verify RAG retrieval and variable substitution work correctly

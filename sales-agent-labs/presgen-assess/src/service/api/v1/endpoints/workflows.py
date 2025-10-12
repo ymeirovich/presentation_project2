@@ -2670,14 +2670,15 @@ Narration should be conversational and ≤ 75 seconds per slide."""
             return _get_default_prompt()
 
         # ✅ Detect LLM prompt templates (YAML/structured prompts for LLM use, not PresGen-Core)
-        llm_prompt_indicators = ["description:", "inputs:", "roles:", "role: system", "OUTPUT FORMAT"]
-        if any(indicator in template for indicator in llm_prompt_indicators):
+        # Only detect actual YAML structure indicators, not common section headings like "OUTPUT FORMAT"
+        yaml_structure_indicators = ["description:", "inputs:", "roles:", "role: system"]
+        if any(indicator in template for indicator in yaml_structure_indicators):
             logger.info(
                 json.dumps({
                     "event": "llm_prompt_template_detected",
                     "workflow_id": workflow_id_str,
                     "message": "Certification profile contains LLM prompt template (YAML-structured). Using default PresGen-Core instructions instead.",
-                    "detected_indicators": [ind for ind in llm_prompt_indicators if ind in template],
+                    "detected_indicators": [ind for ind in yaml_structure_indicators if ind in template],
                     "recommendation": "For PresGen-Core, use simple instruction text. For LLM outline generation, enable PRESGEN_REGENERATE_COURSE_OUTLINE.",
                 })
             )
