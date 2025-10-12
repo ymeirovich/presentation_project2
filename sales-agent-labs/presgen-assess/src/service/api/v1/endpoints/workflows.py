@@ -2658,13 +2658,45 @@ async def generate_skill_course(
             def __missing__(self, key):
                 return "{" + key + "}"
 
+        # ✅ Phase 10 Task 3.1 Extension - Log variables BEFORE substitution
+        import re
+        variables_in_template = re.findall(r"\{([^}]+)\}", template)
+
         values = _SafeDict({"slide_count": requested_slide_count})
         question_count_param = workflow_parameters.get("question_count")
         if question_count_param:
             values["question_count"] = question_count_param
 
+        logger.info(
+            json.dumps({
+                "event": "presentation_prompt_variable_check",
+                "workflow_id": workflow_id_str,
+                "variables_found_in_template": variables_in_template,
+                "variables_available_for_substitution": list(values.keys()),
+                "unsubstituted_variables": [v for v in variables_in_template if v not in values],
+            })
+        )
+
         try:
-            return template.format_map(values)
+            formatted = template.format_map(values)
+
+            # ✅ Phase 10 Task 3.1 Extension - Validate AFTER substitution
+            remaining_placeholders = re.findall(r"\{([^}]+)\}", formatted)
+            logger.info(
+                json.dumps({
+                    "event": "presentation_prompt_after_substitution",
+                    "workflow_id": workflow_id_str,
+                    "remaining_unresolved_variables": remaining_placeholders,
+                    "substitution_complete": len(remaining_placeholders) == 0,
+                })
+            )
+
+            if remaining_placeholders:
+                logger.warning(
+                    f"⚠️ Presentation prompt has {len(remaining_placeholders)} unresolved variables: {remaining_placeholders}"
+                )
+
+            return formatted
         except Exception as exc:  # pragma: no cover - formatting errors surfaced via logs
             logger.warning(
                 "⚠️ Prompt formatting failed; returning original template",
