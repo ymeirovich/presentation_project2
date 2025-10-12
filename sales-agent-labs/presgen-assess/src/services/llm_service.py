@@ -388,11 +388,31 @@ Always respond with valid JSON in the specified format."""
             target_slide_count=target_slide_count
         )
 
+        # ✅ Phase 10 Task 1.1 - Log COMPLETE LLM request (not just metadata)
         self._log_llm_event(
-            "refined_outline_request",
+            "refined_outline_request_full",
             {
                 "model": self.model,
-                "prompt_chars": len(prompt),
+                "temperature": 0.5,
+                "max_tokens": 2500,
+                "prompt_text": prompt,  # Full prompt
+                "recommended_course_summary": {
+                    "skill_name": recommended_course.get("skill_name"),
+                    "course_title": recommended_course.get("course_title"),
+                    "difficulty_level": recommended_course.get("difficulty_level"),
+                    "learning_objectives_count": len(recommended_course.get("learning_objectives", [])),
+                    "sections_count": len(recommended_course.get("sections", [])),
+                },
+                "rag_context_preview": rag_context[:500] + "..." if len(rag_context) > 500 else rag_context,
+                "rag_context_chars": len(rag_context),
+                "gap_analysis_summary": {
+                    "priority_learning_areas": gap_analysis.get("priority_learning_areas", []),
+                    "overall_readiness_score": gap_analysis.get("overall_readiness_score"),
+                },
+                "assessment_results_summary": {
+                    "score": assessment_results.get("score"),
+                    "domains_count": len(assessment_results.get("domain_scores", {})),
+                },
                 "target_slide_count": target_slide_count,
             },
         )
@@ -415,12 +435,20 @@ Always respond with valid JSON in the specified format."""
         )
 
         result_content = response.choices[0].message.content
+
+        # ✅ Phase 10 Task 1.2 - Log COMPLETE LLM response (not just preview)
         self._log_llm_event(
-            "refined_outline_response",
+            "refined_outline_response_full",
             {
-                "model": self.model,
-                "token_usage": getattr(response.usage, "total_tokens", None),
-                "response_preview": result_content[:200],
+                "raw_response": result_content,  # Complete LLM response
+                "token_usage": {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens,
+                },
+                "model": response.model,
+                "finish_reason": response.choices[0].finish_reason,
+                "response_length_chars": len(result_content),
             },
         )
 
@@ -589,9 +617,10 @@ Prioritize content that directly addresses the identified learning gaps.
         assessment_results: Dict[str, Any],
         target_slide_count: int
     ) -> str:
-        """Build prompt for regenerated course outline."""
+        """Build prompt for regenerated course outline with variable mapping validation."""
 
         course_title = recommended_course.get("course_title", "Untitled Course")
+        skill_name = recommended_course.get("skill_name", "Unknown Skill")
         description = recommended_course.get("course_description", "")
         estimated_minutes = recommended_course.get("estimated_duration_minutes", 60)
         difficulty = recommended_course.get("difficulty_level", "intermediate")
@@ -618,7 +647,34 @@ Prioritize content that directly addresses the identified learning gaps.
             indent=2,
         )
 
-        return f"""Regenerate and improve the course outline for a personalized certification training presentation.
+        # ✅ NEW: Phase 10 Task 3.1 - Variable Mapping Validation
+        # Log all variable mappings BEFORE substitution
+        variable_map = {
+            "course_record.skill_name": skill_name,
+            "course_record.course_title": course_title,
+            "course_record.course_description": description,
+            "course_record.estimated_duration_minutes": estimated_minutes,
+            "course_record.difficulty_level": difficulty,
+            "course_record.learning_objectives": learning_objectives,
+            "course_record.content_outline.sections": sections,
+            "knowledge_base_context": rag_context[:1000] + "..." if len(rag_context) > 1000 else rag_context,
+            "slide_count": target_slide_count,
+            "assessment_results.score": assessment_results.get("score"),
+            "gap_analysis.priority_learning_areas": gap_analysis.get("priority_learning_areas", []),
+        }
+
+        self._log_llm_event(
+            "prompt_variable_mapping",
+            {
+                "event_type": "before_substitution",
+                "variables": variable_map,
+                "presentation_prompt_template_preview": (prompt_block[:500] + "...") if len(prompt_block) > 500 else prompt_block,
+                "rag_context_available": len(rag_context) > 0,
+                "rag_context_chars": len(rag_context),
+            },
+        )
+
+        prompt = f"""Regenerate and improve the course outline for a personalized certification training presentation.
 
 ## Existing Recommended Course
 - Title: {course_title}
@@ -666,6 +722,28 @@ Prioritize content that directly addresses the identified learning gaps.
 - Ensure the outline flows from foundational concepts to advanced application.
 - Highlight where transcripts/exam guidelines influenced the outline.
 """
+
+        # ✅ NEW: Phase 10 Task 3.1 - Validate substitution completed
+        # Check for unresolved placeholders
+        import re
+        unresolved_placeholders = re.findall(r"\{[^}]+\}", prompt)
+
+        self._log_llm_event(
+            "prompt_after_substitution",
+            {
+                "event_type": "after_substitution",
+                "final_prompt_preview": prompt[:1000] + "..." if len(prompt) > 1000 else prompt,
+                "prompt_length_chars": len(prompt),
+                "unresolved_placeholders": unresolved_placeholders,
+                "substitution_success": len(unresolved_placeholders) == 0,
+                "rag_context_included": "Reference Transcripts and Exam Guidelines" in prompt and len(rag_block) > 50,
+            },
+        )
+
+        if unresolved_placeholders:
+            logger.warning(f"⚠️ Unresolved variables in refined outline prompt: {unresolved_placeholders}")
+
+        return prompt
 
     async def get_usage_stats(self) -> Dict:
         """Get current token usage statistics."""

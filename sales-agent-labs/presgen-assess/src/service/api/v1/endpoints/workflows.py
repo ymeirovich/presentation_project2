@@ -438,6 +438,28 @@ async def _ensure_presentation_deck(
         slide_count=len(slide_plans),
         subtitle=(assessment_title or skill_course.exam_domain or ""),
         outline_preview=outline_preview,
+        slide_plans=slide_plans,  # ✅ Phase 10 Task 4.1 - Include complete slide array
+    )
+
+    # ✅ Phase 10 Task 4.1 - Log complete PresGen-Core payload
+    logger.info(
+        json.dumps({
+            "event": "presgen_core_payload_full",
+            "workflow_id": workflow_id,
+            "course_id": getattr(course, "id", "unknown"),
+            "presentation_title": title,
+            "presentation_subtitle": subtitle,
+            "sections": [
+                {
+                    "slide_number": idx + 1,
+                    "title": plan.get("title"),
+                    "bullets": plan.get("bullets"),
+                    "instructor_notes": plan.get("instructor_notes"),
+                }
+                for idx, plan in enumerate(slide_plans)
+            ],
+            "total_slides": len(slide_plans),
+        })
     )
 
     loop = asyncio.get_running_loop()

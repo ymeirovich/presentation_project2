@@ -149,6 +149,28 @@ class PresentationGenerationService:
             certification_id=str(workflow.certification_profile_id),
         )
 
+        # ✅ Phase 10 Task 2.1 - Log RAG retrieval details
+        self.logger.info(
+            json.dumps({
+                "event": "rag_context_collected",
+                "workflow_id": str(workflow.id),
+                "course_id": str(recommended_course.id),
+                "skill_name": normalized_course.get("skill_name"),
+                "queries_used": normalized_course.get("learning_objectives", [])[:3],
+                "chunks_retrieved": len(rag_citations),
+                "total_chars": len(rag_context),
+                "citations": [
+                    {
+                        "source": c.get("source"),
+                        "relevance_score": c.get("score"),
+                        "chunk_preview": c.get("text", "")[:100] + "...",
+                    }
+                    for c in rag_citations[:5]  # Top 5 most relevant
+                ],
+                "full_rag_context": rag_context,  # Complete context sent to LLM
+            })
+        )
+
         regeneration_payload = {
             "event": "outline_regeneration_inputs",
             "workflow_id": str(workflow.id),
