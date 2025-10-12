@@ -2705,10 +2705,15 @@ Narration should be conversational and ≤ 75 seconds per slide."""
 
             combined_context_parts = []
 
+            # ✅ Use collection_name (string code) instead of UUID for ChromaDB query
+            # ChromaDB stores embeddings with certification_id as string code (e.g., "aws-ml-specialty")
+            # not UUID from certification_profiles table
+            rag_certification_id = cert_profile.collection_name if cert_profile and cert_profile.collection_name else str(workflow.certification_profile_id)
+
             for query in queries[:3]:  # Top 3 learning objectives
                 result = await rag_kb.retrieve_context_for_assessment(
                     query=query,
-                    certification_id=str(workflow.certification_profile_id),
+                    certification_id=rag_certification_id,
                     k=6,  # 6 chunks per query
                     balance_sources=True
                 )
@@ -2728,6 +2733,7 @@ Narration should be conversational and ≤ 75 seconds per slide."""
                     "workflow_id": workflow_id_str,
                     "course_id": str(skill_course.id),
                     "skill_name": skill_course.skill_name,
+                    "certification_id_used": rag_certification_id,  # Show which ID was used for RAG query
                     "queries_used": queries[:3],
                     "chunks_retrieved": len(rag_citations),
                     "total_chars": len(knowledge_base_context),
