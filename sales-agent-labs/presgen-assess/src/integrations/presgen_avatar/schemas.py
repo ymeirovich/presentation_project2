@@ -34,6 +34,7 @@ class AvatarGenerationResponse(BaseModel):
     job_id: Optional[str] = None
     status: str = Field(default="pending")
     message: Optional[str] = None
+    error_message: Optional[str] = None
     progress: Optional[int] = Field(default=None, ge=0, le=100)
     video_url: Optional[str] = None
     estimated_duration_seconds: Optional[int] = None

@@ -79,12 +79,28 @@ class SlidesToVideoRenderer:
 
         try:
             if not slides:
+                self.logger.error("Slides-to-video rendering aborted: no slides provided")
+                jlog(self.logger, logging.ERROR,
+                    event="slides_video_rendering_failed",
+                    reason="no_slides",
+                    output_path=output_path)
                 return VideoRenderResult(
                     success=False,
                     error="No slides provided for rendering"
                 )
 
             if len(audio_files) != len(slides):
+                self.logger.error(
+                    "Slides-to-video rendering aborted: %s slides vs %s audio files",
+                    len(slides),
+                    len(audio_files)
+                )
+                jlog(self.logger, logging.ERROR,
+                    event="slides_video_rendering_failed",
+                    reason="slides_audio_mismatch",
+                    slides=len(slides),
+                    audio_files=len(audio_files),
+                    output_path=output_path)
                 return VideoRenderResult(
                     success=False,
                     error=f"Mismatch: {len(slides)} slides but {len(audio_files)} audio files"
@@ -93,12 +109,24 @@ class SlidesToVideoRenderer:
             # Validate all input files exist
             for i, slide in enumerate(slides):
                 if not slide.local_image_path or not Path(slide.local_image_path).exists():
+                    self.logger.error("Rendering aborted: missing slide image %s", slide.local_image_path)
+                    jlog(self.logger, logging.ERROR,
+                        event="slides_video_rendering_failed",
+                        reason="missing_slide_image",
+                        slide_index=i+1,
+                        image_path=slide.local_image_path)
                     return VideoRenderResult(
                         success=False,
                         error=f"Slide image not found: {slide.local_image_path}"
                     )
 
                 if not Path(audio_files[i]).exists():
+                    self.logger.error("Rendering aborted: missing audio %s", audio_files[i])
+                    jlog(self.logger, logging.ERROR,
+                        event="slides_video_rendering_failed",
+                        reason="missing_audio",
+                        slide_index=i+1,
+                        audio_path=audio_files[i])
                     return VideoRenderResult(
                         success=False,
                         error=f"Audio file not found: {audio_files[i]}"
@@ -147,7 +175,10 @@ class SlidesToVideoRenderer:
 
         except Exception as e:
             error_msg = f"Slides-to-video rendering failed: {str(e)}"
-            self.logger.error(error_msg)
+            self.logger.exception("Slides-to-video rendering raised an exception")
+            jlog(self.logger, logging.ERROR,
+                event="slides_video_rendering_exception",
+                error=str(e))
             return VideoRenderResult(
                 success=False,
                 error=error_msg,
@@ -177,6 +208,12 @@ class SlidesToVideoRenderer:
                 )
 
                 if duration is None:
+                    self.logger.error("Failed to create video segment for slide %s", i + 1)
+                    jlog(self.logger, logging.ERROR,
+                        event="slide_video_segment_failed",
+                        slide_index=i+1,
+                        image_path=slide.local_image_path,
+                        audio_path=audio_file)
                     return VideoRenderResult(
                         success=False,
                         error=f"Failed to create video for slide {i + 1}"
@@ -189,6 +226,11 @@ class SlidesToVideoRenderer:
             success = self._concatenate_videos(slide_videos, output_path)
 
             if not success:
+                self.logger.error("Failed to concatenate slide videos")
+                jlog(self.logger, logging.ERROR,
+                    event="slides_concatenation_failed",
+                    segments=len(slide_videos),
+                    output_path=output_path)
                 return VideoRenderResult(
                     success=False,
                     error="Failed to concatenate slide videos"
@@ -202,6 +244,10 @@ class SlidesToVideoRenderer:
             )
 
         except Exception as e:
+            self.logger.exception("Simple concatenation failed")
+            jlog(self.logger, logging.ERROR,
+                event="slides_simple_concatenation_exception",
+                error=str(e))
             return VideoRenderResult(
                 success=False,
                 error=f"Simple concatenation failed: {str(e)}"

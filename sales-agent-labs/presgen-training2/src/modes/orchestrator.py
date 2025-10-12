@@ -15,6 +15,7 @@ from core.liveportrait.avatar_engine import LivePortraitEngine, AvatarGeneration
 from core.voice.voice_manager import VoiceProfileManager, VoiceProfile
 from core.content.processor import ContentProcessor
 from presentation.slides.google_slides_processor import GoogleSlidesProcessor, GoogleSlidesResult
+from presentation.slides.notes_generator import SlideNotesGenerator
 from presentation.renderer.slides_to_video import SlidesToVideoRenderer, VideoRenderResult
 from pipeline.appender.video_appender import VideoAppendingEngine, VideoSegment, VideoAppendResult
 
@@ -113,6 +114,12 @@ class ModeOrchestrator:
             if request.mode == OperationMode.VIDEO_ONLY:
                 result = self._handle_video_only_mode(request, temp_dir)
             elif request.mode == OperationMode.PRESENTATION_ONLY:
+                jlog(self.logger, logging.INFO,
+                    event="presentation_only_pipeline_start",
+                    temp_dir=str(temp_dir),
+                    google_slides_url=request.google_slides_url,
+                    voice_profile=request.voice_profile_name,
+                    quality_level=request.quality_level)
                 result = self._handle_presentation_only_mode(request, temp_dir)
             elif request.mode == OperationMode.VIDEO_PRESENTATION:
                 result = self._handle_video_presentation_mode(request, temp_dir)
@@ -236,6 +243,9 @@ class ModeOrchestrator:
         try:
             # Step 1: Get slides data
             if request.google_slides_url:
+                jlog(self.logger, logging.INFO,
+                    event="slides_processing_begin",
+                    google_slides_url=request.google_slides_url)
                 # Process Google Slides URL
                 slides_result = self.slides_processor.process_google_slides_url(
                     url=request.google_slides_url,
@@ -248,7 +258,78 @@ class ModeOrchestrator:
                         error=f"Failed to process Google Slides: {slides_result.error}"
                     )
 
-                slides_data = slides_result.slides
+                slides_data = slides_result.slides or []
+
+                auto_generate_notes = os.getenv("AUTO_GENERATE_NOTES", "false").lower() == "true"
+                if auto_generate_notes and slides_result.presentation_id:
+                    notes_generator = SlideNotesGenerator(logger=self.logger)
+                    jlog(self.logger, logging.INFO,
+                        event="auto_notes_generation_start",
+                        missing_count=sum(1 for s in slides_data if not s.notes_text.strip()))
+                    for slide in slides_data:
+                        if slide.notes_text.strip():
+                            continue
+
+                        generated_text = None
+                        generated = notes_generator.generate_notes(slide, slides_result.presentation_title)
+                        if generated:
+                            generated_text = generated.text.strip()
+
+                        if generated_text:
+                            slide.notes_text = generated_text
+                            success = self.slides_processor.update_slide_notes(
+                                presentation_id=slides_result.presentation_id,
+                                slide=slide,
+                                notes_text=generated_text
+                            )
+                            if success:
+                                jlog(self.logger, logging.INFO,
+                                    event="slide_notes_generated",
+                                    slide_index=slide.slide_order,
+                                    notes_length=len(generated_text),
+                                    auto_generated=True)
+                            else:
+                                self.logger.warning(
+                                    f"Failed to write generated notes for slide {slide.slide_order}; using generated text only"
+                                )
+                        else:
+                            self.logger.warning(
+                                f"Could not auto-generate notes for slide {slide.slide_order}"
+                            )
+
+                # Fallback: ensure every slide has narration text
+                for slide in slides_data:
+                    if slide.notes_text.strip():
+                        continue
+
+                    fallback_text = slide.body_text.strip() if slide.body_text else ""
+                    if not fallback_text and slide.title:
+                        fallback_text = f"{slide.title.strip()} overview."
+
+                    if fallback_text:
+                        slide.notes_text = fallback_text
+                        if slides_result.presentation_id:
+                            success = self.slides_processor.update_slide_notes(
+                                presentation_id=slides_result.presentation_id,
+                                slide=slide,
+                                notes_text=fallback_text
+                            )
+                            if not success:
+                                self.logger.debug(
+                                    f"Fallback notes not written to Slides for slide {slide.slide_order}"
+                                )
+                        jlog(self.logger, logging.INFO,
+                            event="slide_notes_fallback_applied",
+                            slide_index=slide.slide_order,
+                            notes_length=len(fallback_text))
+                    else:
+                        self.logger.warning(
+                            f"No content available to narrate slide {slide.slide_order}; it will be skipped"
+                        )
+                jlog(self.logger, logging.INFO,
+                    event="slides_notes_ready",
+                    slides_with_notes=sum(1 for s in slides_data if s.notes_text.strip()),
+                    total_slides=len(slides_data))
 
             elif request.generate_new_slides:
                 # Generate new slides from content
@@ -282,6 +363,10 @@ class ModeOrchestrator:
 
                 audio_path = temp_dir / f"slide_{i:03d}_audio.wav"
 
+                jlog(self.logger, logging.INFO,
+                    event="tts_generation_started",
+                    slide_index=i+1,
+                    notes_length=len(slide.notes_text))
                 tts_success = self.voice_manager.generate_speech(
                     text=slide.notes_text,
                     voice_profile_name=request.voice_profile_name,
@@ -304,6 +389,10 @@ class ModeOrchestrator:
                     updated_slides.append(slide)
                 else:
                     self.logger.warning(f"Failed to generate audio for slide {i + 1}")
+                    jlog(self.logger, logging.ERROR,
+                        event="tts_generation_failed",
+                        slide_index=i+1,
+                        voice_profile=request.voice_profile_name)
 
             if not audio_files:
                 return GenerationResult(
@@ -312,6 +401,11 @@ class ModeOrchestrator:
                 )
 
             # Step 3: Render slides to video with updated durations
+            jlog(self.logger, logging.INFO,
+                event="video_render_request",
+                slides=len(updated_slides),
+                audio_files=len(audio_files),
+                output_path=request.output_path)
             video_result = self.slides_renderer.render_presentation_video(
                 slides=updated_slides,
                 audio_files=audio_files,

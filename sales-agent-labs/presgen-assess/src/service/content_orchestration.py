@@ -138,10 +138,14 @@ class ContentOrchestrationService:
                 "exam_domain": content_outline.exam_domain,
                 "exam_guide_section": content_outline.exam_guide_section,
                 "content_items": content_outline.content_items or [],
-                "rag_retrieval_score": float(content_outline.rag_retrieval_score) if content_outline.rag_retrieval_score else None
+                "rag_retrieval_score": float(content_outline.rag_retrieval_score) if content_outline.rag_retrieval_score else None,
             }
 
-        logger.info(f"  ✓ Content outline loaded: {len(content_outline_dict['content_items'])} items")
+        course_outline = course.content_outline or {}
+        if isinstance(course_outline, dict):
+            content_outline_dict.setdefault("sections", course_outline.get("sections", []))
+
+        logger.info(f"  ✓ Content outline loaded: {len(content_outline_dict.get('content_items', []))} items")
 
         # Step 4: Fetch workflow metadata
         workflow = await self._fetch_workflow(workflow_id)
@@ -157,6 +161,12 @@ class ContentOrchestrationService:
 
         logger.info(f"  ✓ Workflow loaded: cert={workflow.certification_name or 'Unknown'}")
 
+        target_slide_count = (
+            workflow.requested_slide_count
+            or (workflow.parameters or {}).get("slide_count")
+            or 12
+        )
+
         # Step 5: Build content specification
         content_spec = PresentationContentSpec(
             workflow_id=workflow_id,
@@ -166,6 +176,8 @@ class ContentOrchestrationService:
             subtitle=self._generate_subtitle(gap_analysis),
             skill_gap=skill_gap,
             content_outline=content_outline_dict,
+            learning_objectives=course.learning_objectives or [],
+            target_slide_count=target_slide_count,
             template_type=TemplateType.SINGLE_SKILL,  # Always single skill in Sprint 3
             template_id="short_form_skill",
             exam_name=workflow.certification_name or "Certification Exam",

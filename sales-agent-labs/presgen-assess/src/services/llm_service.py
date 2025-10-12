@@ -2,7 +2,7 @@
 
 import logging
 import json
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime
 
 import openai
@@ -23,6 +23,14 @@ class LLMService:
         self.knowledge_base = RAGKnowledgeBase()
         self.model = "gpt-4"
         self.token_usage = {"total_tokens": 0, "total_cost": 0.0}
+
+    def _log_llm_event(self, event: str, payload: Dict[str, Any]) -> None:
+        """Emit JSON-formatted LLM telemetry."""
+        record = {"event": event, **payload}
+        try:
+            logger.info(json.dumps(record))
+        except Exception as exc:  # pragma: no cover
+            logger.info(json.dumps({"event": event, "log_error": str(exc)}))
 
     async def generate_assessment_questions(
         self,
@@ -106,6 +114,18 @@ class LLMService:
             rag_context=rag_context
         )
 
+        self._log_llm_event(
+            "generate_questions_request",
+            {
+                "model": self.model,
+                "domain": domain,
+                "question_count": question_count,
+                "difficulty_level": difficulty_level,
+                "question_types": question_types,
+                "rag_context_chars": len(rag_context or ""),
+                "prompt_chars": len(prompt),
+            },
+        )
         # Call OpenAI API
         response = await self.client.chat.completions.create(
             model=self.model,
@@ -122,6 +142,15 @@ class LLMService:
             temperature=0.7,
             max_tokens=3000,
             response_format={"type": "json_object"}
+        )
+
+        self._log_llm_event(
+            "generate_questions_response",
+            {
+                "model": self.model,
+                "token_usage": getattr(response.usage, "total_tokens", None),
+                "response_preview": response.choices[0].message.content[:200],
+            },
         )
 
         # Track token usage
@@ -259,6 +288,23 @@ Always respond with valid JSON in the specified format."""
             if not 1 <= target_slide_count <= 40:
                 raise ValueError("Slide count must be between 1 and 40")
 
+            context_log = {
+                "event": "course_outline_context",
+                "target_slide_count": target_slide_count,
+                "certification_id": certification_id,
+                "assessment_summary": {
+                    "score": assessment_results.get("score"),
+                    "overall_questions": assessment_results.get("question_count"),
+                    "domain_keys": list((assessment_results.get("domain_scores") or {}).keys()),
+                },
+                "gap_summary": {
+                    "priority_learning_areas": gap_analysis.get("priority_learning_areas", []),
+                    "readiness_score": gap_analysis.get("overall_readiness_score"),
+                    "metrics_keys": list(gap_analysis.keys()),
+                },
+            }
+            logger.info(json.dumps(context_log))
+
             # Retrieve RAG context for identified gaps
             rag_context = ""
             citations = []
@@ -290,6 +336,14 @@ Always respond with valid JSON in the specified format."""
                 f"✅ Generated course outline with {target_slide_count} slides "
                 f"targeting {len(gap_analysis.get('priority_learning_areas', []))} gap areas"
             )
+            outline_log = {
+                "event": "course_outline_response",
+                "success": outline.get("success", True),
+                "section_count": len(outline.get("sections", [])),
+                "learning_objectives": outline.get("learning_objectives", []),
+                "citations": outline.get("citations", []),
+            }
+            logger.info(json.dumps(outline_log))
 
             return outline
 
@@ -299,6 +353,94 @@ Always respond with valid JSON in the specified format."""
                 "success": False,
                 "error": str(e)
             }
+
+    async def generate_refined_course_outline(
+        self,
+        *,
+        recommended_course: Dict[str, Any],
+        presentation_prompt: Optional[str],
+        rag_context: str,
+        rag_citations: List[Dict[str, Any]],
+        gap_analysis: Dict[str, Any],
+        assessment_results: Dict[str, Any],
+        target_slide_count: int
+    ) -> Dict[str, Any]:
+        """Regenerate course outline using existing recommendations, prompt guidance, and RAG context."""
+
+        payload_preview = {
+            "event": "refined_outline_context",
+            "course_title": recommended_course.get("course_title"),
+            "slide_count": target_slide_count,
+            "learning_objectives": recommended_course.get("learning_objectives", []),
+            "sections": [s.get("title") for s in recommended_course.get("sections", [])],
+            "rag_chars": len(rag_context or ""),
+            "presentation_prompt_chars": len(presentation_prompt or ""),
+            "priority_learning_areas": gap_analysis.get("priority_learning_areas", []),
+        }
+        logger.info(json.dumps(payload_preview))
+
+        prompt = self._build_refined_outline_prompt(
+            recommended_course=recommended_course,
+            presentation_prompt=presentation_prompt,
+            rag_context=rag_context,
+            gap_analysis=gap_analysis,
+            assessment_results=assessment_results,
+            target_slide_count=target_slide_count
+        )
+
+        self._log_llm_event(
+            "refined_outline_request",
+            {
+                "model": self.model,
+                "prompt_chars": len(prompt),
+                "target_slide_count": target_slide_count,
+            },
+        )
+
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are an expert instructional designer. Always respond with valid JSON."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            temperature=0.5,
+            max_tokens=2500,
+            response_format={"type": "json_object"}
+        )
+
+        result_content = response.choices[0].message.content
+        self._log_llm_event(
+            "refined_outline_response",
+            {
+                "model": self.model,
+                "token_usage": getattr(response.usage, "total_tokens", None),
+                "response_preview": result_content[:200],
+            },
+        )
+
+        try:
+            result = json.loads(result_content)
+            result["success"] = True
+            result["citations"] = rag_citations
+            result["rag_context_used"] = bool(rag_context)
+            self._log_llm_event(
+                "refined_outline_response_detail",
+                {
+                    "model": self.model,
+                    "section_titles": [section.get("section_title") for section in result.get("sections", [])],
+                    "learning_objectives": result.get("learning_objectives", []),
+                },
+            )
+            return result
+        except json.JSONDecodeError as exc:
+            logger.error(f"❌ Failed to parse refined outline response: {exc}")
+            return {"success": False, "error": "Failed to parse response"}
 
     async def _generate_outline_with_context(
         self,
@@ -314,6 +456,15 @@ Always respond with valid JSON in the specified format."""
             gap_analysis=gap_analysis,
             target_slide_count=target_slide_count,
             rag_context=rag_context
+        )
+        self._log_llm_event(
+            "generate_outline_request",
+            {
+                "model": self.model,
+                "target_slide_count": target_slide_count,
+                "rag_context_chars": len(rag_context or ""),
+                "prompt_chars": len(prompt),
+            },
         )
 
         response = await self.client.chat.completions.create(
@@ -332,6 +483,14 @@ Always respond with valid JSON in the specified format."""
             max_tokens=2500,
             response_format={"type": "json_object"}
         )
+        self._log_llm_event(
+            "generate_outline_response",
+            {
+                "model": self.model,
+                "token_usage": getattr(response.usage, "total_tokens", None),
+                "response_preview": response.choices[0].message.content[:200],
+            },
+        )
 
         # Track token usage
         usage = response.usage
@@ -341,6 +500,14 @@ Always respond with valid JSON in the specified format."""
         try:
             result = json.loads(response.choices[0].message.content)
             result["success"] = True
+            self._log_llm_event(
+                "generate_outline_response_detail",
+                {
+                    "model": self.model,
+                    "section_titles": [section.get("section_title") for section in result.get("sections", [])],
+                    "learning_objectives": result.get("learning_objectives", []),
+                },
+            )
             return result
         except json.JSONDecodeError as e:
             logger.error(f"❌ Failed to parse outline response: {e}")
@@ -411,6 +578,94 @@ Ensure the total slide_count across all sections equals exactly {target_slide_co
 Prioritize content that directly addresses the identified learning gaps.
 """
         return prompt
+
+    def _build_refined_outline_prompt(
+        self,
+        *,
+        recommended_course: Dict[str, Any],
+        presentation_prompt: Optional[str],
+        rag_context: str,
+        gap_analysis: Dict[str, Any],
+        assessment_results: Dict[str, Any],
+        target_slide_count: int
+    ) -> str:
+        """Build prompt for regenerated course outline."""
+
+        course_title = recommended_course.get("course_title", "Untitled Course")
+        description = recommended_course.get("course_description", "")
+        estimated_minutes = recommended_course.get("estimated_duration_minutes", 60)
+        difficulty = recommended_course.get("difficulty_level", "intermediate")
+        learning_objectives = recommended_course.get("learning_objectives", [])
+        sections = recommended_course.get("sections", [])
+
+        objectives_block = "\n".join(f"- {obj}" for obj in learning_objectives) or "None provided."
+        sections_block = json.dumps(sections, indent=2)
+        prompt_block = presentation_prompt or "Follow best practices for certification training presentations."
+        rag_block = rag_context or "No external transcripts or exam guidelines provided."
+
+        assessment_summary = json.dumps(
+            {
+                "score": assessment_results.get("score"),
+                "domain_scores": assessment_results.get("domain_scores", {}),
+            },
+            indent=2,
+        )
+        gap_summary = json.dumps(
+            {
+                "priority_learning_areas": gap_analysis.get("priority_learning_areas", []),
+                "overall_readiness_score": gap_analysis.get("overall_readiness_score"),
+            },
+            indent=2,
+        )
+
+        return f"""Regenerate and improve the course outline for a personalized certification training presentation.
+
+## Existing Recommended Course
+- Title: {course_title}
+- Description: {description}
+- Estimated Duration (minutes): {estimated_minutes}
+- Difficulty Level: {difficulty}
+- Learning Objectives:
+{objectives_block}
+
+### Current Sections
+{sections_block}
+
+## Presentation Creation Prompt
+{prompt_block}
+
+## Assessment Summary
+{assessment_summary}
+
+## Gap Analysis Summary
+{gap_summary}
+
+## Reference Transcripts and Exam Guidelines
+{rag_block}
+
+## Requirements
+- Produce a structured outline that directly addresses the learner's gaps.
+- Return a JSON object with fields:
+{{
+  "course_title": "string",
+  "estimated_duration_minutes": number,
+  "learning_objectives": ["..."],
+  "sections": [
+     {{
+        "section_title": "...",
+        "slide_count": number,
+        "learning_outcomes": ["..."],
+        "content_outline": ["point1", "point2", "..."],
+        "estimated_minutes": number
+     }}
+  ],
+  "success": true
+}}
+- The total slide_count across all sections must equal exactly {target_slide_count}.
+- Include practical examples, real-world scenarios, and hands-on activities.
+- Ensure the outline flows from foundational concepts to advanced application.
+- Highlight where transcripts/exam guidelines influenced the outline.
+"""
 
     async def get_usage_stats(self) -> Dict:
         """Get current token usage statistics."""

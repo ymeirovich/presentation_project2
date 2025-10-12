@@ -73,6 +73,9 @@ class Settings:
     presgen_core_voice_profile: str = os.getenv("PRESGEN_CORE_VOICE_PROFILE", "OpenAI Demo Voice (Your Audio)")
     presgen_core_quality_level: str = os.getenv("PRESGEN_CORE_QUALITY_LEVEL", "fast")
     presgen_core_use_cache: bool = os.getenv("PRESGEN_CORE_USE_CACHE", "false").lower() == "true"
+    presgen_core_timeout_seconds: float = float(os.getenv("PRESGEN_CORE_TIMEOUT_SECONDS", "600"))
+    presgen_avatar_timeout_seconds: float = float(os.getenv("PRESGEN_AVATAR_TIMEOUT_SECONDS", "900"))
+    presgen_regenerate_course_outline: bool = os.getenv("PRESGEN_REGENERATE_COURSE_OUTLINE", "false").lower() == "true"
     avatar_output_dir: Path = Path(
         os.getenv("AVATAR_OUTPUT_DIR", PROJECT_ROOT / "presgen-assess" / "avatar-output")
     ).resolve()

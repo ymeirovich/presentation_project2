@@ -1399,6 +1399,14 @@ async def training_presentation_only(req: TrainingVideoRequest):
             temp_dir=f"temp/training_{job_id}"
         )
 
+        jlog(log, logging.INFO,
+             event="training_presentation_only_pre_tts",
+             job_id=job_id,
+             slides_url=req.google_slides_url,
+             voice_profile=req.voice_profile_name,
+             quality_level=req.quality_level,
+             temp_dir=generation_request.temp_dir)
+
         # Generate video
         result = orchestrator.generate_video(generation_request)
 

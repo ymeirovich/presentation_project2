@@ -47,6 +47,8 @@ class PresentationContentSpec(BaseModel):
     # Content structure (SINGLE SKILL)
     skill_gap: Dict[str, Any] = Field(..., description="Single skill gap for this presentation")
     content_outline: Dict[str, Any] = Field(..., description="Content outline for this skill")
+    learning_objectives: List[str] = Field(default_factory=list, description="Learning objectives for the course")
+    target_slide_count: int = Field(default=12, ge=1, le=40, description="Requested slide count for presentation")
 
     # Template selection (SHORT-FORM)
     template_type: TemplateType = TemplateType.SINGLE_SKILL  # Always single skill in Sprint 3
@@ -84,7 +86,12 @@ class PresentationContentSpec(BaseModel):
                 "assessment_title": "AWS Solutions Architect",
                 "user_email": "john.doe@company.com",
                 "assessment_date": "2025-10-02T10:30:00Z",
-                "overall_score": 75.5
+                "overall_score": 75.5,
+                "learning_objectives": [
+                    "Understand EC2 performance classes",
+                    "Apply cost optimization strategies"
+                ],
+                "target_slide_count": 12
             }
         }
 

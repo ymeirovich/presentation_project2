@@ -61,6 +61,18 @@ def _call_gemini_once(p: SummarizeParams) -> Dict[str, Any]:
         response_mime_type="application/json",
     )
 
+    jlog(
+        log,
+        logging.INFO,
+        tool="llm.summarize",
+        event="request",
+        model=model_name,
+        prompt_chars=len(prompt),
+        report_preview=p.report_text[:200],
+        max_sections=p.max_sections,
+        max_script_chars=p.max_script_chars,
+    )
+
     resp = model.generate_content(
         contents=[system_prompt, prompt], generation_config=gen_cfg
     )
@@ -76,6 +88,15 @@ def _call_gemini_once(p: SummarizeParams) -> Dict[str, Any]:
         raw = json.loads(text)
     except json.JSONDecodeError as e:
         raise RuntimeError(f"Gemini returned non-JSON: {text[:200]}...") from e
+
+    response_summary = {
+        "tool": "llm.summarize",
+        "event": "response",
+        "model": model_name,
+        "text_chars": len(text),
+        "sections_returned": len(raw.get("sections", [])) if isinstance(raw, dict) else None,
+    }
+    jlog(log, logging.INFO, **response_summary)
 
     return _coerce_to_object(raw)
 

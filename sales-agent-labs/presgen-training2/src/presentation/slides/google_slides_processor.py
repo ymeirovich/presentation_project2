@@ -29,6 +29,8 @@ class SlideData:
     notes_text: str
     estimated_duration: float  # seconds based on notes length
     local_image_path: Optional[str] = None
+    body_text: str = ""
+    notes_shape_id: Optional[str] = None
 
 @dataclass
 class GoogleSlidesResult:
@@ -37,6 +39,7 @@ class GoogleSlidesResult:
     slides: List[SlideData] = None
     presentation_title: str = ""
     total_duration: float = 0.0
+    presentation_id: Optional[str] = None
     error: Optional[str] = None
 
 class GoogleSlidesProcessor:
@@ -73,12 +76,11 @@ class GoogleSlidesProcessor:
             token_file = Path(
                 os.getenv("OAUTH_TOKEN_PATH", "token.json")
             )
-            credentials_file = Path(
-                os.getenv(
-                    "OAUTH_CLIENT_SECRET_PATH",
-                    "config/google_slides_credentials.json"
-                )
-            )
+            credentials_env = os.getenv("OAUTH_CLIENT_JSON") or os.getenv("OAUTH_CLIENT_SECRET_PATH")
+            if credentials_env:
+                credentials_file = Path(credentials_env)
+            else:
+                credentials_file = Path("oauth_slides_client.json")
 
             # Load existing token
             if token_file.exists():
@@ -90,7 +92,10 @@ class GoogleSlidesProcessor:
                     creds.refresh(Request())
                 else:
                     if not credentials_file.exists():
-                        self.logger.error("Google Slides credentials file not found. Please set up OAuth credentials.")
+                        self.logger.error(
+                            "Google Slides credentials file not found at %s. Set OAUTH_CLIENT_JSON or OAUTH_CLIENT_SECRET_PATH.",
+                            credentials_file
+                        )
                         raise FileNotFoundError(f"Credentials file not found: {credentials_file}")
 
                     flow = InstalledAppFlow.from_client_secrets_file(
@@ -238,7 +243,8 @@ class GoogleSlidesProcessor:
                 success=True,
                 slides=processed_slides,
                 presentation_title=presentation_title,
-                total_duration=total_duration
+                total_duration=total_duration,
+                presentation_id=presentation_id
             )
 
         except Exception as e:
@@ -265,6 +271,8 @@ class GoogleSlidesProcessor:
 
             # Extract notes text
             notes_text = self._extract_slide_notes(slide)
+            body_text = self._extract_slide_body_text(slide)
+            notes_shape_id = self._extract_notes_shape_id(slide)
 
             # Calculate duration based on notes length
             duration = self._calculate_narration_duration(notes_text, default_duration)
@@ -284,7 +292,9 @@ class GoogleSlidesProcessor:
                 slide_image_url=image_url,
                 notes_text=notes_text,
                 estimated_duration=duration,
-                local_image_path=local_image_path
+                local_image_path=local_image_path,
+                body_text=body_text,
+                notes_shape_id=notes_shape_id
             )
 
         except Exception as e:
@@ -332,6 +342,45 @@ class GoogleSlidesProcessor:
             self.logger.warning(f"Could not extract notes: {e}")
             return ""
 
+    def _extract_slide_body_text(self, slide: Dict[str, Any]) -> str:
+        """Extract visible text content from the slide body."""
+        try:
+            text_chunks: List[str] = []
+            for element in slide.get('pageElements', []):
+                shape = element.get('shape', {})
+                if shape.get('shapeType') != 'TEXT_BOX':
+                    continue
+
+                text_content = shape.get('text', {})
+                for text_element in text_content.get('textElements', []):
+                    text_run = text_element.get('textRun', {})
+                    content = text_run.get('content', '')
+                    if content and content.strip():
+                        text_chunks.append(content.strip())
+
+            return "\n".join(text_chunks).strip()
+        except Exception as e:
+            self.logger.warning(f"Could not extract slide body text: {e}")
+            return ""
+
+    def _extract_notes_shape_id(self, slide: Dict[str, Any]) -> Optional[str]:
+        """Extract speaker notes shape object ID from slide metadata."""
+        try:
+            notes_props = slide.get('slideProperties', {}).get('notesPage', {}).get('notesProperties', {})
+            shape_id = notes_props.get('speakerNotesObjectId')
+            if shape_id:
+                return shape_id
+
+            # Fallback: find first text box within notes page elements
+            notes_page = slide.get('slideProperties', {}).get('notesPage', {})
+            for element in notes_page.get('pageElements', []):
+                shape = element.get('shape', {})
+                if shape.get('shapeType') == 'TEXT_BOX':
+                    return element.get('objectId')
+        except Exception as e:
+            self.logger.warning(f"Could not extract notes shape id: {e}")
+        return None
+
     def _calculate_narration_duration(self, notes_text: str, default_duration: float) -> float:
         """Calculate narration duration based on text length"""
         if not notes_text.strip():
@@ -367,6 +416,72 @@ class GoogleSlidesProcessor:
         except Exception as e:
             self.logger.error(f"Failed to download slide image: {e}")
             return None
+
+    def _resolve_notes_shape_id(self, presentation_id: str, slide_id: str) -> Optional[str]:
+        """Resolve notes shape id for a given slide via Slides API."""
+        try:
+            if not self.service:
+                return None
+
+            slide = self.service.presentations().pages().get(
+                presentationId=presentation_id,
+                pageObjectId=slide_id
+            ).execute()
+
+            notes_props = slide.get('slideProperties', {}).get('notesPage', {}).get('notesProperties', {})
+            shape_id = notes_props.get('speakerNotesObjectId')
+            if shape_id:
+                return shape_id
+
+            notes_page = slide.get('slideProperties', {}).get('notesPage', {})
+            for element in notes_page.get('pageElements', []):
+                shape = element.get('shape', {})
+                if shape.get('shapeType') == 'TEXT_BOX':
+                    return element.get('objectId')
+        except Exception as e:
+            self.logger.warning(f"Could not resolve notes shape id for slide {slide_id}: {e}")
+        return None
+
+    def update_slide_notes(self, presentation_id: str, slide: SlideData, notes_text: str) -> bool:
+        """Update speaker notes for a slide via Slides API."""
+        if not self.service:
+            self.logger.error("Slides service is not initialized; cannot update notes")
+            return False
+
+        try:
+            notes_shape_id = slide.notes_shape_id or self._resolve_notes_shape_id(presentation_id, slide.slide_id)
+            if not notes_shape_id:
+                self.logger.error(f"Could not determine notes shape id for slide {slide.slide_id}")
+                return False
+
+            requests = [
+                {
+                    "deleteText": {
+                        "objectId": notes_shape_id,
+                        "textRange": {"type": "ALL"}
+                    }
+                },
+                {
+                    "insertText": {
+                        "objectId": notes_shape_id,
+                        "insertionIndex": 0,
+                        "text": notes_text
+                    }
+                }
+            ]
+
+            self.service.presentations().batchUpdate(
+                presentationId=presentation_id,
+                body={"requests": requests}
+            ).execute()
+
+            slide.notes_text = notes_text
+            slide.notes_shape_id = notes_shape_id
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to update speaker notes for slide {slide.slide_id}: {e}")
+            return False
 
     def validate_slides_access(self, url: str) -> bool:
         """Validate that we can access the Google Slides presentation"""

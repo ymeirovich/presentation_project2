@@ -24,8 +24,8 @@ SCOPES = [SLIDES_SCOPE, DRIVE_SCOPE, SCRIPT_SCOPE]
 # Standardized token path from environment variable
 TOKEN_PATH = pathlib.Path(os.getenv('OAUTH_TOKEN_PATH', 'token.json'))
 # Put your OAuth client JSON for Slides/Drive here (Web or Installed type).
-# This is separate from Imagen's OAuth; using a dedicated file keeps things clean.
-OAUTH_CLIENT_JSON = pathlib.Path("oauth_slides_client.json")
+# Allow overriding via environment for services running from different working dirs.
+OAUTH_CLIENT_JSON = pathlib.Path(os.getenv('OAUTH_CLIENT_JSON', 'oauth_slides_client.json'))
 
 
 def _gen_id(prefix: str) -> str:
@@ -99,8 +99,8 @@ def _load_credentials() -> Credentials:
 
     if not OAUTH_CLIENT_JSON.exists():
         raise RuntimeError(
-            "Missing oauth_slides_client.json and no token cache present.\n"
-            "Download OAuth client credentials and save as oauth_slides_client.json."
+            f"Missing OAuth client credentials at {OAUTH_CLIENT_JSON} and no token cache present.\n"
+            "Download Google Slides OAuth client credentials and set OAUTH_CLIENT_JSON to the file path."
         )
 
     # Start a fresh consent flow requesting ALL current scopes

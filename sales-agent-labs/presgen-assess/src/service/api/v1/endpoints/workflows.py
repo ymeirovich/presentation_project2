@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime
 import csv
 from io import StringIO
+import json
 import os
 import shutil
 import uuid
@@ -22,7 +23,7 @@ from src.common.logging_config import get_workflow_logger, get_api_logger, get_a
 from src.common.config import settings
 from src.models.workflow import WorkflowExecution
 from src.models.generated_course import GeneratedCourse
-from src.models.gap_analysis import RecommendedCourse
+from src.models.gap_analysis import RecommendedCourse, GapAnalysisResult
 from src.models.certification import CertificationProfile
 from src.schemas.workflow import (
     WorkflowCreate,
@@ -38,6 +39,8 @@ from src.services.ai_question_generator import AIQuestionGenerator
 from src.services.response_ingestion_service import ResponseIngestionService
 from src.services.google_sheets_service import GoogleSheetsService, EnhancedGapAnalysisExporter
 from src.services.google_forms_service import GoogleFormsService
+from src.services.course_generation_service import log_course_event
+from src.services.presentation_service import PresentationGenerationService
 from fastapi.responses import JSONResponse, Response, FileResponse
 
 logger = get_workflow_logger()
@@ -52,6 +55,8 @@ for path in (REPO_ROOT, SRC_ROOT):
     str_path = str(path)
     if str_path not in sys.path:
         sys.path.insert(0, str_path)
+
+presentation_generation_service = PresentationGenerationService()
 
 
 def _slugify_skill_name(value: str) -> str:
@@ -81,6 +86,205 @@ def _summarize_learning_objectives(obj: Any, limit: int = 5) -> List[str]:
     return bullets
 
 
+def _ensure_list(value: Any) -> List[Any]:
+    """Ensure a value is returned as a list."""
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return parsed
+            return [parsed]
+        except Exception:
+            return [value]
+    if isinstance(value, tuple):
+        return list(value)
+    return [value]
+
+
+def _ensure_dict(value: Any) -> Dict[str, Any]:
+    """Ensure a value is returned as a dict."""
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    return {}
+
+
+async def _regenerate_course_outline_for_course(
+    workflow: WorkflowExecution,
+    skill_course: RecommendedCourse,
+    presentation_prompt: Optional[str],
+    target_slide_count: int
+) -> Optional[Dict[str, Any]]:
+    """Regenerate course outline using LLM for the specified course."""
+    try:
+        outline = await presentation_generation_service.regenerate_outline_from_recommended_course(
+            workflow=workflow,
+            recommended_course=skill_course,
+            presentation_prompt=presentation_prompt,
+            target_slide_count=target_slide_count,
+        )
+        if outline and outline.get("success"):
+            return outline
+        return None
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.warning(
+            "⚠️ Outline regeneration failed | workflow_id=%s | course_id=%s | error=%s",
+            getattr(workflow, "id", "unknown"),
+            getattr(skill_course, "id", "unknown"),
+            exc,
+        )
+        return None
+
+
+def _build_slide_plans(
+    title: str,
+    subtitle: str,
+    skill_name: str,
+    skill_course: RecommendedCourse,
+    target_slide_count: int = 12,
+) -> List[Dict[str, Any]]:
+    """Build slide plans with title, subtitle, bullets, and presenter notes (script)."""
+
+    def _clean_list(values: Optional[List[str]]) -> List[str]:
+        if not values:
+            return []
+        cleaned = []
+        for value in values:
+            if value is None:
+                continue
+            text = str(value).strip()
+            if text:
+                cleaned.append(text)
+        return cleaned
+
+    plans: List[Dict[str, Any]] = []
+    target = max(1, min(target_slide_count, 40))
+
+    learning_objectives = _clean_list(skill_course.learning_objectives)
+    content_outline = skill_course.content_outline or {}
+    sections = content_outline.get("sections", []) if isinstance(content_outline, dict) else []
+    content_items = content_outline.get("content_items", []) if isinstance(content_outline, dict) else []
+
+    def add_plan(slide_title: str, slide_subtitle: str = "", bullets: Optional[List[str]] = None, script: str = "") -> None:
+        bullet_list = _clean_list(bullets) if bullets else []
+        plans.append({
+            "title": slide_title.strip() or "Untitled Slide",
+            "subtitle": slide_subtitle.strip() if slide_subtitle else "",
+            "bullets": bullet_list,
+            "script": (script.strip() or slide_title.strip() or "Presenter notes unavailable."),
+        })
+
+    # Title / overview slide
+    overview_points = learning_objectives[:3] or [f"Why {skill_name} matters"]
+    add_plan(
+        slide_title=title,
+        slide_subtitle=subtitle,
+        bullets=overview_points,
+        script=(
+            f"Welcome to this session on {skill_name}. "
+            f"We will focus on {', '.join(overview_points)}."
+        ),
+    )
+
+    # Gap summary slide (if we have course description)
+    if skill_course.course_description:
+        add_plan(
+            slide_title="Current Skill Snapshot",
+            slide_subtitle=skill_name,
+            bullets=[
+                "Review current performance",
+                "Identify key learning objectives",
+                "Map remediation steps"
+            ],
+            script=skill_course.course_description or f"We will address the critical gaps in {skill_name}.",
+        )
+
+    objective_queue = learning_objectives.copy()
+    section_queue = list(sections) if isinstance(sections, list) else []
+    item_queue = list(content_items) if isinstance(content_items, list) else []
+
+    def _objective_plan(objective: str) -> None:
+        add_plan(
+            slide_title=objective,
+            slide_subtitle="Learning objective",
+            bullets=[
+                "Clarify the core concept",
+                "Connect theory to practical implementation",
+                "Identify resources to reinforce learning",
+            ],
+            script=f"In this segment we will focus on the objective '{objective}' and how to demonstrate proficiency.",
+        )
+
+    def _section_plan(section: Dict[str, Any]) -> None:
+        section_title = str(section.get("title") or "Key Section").strip()
+        duration = section.get("duration_minutes")
+        bullets = []
+        if duration:
+            bullets.append(f"Estimated focus time: {duration} minutes")
+        bullets.extend([
+            "Highlight foundational knowledge",
+            "Discuss implementation considerations",
+            "Note common pitfalls and exam tips",
+        ])
+        add_plan(
+            slide_title=section_title,
+            slide_subtitle="Section focus",
+            bullets=bullets,
+            script=f"This section explores {section_title.lower()} with guidance on how to master it for certification success.",
+        )
+
+    def _content_item_plan(item: Dict[str, Any]) -> None:
+        topic = (item.get("topic") or item.get("title") or "Key Concept").strip()
+        source = (item.get("source") or "Reference material").strip()
+        key_points = item.get("key_points")
+        bullets = _clean_list(key_points if isinstance(key_points, list) else None)
+        summary = (item.get("summary") or item.get("description") or "Explain why this concept matters.").strip()
+        if not bullets:
+            sentences = [seg.strip() for seg in summary.replace("\n", " ").split('.') if seg.strip()]
+            bullets = sentences[:3] if sentences else [summary]
+        add_plan(
+            slide_title=topic,
+            slide_subtitle=f"Source: {source}" if source else "",
+            bullets=bullets,
+            script=summary,
+        )
+
+    while len(plans) < target:
+        if objective_queue:
+            _objective_plan(objective_queue.pop(0))
+        elif item_queue:
+            _content_item_plan(item_queue.pop(0))
+        elif section_queue:
+            _section_plan(section_queue.pop(0))
+        else:
+            # All content exhausted - add final review slide and break
+            add_plan(
+                slide_title="Review & Next Steps",
+                slide_subtitle=skill_name,
+                bullets=[
+                    "Summarize key insights",
+                    "Plan immediate practice tasks",
+                    "Schedule follow-up assessment",
+                ],
+                script="Consolidate what we learned and outline concrete next actions for continued progress.",
+            )
+            break  # Exit loop to prevent infinite "Review & Next Steps" slides
+
+    # Ensure we don't exceed the target
+    return plans[:target]
+
+
 def _create_public_presentation(
     *,
     title: str,
@@ -88,8 +292,9 @@ def _create_public_presentation(
     bullets: List[str],
     workflow_id: str,
     skill_name: str,
+    slide_plans: Optional[List[Dict[str, Any]]] = None,
 ) -> str:
-    """Create and share a Google Slides deck, returning its edit URL."""
+    """Create and share a Google Slides deck with multiple slides, returning its edit URL."""
 
     # Import Google Slides module using helper to handle namespace collision
     from common.google_slides_import_v2 import get_slides_google
@@ -103,9 +308,10 @@ def _create_public_presentation(
     from googleapiclient.discovery import build
 
     logger.info(
-        "🎯 slides_generation | stage=create_start | workflow_id=%s | skill=%s",
+        "🎯 slides_generation | stage=create_start | workflow_id=%s | skill=%s | slide_count=%s",
         workflow_id,
         skill_name,
+        len(slide_plans) if slide_plans else 1,
     )
 
     presentation = create_presentation(title)
@@ -125,22 +331,52 @@ def _create_public_presentation(
             exc,
         )
 
-    try:
-        create_main_slide_with_content(
-            presentation_id,
-            title=title,
-            subtitle=subtitle or "",
-            bullets=bullets or [f"Key concepts for {skill_name}"],
-            image_url=None,
-            script=None,
-        )
-    except Exception as exc:  # pylint: disable=broad-except
-        logger.warning(
-            "🎯 slides_generation | stage=create_slide_failed | workflow_id=%s | skill=%s | error=%s",
-            workflow_id,
-            skill_name,
-            exc,
-        )
+    # Create multiple slides if slide_plans provided, otherwise create single slide
+    if slide_plans:
+        for idx, plan in enumerate(slide_plans):
+            try:
+                create_main_slide_with_content(
+                    presentation_id,
+                    title=plan.get("title", f"Slide {idx + 1}"),
+                    subtitle=plan.get("subtitle", ""),
+                    bullets=plan.get("bullets", []),
+                    image_url=None,
+                    script=plan.get("script", ""),
+                )
+                logger.debug(
+                    "🎯 slides_generation | stage=slide_created | workflow_id=%s | skill=%s | slide=%s/%s | title=%s",
+                    workflow_id,
+                    skill_name,
+                    idx + 1,
+                    len(slide_plans),
+                    plan.get("title", "Untitled"),
+                )
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.warning(
+                    "🎯 slides_generation | stage=create_slide_failed | workflow_id=%s | skill=%s | slide=%s | error=%s",
+                    workflow_id,
+                    skill_name,
+                    idx + 1,
+                    exc,
+                )
+    else:
+        # Fallback: create single slide with basic content
+        try:
+            create_main_slide_with_content(
+                presentation_id,
+                title=title,
+                subtitle=subtitle or "",
+                bullets=bullets or [f"Key concepts for {skill_name}"],
+                image_url=None,
+                script=f"Welcome to this presentation on {skill_name}. " + (subtitle or ""),
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            logger.warning(
+                "🎯 slides_generation | stage=create_slide_failed | workflow_id=%s | skill=%s | error=%s",
+                workflow_id,
+                skill_name,
+                exc,
+            )
 
     creds = _load_credentials()
     drive_service = build("drive", "v3", credentials=creds)
@@ -150,10 +386,11 @@ def _create_public_presentation(
     ).execute()
 
     logger.info(
-        "🎯 slides_generation | stage=create_complete | workflow_id=%s | skill=%s | presentation_url=%s",
+        "🎯 slides_generation | stage=create_complete | workflow_id=%s | skill=%s | presentation_url=%s | total_slides=%s",
         workflow_id,
         skill_name,
         presentation_url,
+        len(slide_plans) if slide_plans else 1,
     )
 
     return presentation_url
@@ -165,8 +402,9 @@ async def _ensure_presentation_deck(
     *,
     workflow_id: str,
     assessment_title: Optional[str],
+    target_slide_count: int = 12,
 ) -> str:
-    """Guarantee a Google Slides deck exists and return its URL."""
+    """Guarantee a Google Slides deck exists with the requested slide count and return its URL."""
 
     if course.presentation_url:
         return course.presentation_url
@@ -178,6 +416,30 @@ async def _ensure_presentation_deck(
     if not bullets and skill_course.course_description:
         bullets = [skill_course.course_description.strip()[:180]]
 
+    # Build slide plans for all slides
+    slide_plans = _build_slide_plans(
+        title=title,
+        subtitle=subtitle,
+        skill_name=skill_name,
+        skill_course=skill_course,
+        target_slide_count=target_slide_count,
+    )
+
+    outline_preview = " | ".join(
+        f"{idx + 1}: {plan.get('title', 'Untitled')}"
+        for idx, plan in enumerate(slide_plans[:5])
+    ) + (f" ... (+{len(slide_plans) - 5} more)" if len(slide_plans) > 5 else "")
+
+    log_course_event(
+        "PRESENTATION_SLIDE_CONTENT_PREPARED",
+        workflow_id=workflow_id,
+        course_id=getattr(course, "id", "unknown"),
+        skill_name=skill_name,
+        slide_count=len(slide_plans),
+        subtitle=(assessment_title or skill_course.exam_domain or ""),
+        outline_preview=outline_preview,
+    )
+
     loop = asyncio.get_running_loop()
     presentation_url = await loop.run_in_executor(
         None,
@@ -187,6 +449,7 @@ async def _ensure_presentation_deck(
             bullets=bullets,
             workflow_id=workflow_id,
             skill_name=skill_name,
+            slide_plans=slide_plans,
         ),
     )
 
@@ -2278,7 +2541,6 @@ async def generate_skill_course(
     4. Call PresGen-Avatar for video narration
     5. Return course metadata with video URL
     """
-    from src.services.course_generation_service import log_course_event
     from src.integrations.presgen_avatar.client import PresGenAvatarClient, CircuitOpenError as AvatarCircuitOpenError
     from src.integrations.presgen_core.client import PresGenCoreClient, CircuitOpenError as CoreCircuitOpenError
     from src.integrations.presgen_core.schemas import PresGenPresentationRequest
@@ -2308,6 +2570,18 @@ async def generate_skill_course(
         )
         raise HTTPException(status_code=404, detail="Workflow not found")
 
+    if isinstance(workflow.assessment_data, str):
+        try:
+            workflow.assessment_data = json.loads(workflow.assessment_data)
+        except Exception:
+            workflow.assessment_data = {}
+
+    if isinstance(workflow.gap_analysis_results, str):
+        try:
+            workflow.gap_analysis_results = json.loads(workflow.gap_analysis_results)
+        except Exception:
+            workflow.gap_analysis_results = {}
+
     # 2. Fetch skill gap from recommended_courses
     result = await db.execute(
         select(RecommendedCourse).where(
@@ -2333,6 +2607,10 @@ async def generate_skill_course(
         skill_course.id,
     )
 
+    # Ensure JSON fields are deserialized for downstream usage
+    skill_course.learning_objectives = _ensure_list(skill_course.learning_objectives)
+    skill_course.content_outline = _ensure_dict(skill_course.content_outline)
+
     # 3. Get certification profile's custom prompt
     result = await db.execute(
         select(CertificationProfile).where(
@@ -2341,6 +2619,42 @@ async def generate_skill_course(
     )
     cert_profile = result.scalar_one_or_none()
     custom_prompt = cert_profile.presentation_prompt if cert_profile else None
+
+    workflow_parameters = workflow.parameters or {}
+    requested_slide_count = (
+        workflow.requested_slide_count
+        or workflow_parameters.get("slide_count")
+        or getattr(settings, "presgen_core_max_slides", None)
+        or 20
+    )
+
+    def _format_prompt_template(template: Optional[str]) -> Optional[str]:
+        if not template:
+            return template
+
+        class _SafeDict(dict):
+            def __missing__(self, key):
+                return "{" + key + "}"
+
+        values = _SafeDict({"slide_count": requested_slide_count})
+        question_count_param = workflow_parameters.get("question_count")
+        if question_count_param:
+            values["question_count"] = question_count_param
+
+        try:
+            return template.format_map(values)
+        except Exception as exc:  # pragma: no cover - formatting errors surfaced via logs
+            logger.warning(
+                "⚠️ Prompt formatting failed; returning original template",
+                extra={
+                    "workflow_id": workflow_id_str,
+                    "error": str(exc),
+                },
+            )
+            return template
+
+    formatted_prompt = _format_prompt_template(custom_prompt)
+    custom_prompt = formatted_prompt
 
     log_course_event(
         "CUSTOM_PROMPT_LOADED",
@@ -2369,33 +2683,44 @@ async def generate_skill_course(
     )
     course = existing_course_result.scalar_one_or_none()
 
-    if course and course.status != "failed":
-        log_course_event(
-            "COURSE_GENERATION_ALREADY_EXISTS",
-            workflow_id=workflow_id_str,
-            course_id=course.id,
-            status=course.status,
-        )
-        return CourseGenerationResponse(
-            course_id=course.id,
-            workflow_id=workflow_id_str,
-            skill_id=skill_id,
-            skill_name=course.skill_name,
-            course_title=course.course_title,
-            presentation_url=course.presentation_url,
-            video_url=course.video_url,
-            status=course.status,
-            progress=course.progress,
-            created_at=course.created_at,
-            updated_at=course.updated_at,
-            completed_at=course.completed_at,
-        )
+    regen_allowed_statuses = {
+        "failed",
+        "generating_video",
+        "pending",
+        "generating_presentation",
+        "completed",
+        "generating_avatar",
+    }
 
-    if course and course.status == "failed":
+    if course:
+        previous_status = course.status
+        if previous_status not in regen_allowed_statuses:
+            log_course_event(
+                "COURSE_GENERATION_ALREADY_EXISTS",
+                workflow_id=workflow_id_str,
+                course_id=course.id,
+                status=previous_status,
+            )
+            return CourseGenerationResponse(
+                course_id=course.id,
+                workflow_id=workflow_id_str,
+                skill_id=skill_id,
+                skill_name=course.skill_name,
+                course_title=course.course_title,
+                presentation_url=course.presentation_url,
+                video_url=course.video_url,
+                status=course.status,
+                progress=course.progress,
+                created_at=course.created_at,
+                updated_at=course.updated_at,
+                completed_at=course.completed_at,
+            )
+
         log_course_event(
             "COURSE_GENERATION_RETRY",
             workflow_id=workflow_id_str,
             course_id=course.id,
+            previous_status=previous_status,
         )
         course.course_title = f"Mastering {skill_course.skill_name}"
         course.presentation_url = None
@@ -2428,6 +2753,46 @@ async def generate_skill_course(
 
         log_course_event("COURSE_RECORD_CREATED", workflow_id=workflow_id_str, course_id=course_id)
 
+    outline_regenerated = False
+    if getattr(settings, "presgen_regenerate_course_outline", False):
+        regenerated_outline = await _regenerate_course_outline_for_course(
+            workflow=workflow,
+            skill_course=skill_course,
+            presentation_prompt=custom_prompt,
+            target_slide_count=requested_slide_count,
+        )
+        if regenerated_outline:
+            skill_course.learning_objectives = regenerated_outline.get(
+                "learning_objectives",
+                skill_course.learning_objectives,
+            )
+            skill_course.content_outline = {"sections": regenerated_outline.get("sections", [])}
+            if regenerated_outline.get("course_title"):
+                skill_course.course_title = regenerated_outline["course_title"]
+                course.course_title = regenerated_outline["course_title"]
+            if regenerated_outline.get("course_description"):
+                skill_course.course_description = regenerated_outline["course_description"]
+            if regenerated_outline.get("estimated_duration_minutes"):
+                skill_course.estimated_duration_minutes = regenerated_outline["estimated_duration_minutes"]
+            skill_course.updated_at = datetime.utcnow()
+            db.add(skill_course)
+            await db.commit()
+            await db.refresh(skill_course)
+            outline_regenerated = True
+            log_course_event(
+                "COURSE_OUTLINE_REGENERATED",
+                workflow_id=workflow_id_str,
+                course_id=course_id,
+                slide_count=requested_slide_count,
+                learning_objectives=len(skill_course.learning_objectives or []),
+            )
+        else:
+            log_course_event(
+                "COURSE_OUTLINE_REGENERATE_FAILED",
+                workflow_id=workflow_id_str,
+                course_id=course_id,
+            )
+
     # Ensure a Google Slides deck exists before calling PresGen-Core
     try:
         presentation_url = await _ensure_presentation_deck(
@@ -2435,6 +2800,7 @@ async def generate_skill_course(
             skill_course,
             workflow_id=workflow_id_str,
             assessment_title=getattr(workflow, "assessment_title", None),
+            target_slide_count=requested_slide_count,
         )
         if course.presentation_url != presentation_url:
             course.presentation_url = presentation_url
@@ -2448,11 +2814,44 @@ async def generate_skill_course(
             presentation_url=course.presentation_url,
         )
         logger.info(
+            "=" * 80
+        )
+        logger.info(
+            "✅ PRESENTATION UPLOAD COMPLETED"
+        )
+        logger.info(
             "🎯 generate_course_pipeline | stage=slides_ready | workflow_id=%s | skill_id=%s | course_id=%s | presentation_url=%s",
             workflow_id,
             skill_id,
             course_id,
             course.presentation_url,
+        )
+        logger.info(
+            "📊 Presentation Details:"
+        )
+        logger.info(
+            "  • Workflow ID: %s", workflow_id_str
+        )
+        logger.info(
+            "  • Course ID: %s", course_id
+        )
+        logger.info(
+            "  • Skill: %s", skill_course.skill_name
+        )
+        logger.info(
+            "  • Presentation URL: %s", course.presentation_url
+        )
+        logger.info(
+            "  • Requested Slide Count: %s", requested_slide_count
+        )
+        logger.info(
+            "  • Status: Presentation uploaded and ready"
+        )
+        logger.info(
+            "🔜 Next Step: Calling PresGen-Core for video processing"
+        )
+        logger.info(
+            "=" * 80
         )
     except Exception as exc:  # pylint: disable=broad-except
         course.status = "failed"
@@ -2486,23 +2885,53 @@ async def generate_skill_course(
 
     log_course_event("PRESGEN_CORE_STARTED", workflow_id=workflow_id_str, course_id=course_id)
     logger.info(
+        "=" * 80
+    )
+    logger.info(
+        "🎬 CALLING PRESGEN-CORE VIDEO PROCESSING SERVICE"
+    )
+    logger.info(
         "🎯 generate_course_pipeline | stage=core_generation_start | workflow_id=%s | skill_id=%s | course_id=%s",
         workflow_id,
         skill_id,
         course_id,
     )
-
-    # TODO: Implement actual PresGen-Core call
-    # presgen_result = await presgen_core.generate_presentation(
-    #     PresGenPresentationRequest(
-    #         skill=skill_course.skill_name,
-    #         domain=skill_course.exam_domain,
-    #         target_duration_minutes=10,
-    #         custom_prompt=custom_prompt,
-    #     )
-    # )
+    logger.info(
+        "📋 PresGen-Core Request Details:"
+    )
+    logger.info(
+        "  • Base URL: %s", presgen_core.base_url
+    )
+    logger.info(
+        "  • Timeout: %.1f seconds (%.1f minutes)", presgen_core._timeout.read, presgen_core._timeout.read / 60
+    )
+    logger.info(
+        "  • Skill: %s", skill_course.skill_name
+    )
+    logger.info(
+        "  • Domain: %s", skill_course.exam_domain
+    )
+    logger.info(
+        "  • Target Duration: %s minutes", 10
+    )
+    logger.info(
+        "  • Presentation URL: %s", course.presentation_url
+    )
+    logger.info(
+        "  • Custom Prompt Length: %s chars", len(custom_prompt) if custom_prompt else 0
+    )
+    logger.info(
+        "  • Content Text Length: %s chars", len(skill_course.course_description) if skill_course.course_description else 0
+    )
+    logger.info(
+        "⏳ Waiting for PresGen-Core response (timeout: %.1f min)...", presgen_core._timeout.read / 60
+    )
+    logger.info(
+        "=" * 80
+    )
 
     try:
+        core_request_start = datetime.utcnow()
         core_response = await presgen_core.generate_presentation(
             PresGenPresentationRequest(
                 skill=skill_course.skill_name,
@@ -2517,6 +2946,41 @@ async def generate_skill_course(
                     "prompt_length": len(custom_prompt) if custom_prompt else 0,
                 },
             )
+        )
+        core_request_duration_ms = int((datetime.utcnow() - core_request_start).total_seconds() * 1000)
+
+        logger.info(
+            "=" * 80
+        )
+        logger.info(
+            "✅ PRESGEN-CORE RESPONSE RECEIVED"
+        )
+        logger.info(
+            "📊 Response Details:"
+        )
+        logger.info(
+            "  • Job ID: %s", core_response.job_id
+        )
+        logger.info(
+            "  • Success: %s", core_response.success
+        )
+        logger.info(
+            "  • Presentation URL: %s", core_response.presentation_url or "N/A"
+        )
+        logger.info(
+            "  • Download URL: %s", core_response.download_url or "N/A"
+        )
+        logger.info(
+            "  • Processing Time: %s ms", core_response.duration_ms or "N/A"
+        )
+        logger.info(
+            "  • Request Duration: %s ms", core_request_duration_ms
+        )
+        logger.info(
+            "  • Error: %s", core_response.error or "None"
+        )
+        logger.info(
+            "=" * 80
         )
     except CoreCircuitOpenError as exc:
         course.status = "failed"
@@ -2627,14 +3091,54 @@ async def generate_skill_course(
         presentation_url=presentation_url,
     )
     logger.info(
+        "=" * 80
+    )
+    logger.info(
+        "🎤 CALLING PRESGEN-AVATAR TTS/VIDEO WORKER SERVICE"
+    )
+    logger.info(
         "🎯 generate_course_pipeline | stage=avatar_generation_start | workflow_id=%s | skill_id=%s | course_id=%s | presentation_url=%s",
         workflow_id,
         skill_id,
         course_id,
         presentation_url,
     )
+    logger.info(
+        "📋 PresGen-Avatar Request Details:"
+    )
+    logger.info(
+        "  • Base URL: %s", avatar_client.base_url if hasattr(avatar_client, 'base_url') else os.getenv("PRESGEN_AVATAR_URL")
+    )
+    logger.info(
+        "  • Workflow ID: %s", workflow_id_str
+    )
+    logger.info(
+        "  • Skill ID: %s", skill_id
+    )
+    logger.info(
+        "  • Presentation URL: %s", presentation_url
+    )
+    logger.info(
+        "  • Mode: presentation-only"
+    )
+    logger.info(
+        "  • Quality: fast"
+    )
+    logger.info(
+        "  • Voice Provider: openai"
+    )
+    logger.info(
+        "  • Voice ID: alloy"
+    )
+    logger.info(
+        "⏳ Waiting for PresGen-Avatar response..."
+    )
+    logger.info(
+        "=" * 80
+    )
 
     try:
+        avatar_request_start = datetime.utcnow()
         avatar_result = await avatar_client.generate_video(
             workflow_id=workflow_id_str,
             skill_id=skill_id,
@@ -2643,6 +3147,38 @@ async def generate_skill_course(
             quality="fast",
             voice_provider="openai",
             voice_id="alloy",
+        )
+        avatar_request_duration_ms = int((datetime.utcnow() - avatar_request_start).total_seconds() * 1000)
+
+        logger.info(
+            "=" * 80
+        )
+        logger.info(
+            "✅ PRESGEN-AVATAR RESPONSE RECEIVED"
+        )
+        logger.info(
+            "📊 Response Details:"
+        )
+        logger.info(
+            "  • Job ID: %s", avatar_result.job_id
+        )
+        logger.info(
+            "  • Status: %s", avatar_result.status
+        )
+        logger.info(
+            "  • Progress: %s%%", avatar_result.progress or 0
+        )
+        logger.info(
+            "  • Video URL: %s", avatar_result.video_url or "Pending..."
+        )
+        logger.info(
+            "  • Request Duration: %s ms", avatar_request_duration_ms
+        )
+        logger.info(
+            "  • Error Message: %s", avatar_result.error_message or "None"
+        )
+        logger.info(
+            "=" * 80
         )
     except AvatarCircuitOpenError as exc:
         course.status = "failed"
@@ -2758,25 +3294,146 @@ async def generate_skill_course(
             output_filename = f"avatar-{skill_slug}-{course_id}.mp4"
             mp4_path = job_output_dir / output_filename
 
+            logger.info(
+                "=" * 80
+            )
+            logger.info(
+                "💾 DOWNLOADING AND SAVING VIDEO LOCALLY"
+            )
+            logger.info(
+                "📂 Local Storage Details:"
+            )
+            logger.info(
+                "  • Output Directory: %s", job_output_dir
+            )
+            logger.info(
+                "  • Output Filename: %s", output_filename
+            )
+            logger.info(
+                "  • Full Path: %s", mp4_path
+            )
+            logger.info(
+                "  • Video Source URL: %s", final_status.video_url or "N/A"
+            )
+
             if final_status.video_url:
+                download_start = datetime.utcnow()
                 try:
                     if str(final_status.video_url).startswith("http"):
+                        logger.info(
+                            "🌐 Downloading video from HTTP URL..."
+                        )
+                        logger.info(
+                            "  • URL: %s", str(final_status.video_url)
+                        )
+
+                        bytes_downloaded = 0
                         async with httpx.AsyncClient(timeout=None) as client:
                             async with client.stream("GET", str(final_status.video_url)) as stream:
                                 stream.raise_for_status()
                                 with mp4_path.open("wb") as fh:
                                     async for chunk in stream.aiter_bytes():
                                         fh.write(chunk)
+                                        bytes_downloaded += len(chunk)
+
+                        download_duration_ms = int((datetime.utcnow() - download_start).total_seconds() * 1000)
+                        file_size_mb = bytes_downloaded / (1024 * 1024)
+
+                        logger.info(
+                            "✅ Video downloaded successfully via HTTP"
+                        )
+                        logger.info(
+                            "  • Bytes Downloaded: %s (%.2f MB)", bytes_downloaded, file_size_mb
+                        )
+                        logger.info(
+                            "  • Download Duration: %s ms", download_duration_ms
+                        )
+                        logger.info(
+                            "  • Average Speed: %.2f MB/s", file_size_mb / (download_duration_ms / 1000) if download_duration_ms > 0 else 0
+                        )
                     else:
+                        logger.info(
+                            "📁 Copying video from local filesystem..."
+                        )
                         source_path = Path(str(final_status.video_url))
+                        logger.info(
+                            "  • Source Path: %s", source_path
+                        )
+                        logger.info(
+                            "  • Source Exists: %s", source_path.exists()
+                        )
+
                         if source_path.exists():
                             shutil.copy2(source_path, mp4_path)
+                            download_duration_ms = int((datetime.utcnow() - download_start).total_seconds() * 1000)
+                            file_size_mb = mp4_path.stat().st_size / (1024 * 1024)
+
+                            logger.info(
+                                "✅ Video copied successfully from local filesystem"
+                            )
+                            logger.info(
+                                "  • File Size: %.2f MB", file_size_mb
+                            )
+                            logger.info(
+                                "  • Copy Duration: %s ms", download_duration_ms
+                            )
+                        else:
+                            logger.error(
+                                "❌ Source file does not exist: %s", source_path
+                            )
+
+                    logger.info(
+                        "📊 Final Video File:"
+                    )
+                    logger.info(
+                        "  • Path: %s", mp4_path
+                    )
+                    logger.info(
+                        "  • Exists: %s", mp4_path.exists()
+                    )
+                    if mp4_path.exists():
+                        logger.info(
+                            "  • Size: %.2f MB", mp4_path.stat().st_size / (1024 * 1024)
+                        )
+                    logger.info(
+                        "=" * 80
+                    )
+
                 except Exception as exc:  # pylint: disable=broad-except
+                    download_duration_ms = int((datetime.utcnow() - download_start).total_seconds() * 1000)
+                    logger.error(
+                        "=" * 80
+                    )
+                    logger.error(
+                        "❌ VIDEO DOWNLOAD/SAVE FAILED"
+                    )
+                    logger.error(
+                        "  • Source: %s", final_status.video_url
+                    )
+                    logger.error(
+                        "  • Destination: %s", mp4_path
+                    )
+                    logger.error(
+                        "  • Error: %s", str(exc)
+                    )
+                    logger.error(
+                        "  • Duration before failure: %s ms", download_duration_ms
+                    )
+                    logger.error(
+                        "=" * 80
+                    )
                     logger.warning(
                         "Failed to copy avatar output from %s | error=%s",
                         final_status.video_url,
                         exc,
                     )
+            else:
+                logger.warning(
+                    "⚠️  No video_url provided in final_status - skipping download"
+                )
+                logger.info(
+                    "=" * 80
+                )
 
             course.video_url = f"{settings.api_v1_prefix}/workflows/{workflow_id_str}/courses/{course_id}/video"
             course.local_video_path = str(mp4_path)
@@ -2793,13 +3450,70 @@ async def generate_skill_course(
                 job_id=avatar_result.job_id,
                 local_path=str(mp4_path),
             )
+
+            total_duration_ms = int((datetime.utcnow() - request_started_at).total_seconds() * 1000)
+
+            logger.info(
+                "=" * 80
+            )
+            logger.info(
+                "🎉 COURSE GENERATION PIPELINE COMPLETED SUCCESSFULLY"
+            )
             logger.info(
                 "🎯 generate_course_pipeline | stage=course_completed | workflow_id=%s | skill_id=%s | course_id=%s | video_url=%s | total_duration_ms=%s",
                 workflow_id,
                 skill_id,
                 course_id,
                 course.video_url,
-                int((datetime.utcnow() - request_started_at).total_seconds() * 1000),
+                total_duration_ms,
+            )
+            logger.info(
+                "📊 Final Summary:"
+            )
+            logger.info(
+                "  • Workflow ID: %s", workflow_id_str
+            )
+            logger.info(
+                "  • Course ID: %s", course_id
+            )
+            logger.info(
+                "  • Skill: %s", skill_course.skill_name
+            )
+            logger.info(
+                "  • Status: %s", course.status
+            )
+            logger.info(
+                "  • Progress: %s%%", course.progress
+            )
+            logger.info(
+                "  • Presentation URL: %s", course.presentation_url
+            )
+            logger.info(
+                "  • Video URL (API): %s", course.video_url
+            )
+            logger.info(
+                "  • Local Video Path: %s", course.local_video_path
+            )
+            logger.info(
+                "  • PresGen-Core Job ID: %s", course.presgen_core_job_id or "N/A"
+            )
+            logger.info(
+                "  • PresGen-Avatar Job ID: %s", course.presgen_avatar_job_id or "N/A"
+            )
+            logger.info(
+                "⏱️  Performance Metrics:"
+            )
+            logger.info(
+                "  • Total Pipeline Duration: %s ms (%.2f seconds)", total_duration_ms, total_duration_ms / 1000
+            )
+            logger.info(
+                "  • PresGen-Core Processing: %s ms", course.presgen_core_processing_time_ms or "N/A"
+            )
+            logger.info(
+                "  • Completed At: %s", course.completed_at.isoformat() if course.completed_at else "N/A"
+            )
+            logger.info(
+                "=" * 80
             )
     finally:
         await presgen_core.close()

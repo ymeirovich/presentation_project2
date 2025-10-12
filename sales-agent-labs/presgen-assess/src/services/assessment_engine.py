@@ -1,6 +1,7 @@
 """Assessment generation engine with RAG context integration."""
 
 import logging
+import json
 import asyncio
 from typing import Dict, List, Optional
 from uuid import uuid4
@@ -11,6 +12,14 @@ from src.knowledge.base import RAGKnowledgeBase
 from src.models.certification import CertificationProfile
 
 logger = logging.getLogger(__name__)
+
+
+def _log_llm_event(event: str, payload: Dict) -> None:
+    record = {"event": event, **payload}
+    try:
+        logger.info(json.dumps(record))
+    except Exception as exc:  # pragma: no cover
+        logger.info(json.dumps({"event": event, "log_error": str(exc)}))
 
 
 class AssessmentEngine:
@@ -433,6 +442,16 @@ class AssessmentEngine:
     ) -> str:
         """Generate LLM response for a given prompt."""
         try:
+            _log_llm_event(
+                "assessment_engine_request",
+                {
+                    "model": self.llm_service.model,
+                    "prompt_chars": len(prompt),
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                },
+            )
+
             response = await self.llm_service.client.chat.completions.create(
                 model=self.llm_service.model,
                 messages=[
@@ -443,7 +462,18 @@ class AssessmentEngine:
                 temperature=temperature
             )
 
-            return response.choices[0].message.content.strip()
+            content = response.choices[0].message.content.strip()
+
+            _log_llm_event(
+                "assessment_engine_response",
+                {
+                    "model": self.llm_service.model,
+                    "token_usage": getattr(response.usage, "total_tokens", None),
+                    "response_preview": content[:200],
+                },
+            )
+
+            return content
 
         except Exception as e:
             logger.error(f"❌ LLM response generation failed: {e}")

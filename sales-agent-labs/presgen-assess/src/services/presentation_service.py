@@ -1,8 +1,9 @@
 """Presentation generation service integrating with PresGen-Core for 40-slide presentations."""
 
+import json
 import logging
 import asyncio
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime
 from uuid import uuid4
 
@@ -11,6 +12,8 @@ import httpx
 from src.common.config import settings
 from src.services.llm_service import LLMService
 from src.knowledge.base import RAGKnowledgeBase
+from src.models.workflow import WorkflowExecution
+from src.models.gap_analysis import RecommendedCourse
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +28,7 @@ class PresentationGenerationService:
         self.llm_service = LLMService()
         self.knowledge_base = RAGKnowledgeBase()
         self.http_client = httpx.AsyncClient(timeout=300.0)  # 5-minute timeout
+        self.logger = logger
 
     async def generate_personalized_presentation(
         self,
@@ -63,6 +67,27 @@ class PresentationGenerationService:
                 target_slide_count=target_slide_count,
                 presentation_title=presentation_title
             )
+            try:
+                logger.info(
+                    json.dumps(
+                        {
+                            "event": "presentation_request_payload",
+                            "generation_id": generation_id,
+                            "slide_count": presentation_request.get("slide_count"),
+                            "title": presentation_request.get("title"),
+                            "learning_objectives": presentation_request.get("learning_objectives", []),
+                            "sections": [
+                                {
+                                    "section": section.get("section"),
+                                    "slide_count": section.get("slide_count"),
+                                }
+                                for section in presentation_request.get("content_outline", [])
+                            ],
+                        }
+                    )
+                )
+            except Exception:  # pragma: no cover
+                logger.debug("Failed to serialize presentation_request for logging")
 
             # Generate presentation through PresGen-Core
             presentation_result = await self._generate_via_presgen_core(
@@ -104,6 +129,96 @@ class PresentationGenerationService:
                 "error": str(e),
                 "generation_id": generation_id if 'generation_id' in locals() else None
             }
+
+    async def regenerate_outline_from_recommended_course(
+        self,
+        *,
+        workflow: WorkflowExecution,
+        recommended_course: RecommendedCourse,
+        presentation_prompt: Optional[str],
+        target_slide_count: int
+    ) -> Dict[str, Any]:
+        """Regenerate course outline using existing recommendation, prompt, and RAG context."""
+
+        assessment_results = workflow.assessment_data or {}
+        gap_analysis = workflow.gap_analysis_results or {}
+
+        normalized_course = self._normalize_recommended_course(recommended_course)
+        rag_context, rag_citations = await self._collect_rag_context(
+            normalized_course,
+            certification_id=str(workflow.certification_profile_id),
+        )
+
+        regeneration_payload = {
+            "event": "outline_regeneration_inputs",
+            "workflow_id": str(workflow.id),
+            "course_id": str(recommended_course.id),
+            "slide_count": target_slide_count,
+            "learning_objectives": normalized_course["learning_objectives"],
+            "section_titles": [section.get("title") for section in normalized_course["sections"]],
+            "rag_context_chars": len(rag_context or ""),
+        }
+        self.logger.info(json.dumps(regeneration_payload))
+
+        outline = await self.llm_service.generate_refined_course_outline(
+            recommended_course=normalized_course,
+            presentation_prompt=presentation_prompt,
+            rag_context=rag_context,
+            rag_citations=rag_citations,
+            gap_analysis=gap_analysis,
+            assessment_results=assessment_results,
+            target_slide_count=target_slide_count,
+        )
+
+        return outline
+
+    async def _collect_rag_context(
+        self,
+        normalized_course: Dict[str, Any],
+        certification_id: str,
+    ) -> Tuple[str, List[Dict[str, Any]]]:
+        """Fetch supporting transcript/exam guide context for outline regeneration."""
+
+        learning_objectives = normalized_course.get("learning_objectives", [])
+        queries = [q for q in learning_objectives if isinstance(q, str)]
+        if not queries:
+            queries = [normalized_course.get("skill_name", normalized_course.get("course_title", ""))]
+
+        combined_context_parts: List[str] = []
+        citations: List[Dict[str, Any]] = []
+
+        for query in queries[:3]:
+            result = await self.knowledge_base.retrieve_context_for_assessment(
+                query=query,
+                certification_id=certification_id,
+                k=6,
+                balance_sources=True
+            )
+            context_text = result.get("combined_context")
+            if context_text:
+                combined_context_parts.append(f"### Context for '{query}'\n{context_text}")
+            citations.extend(result.get("citations", []) or [])
+
+        combined_context = "\n\n".join(combined_context_parts)
+        return combined_context, citations
+
+    def _normalize_recommended_course(self, recommended_course: RecommendedCourse) -> Dict[str, Any]:
+        """Convert SQLAlchemy RecommendedCourse into plain dict for LLM prompts."""
+
+        learning_objectives = recommended_course.learning_objectives or []
+        content_outline = recommended_course.content_outline or {}
+        sections = content_outline.get("sections", []) if isinstance(content_outline, dict) else content_outline
+
+        return {
+            "course_id": str(recommended_course.id),
+            "skill_name": recommended_course.skill_name,
+            "course_title": recommended_course.course_title,
+            "course_description": recommended_course.course_description,
+            "estimated_duration_minutes": recommended_course.estimated_duration_minutes,
+            "difficulty_level": recommended_course.difficulty_level,
+            "learning_objectives": learning_objectives,
+            "sections": sections,
+        }
 
     def _adapt_content_for_presentation(
         self,

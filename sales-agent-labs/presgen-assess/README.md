@@ -131,14 +131,29 @@ python -c "import src.agent.slides_google"  # Should complete without error
 ```bash
 # Terminal 1: PresGen-Assess (port 8000)
 cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/presgen-assess
-source ../. venv/bin/activate
+source ../.venv/bin/activate
+export OAUTH_CLIENT_JSON=/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/oauth_slides_client.json
+export OAUTH_TOKEN_PATH=/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/token.json
+export PRESGEN_USE_MOCK=false
 ./run_server.sh
+
 
 # Terminal 2: PresGen-Core (port 8080)
 cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs
 source .venv/bin/activate
+export OAUTH_CLIENT_JSON=/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/oauth_slides_client.json
+export OAUTH_TOKEN_PATH=/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/token.json
 export PYTHONPATH=/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs:$PYTHONPATH
 uvicorn src.service.http:app --reload --port 8080
+
+# Terminal 4: PresGen-Avatar (port 8002)
+cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs
+source .venv/bin/activate
+export OAUTH_CLIENT_JSON=/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/oauth_slides_client.json
+export OAUTH_TOKEN_PATH=/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/token.json
+export PYTHONPATH=/Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs:$PYTHONPATH
+export PRESGEN_USE_MOCK=false
+uvicorn src.service.http:app --reload --port 8002
 
 # Terminal 3: Frontend UI
 cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/presgen-ui

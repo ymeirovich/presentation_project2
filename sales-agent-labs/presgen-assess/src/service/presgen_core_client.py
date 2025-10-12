@@ -10,7 +10,7 @@ import asyncio
 import aiohttp
 import sys
 from pathlib import Path
-from typing import Optional, Callable, Any
+from typing import Optional, Callable, Any, List, Dict
 from datetime import datetime
 from uuid import uuid4
 import os
@@ -25,6 +25,7 @@ if str(sales_agent_labs_dir) not in sys.path:
 
 from src.schemas.presentation import PresentationContentSpec
 from src.common.config import settings
+from src.services.course_generation_service import log_course_event
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +143,7 @@ class PresGenCoreClient:
                     progress_callback(progress, step)
 
         presentation_id = presentation_url = None
-        slides_content: list[str] = []
+        slide_plans: List[Dict[str, Any]] = []
         try:
             # ========== STEP 1: Create Google Slides Presentation ==========
             await call_progress(5, "Creating Google Slides presentation")
@@ -154,66 +155,53 @@ class PresGenCoreClient:
             slides_google = get_slides_google()
             create_presentation = slides_google.create_presentation
             create_main_slide_with_content = slides_google.create_main_slide_with_content
+            delete_default_slide = slides_google.delete_default_slide
 
             presentation_title = content_spec.title
-            title_content = f"{content_spec.title}\n{content_spec.subtitle or ''}"
 
-            slides_content = []
-            if content_spec.content_outline and isinstance(content_spec.content_outline, dict):
-                content_items = content_spec.content_outline.get("content_items", [])
-                log_slides = os.getenv("PRESGEN_LOG_SLIDE_OUTLINE", "false").lower() == "true"
-                logger.info("log_slides: %s", log_slides)
-                if log_slides:
-                    logger.info(
-                        "📝 Slide outline logging enabled | workflow_id=%s | skill_id=%s | total_items=%s",
-                        getattr(content_spec, "workflow_id", "unknown"),
-                        getattr(content_spec, "skill_id", "unknown"),
-                        len(content_items),
-                    )
+            slide_plans = self._build_slide_plans(content_spec)
 
-                for item in content_items:
-                    topic = item.get("topic", "")
-                    source = item.get("source", "")
-                    slides_content.append(f"{topic}\n\nSource: {source}")
+            outline_preview = " | ".join(
+                f"{idx + 1}: {plan['title']}"
+                for idx, plan in enumerate(slide_plans)
+            ) if slide_plans else "No slides planned"
 
-                if log_slides and content_items:
-                    for idx, item in enumerate(content_items, start=1):
-                        topic = (item.get("topic") or "").strip()
-                        source = (item.get("source") or "").strip()
-                        summary = (item.get("summary") or item.get("description") or "").strip()
-                        if summary and len(summary) > 300:
-                            summary = summary[:297] + "..."
-                        key_points = item.get("key_points")
-                        if isinstance(key_points, list):
-                            key_points_str = "; ".join(str(point) for point in key_points[:8])
-                            if len(key_points) > 8:
-                                key_points_str += "; …"
-                        else:
-                            key_points_str = None
-                        page_ref = (item.get("page_ref") or "").strip()
+            log_course_event(
+                "PRESGEN_SLIDE_OUTLINE_READY",
+                workflow_id=str(getattr(content_spec, "workflow_id", "unknown")),
+                skill_id=getattr(content_spec, "skill_id", "unknown"),
+                slide_count=len(slide_plans),
+                outline_preview=outline_preview[:500]
+            )
 
-                        logger.info(
-                            "📝 Slide outline | idx=%s | topic=%s | source=%s | page_ref=%s | summary=%s | key_points=%s",
-                            idx,
-                            topic or "N/A",
-                            source or "N/A",
-                            page_ref or "N/A",
-                            summary or "N/A",
-                            key_points_str or "N/A",
-                        )
-                elif log_slides and not content_items:
-                    logger.info(
-                        "📝 Slide outline | workflow_id=%s | skill_id=%s | message=No content items available",
-                        getattr(content_spec, "workflow_id", "unknown"),
-                        getattr(content_spec, "skill_id", "unknown"),
-                    )
-
-            logger.info("📊 Creating Google Slides | title=%s | slides=%s", presentation_title, len(slides_content))
+            logger.info("📊 Creating Google Slides | title=%s | slides=%s", presentation_title, len(slide_plans))
 
             presentation_id, presentation_url = create_presentation(
                 title=presentation_title,
-                content="\n\n".join(slides_content) if slides_content else "Presentation content",
+                content=presentation_title,
             )
+
+            try:
+                delete_default_slide(presentation_id)
+            except Exception as exc:  # pylint: disable=broad-except
+                logger.warning("⚠️ Failed to delete default slide: %s", exc)
+
+            for plan in slide_plans:
+                try:
+                    create_main_slide_with_content(
+                        presentation_id,
+                        title=plan["title"],
+                        subtitle=plan.get("subtitle", ""),
+                        bullets=plan.get("bullets", []),
+                        image_url=None,
+                        script=plan.get("script", ""),
+                    )
+                except Exception as exc:  # pylint: disable=broad-except
+                    logger.warning(
+                        "⚠️ Failed to create slide '%s': %s",
+                        plan.get("title"),
+                        exc,
+                    )
 
             await call_progress(30, "Google Slides created")
             logger.info("✅ Slides created | id=%s | url=%s", presentation_id, presentation_url)
@@ -244,7 +232,8 @@ class PresGenCoreClient:
                 "mode": "presentation_only",
                 "voice_profile_name": "OpenAI Demo Voice (Your Audio)",  # OpenAI TTS voice
                 "google_slides_url": presentation_url,
-                "quality_level": "fast"  # Fast mode for quick generation
+                "quality_level": "fast",  # Fast mode for quick generation
+                "slide_count": len(slide_plans),
             }
 
             api_url = f"{self.base_url}/training/presentation-only"
@@ -320,7 +309,7 @@ class PresGenCoreClient:
                     return PresentationResult(
                         presentation_url=presentation_url,  # Google Slides URL
                         file_data=b"",  # Don't load large video files into memory
-                        slide_count=len(slides_content) if slides_content else 1,
+                        slide_count=len(slide_plans) if slide_plans else 1,
                         thumbnail_url=None,
                         generation_duration_ms=actual_duration_ms
                     )
@@ -498,3 +487,135 @@ class PresGenCoreClient:
             base_folder = f"{safe_title}_{short_workflow_id}"
 
         return f"Assessments/{base_folder}/Presentations/{safe_skill}/"
+    def _build_slide_plans(self, content_spec: PresentationContentSpec) -> List[Dict[str, Any]]:
+        """Derive a slide plan (title, bullets, presenter notes) from the content spec."""
+
+        def _clean_list(values: Optional[List[str]]) -> List[str]:
+            if not values:
+                return []
+            cleaned = []
+            for value in values:
+                if value is None:
+                    continue
+                text = str(value).strip()
+                if text:
+                    cleaned.append(text)
+            return cleaned
+
+        plans: List[Dict[str, Any]] = []
+        target = max(1, min(content_spec.target_slide_count or 12, 40))
+
+        learning_objectives = _clean_list(content_spec.learning_objectives)
+        sections = content_spec.content_outline.get("sections", []) if isinstance(content_spec.content_outline, dict) else []
+        content_items = content_spec.content_outline.get("content_items", []) if isinstance(content_spec.content_outline, dict) else []
+
+        def add_plan(title: str, subtitle: str = "", bullets: Optional[List[str]] = None, script: str = "") -> None:
+            bullet_list = _clean_list(bullets) if bullets else []
+            plans.append({
+                "title": title.strip() or "Untitled Slide",
+                "subtitle": subtitle.strip() if subtitle else "",
+                "bullets": bullet_list,
+                "script": (script.strip() or title.strip() or "Presenter notes unavailable."),
+            })
+
+        # Title / overview slide
+        overview_points = learning_objectives[:3] or [f"Why {content_spec.skill_name} matters"]
+        add_plan(
+            title=content_spec.title,
+            subtitle=content_spec.subtitle or content_spec.assessment_title,
+            bullets=overview_points,
+            script=(
+                f"Welcome to this session on {content_spec.skill_name}. "
+                f"We will focus on {', '.join(overview_points)}."
+            ),
+        )
+
+        # Gap summary slide
+        skill_gap = content_spec.skill_gap or {}
+        bullets = []
+        if skill_gap.get("severity") is not None:
+            bullets.append(f"Gap severity: {skill_gap['severity']}/10")
+        if skill_gap.get("confidence_delta") is not None:
+            bullets.append(f"Confidence delta: {skill_gap['confidence_delta']}")
+        if learning_objectives:
+            bullets.append("Priority objectives: " + ", ".join(learning_objectives[:3]))
+        add_plan(
+            title="Current Skill Snapshot",
+            subtitle=content_spec.skill_name,
+            bullets=bullets or ["Review current performance and target outcomes."],
+            script=skill_gap.get("summary")
+            or skill_gap.get("description")
+            or f"We will address the critical gaps in {content_spec.skill_name} and map remediation steps.",
+        )
+
+        objective_queue = learning_objectives.copy()
+        section_queue = list(sections) if isinstance(sections, list) else []
+        item_queue = list(content_items) if isinstance(content_items, list) else []
+
+        def _objective_plan(objective: str) -> None:
+            add_plan(
+                title=objective,
+                subtitle="Learning objective",
+                bullets=[
+                    "Clarify the core concept",
+                    "Connect theory to practical implementation",
+                    "Identify resources to reinforce learning",
+                ],
+                script=f"In this segment we will focus on the objective '{objective}' and how to demonstrate proficiency.",
+            )
+
+        def _section_plan(section: Dict[str, Any]) -> None:
+            title = str(section.get("title") or "Key Section").strip()
+            duration = section.get("duration_minutes")
+            bullets = []
+            if duration:
+                bullets.append(f"Estimated focus time: {duration} minutes")
+            bullets.extend([
+                "Highlight foundational knowledge",
+                "Discuss implementation considerations",
+                "Note common pitfalls and exam tips",
+            ])
+            add_plan(
+                title=title,
+                subtitle="Section focus",
+                bullets=bullets,
+                script=f"This section explores {title.lower()} with guidance on how to master it for certification success.",
+            )
+
+        def _content_item_plan(item: Dict[str, Any]) -> None:
+            topic = (item.get("topic") or item.get("title") or "Key Concept").strip()
+            source = (item.get("source") or "Reference material").strip()
+            key_points = item.get("key_points")
+            bullets = _clean_list(key_points if isinstance(key_points, list) else None)
+            summary = (item.get("summary") or item.get("description") or "Explain why this concept matters.").strip()
+            if not bullets:
+                sentences = [seg.strip() for seg in summary.replace("\n", " ").split('.') if seg.strip()]
+                bullets = sentences[:3] if sentences else [summary]
+            add_plan(
+                title=topic,
+                subtitle=f"Source: {source}" if source else "",
+                bullets=bullets,
+                script=summary,
+            )
+
+        while len(plans) < target:
+            if objective_queue:
+                _objective_plan(objective_queue.pop(0))
+            elif item_queue:
+                _content_item_plan(item_queue.pop(0))
+            elif section_queue:
+                _section_plan(section_queue.pop(0))
+            else:
+                add_plan(
+                    title="Review & Next Steps",
+                    subtitle=content_spec.skill_name,
+                    bullets=[
+                        "Summarize key insights",
+                        "Plan immediate practice tasks",
+                        "Schedule follow-up assessment",
+                    ],
+                    script="Consolidate what we learned and outline concrete next actions for continued progress.",
+                )
+
+        # Ensure we don't exceed the target (rare if loops add exactly one per iteration)
+        return plans[:target]

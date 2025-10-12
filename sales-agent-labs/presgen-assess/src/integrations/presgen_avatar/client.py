@@ -40,11 +40,24 @@ class PresGenAvatarClient:
         base_backoff_seconds: float = 1.0,
         failure_threshold: int = 3,
         recovery_seconds: int = 60,
+        timeout_seconds: Optional[float] = None,
     ) -> None:
         self.base_url = (base_url or getattr(settings, "presgen_avatar_url", "http://localhost:8002")).rstrip("/")
         self.api_key = api_key
-        self._timeout = httpx.Timeout(30.0)
-        self.use_mock = use_mock if use_mock is not None else bool(getattr(settings, "presgen_use_mock", False))
+
+        # Configure timeout: default 900 seconds (15 minutes) for video generation
+        # Avatar service may take longer due to TTS + video encoding
+        default_timeout = getattr(settings, "presgen_avatar_timeout_seconds", 900.0)
+        configured_timeout = timeout_seconds if timeout_seconds is not None else default_timeout
+        self._timeout = httpx.Timeout(configured_timeout)
+        if use_mock is not None:
+            self.use_mock = use_mock
+        else:
+            env_flag = os.getenv("PRESGEN_USE_MOCK")
+            if env_flag is not None:
+                self.use_mock = env_flag.lower() == "true"
+            else:
+                self.use_mock = bool(getattr(settings, "presgen_use_mock", False))
         self._client: Optional[httpx.AsyncClient] = None
 
         self._max_attempts = max(1, max_attempts)
@@ -150,7 +163,7 @@ class PresGenAvatarClient:
         try:
             client = await self._get_client()
             response = await client.get(
-                f"{self.base_url}/api/v1/avatar/status/{job_id}",
+                f"{self.base_url}/training/status/{job_id}",
                 headers=self._headers,
             )
             response.raise_for_status()
@@ -199,37 +212,64 @@ class PresGenAvatarClient:
         if self.use_mock:
             return await self._mock_generate(request)
 
-        try:
-            client = await self._get_client()
-            endpoint = (
-                f"{self.base_url}/api/v1/workflows/"
-                f"{quote(workflow_id)}/skills/{quote(skill_id)}/generate-course"
-            )
-            start_time = datetime.utcnow()
-            logger.info(
-                "🎯 avatar_client_pipeline | stage=request_start | workflow_id=%s | skill_id=%s | endpoint=%s",
-                workflow_id,
-                skill_id,
-                endpoint,
-            )
-            response = await client.post(
-                endpoint,
-                json=request.model_dump(mode="json"),
-                headers=self._headers,
-            )
-            response.raise_for_status()
-            data = response.json()
-            result = self._parse_generate_response(workflow_id, skill_id, data)
-            logger.info(
-                "✅ Avatar generation request accepted | job_id=%s | status=%s | duration_ms=%s",
-                result.job_id,
-                result.status,
-                int((datetime.utcnow() - start_time).total_seconds() * 1000),
-            )
-            return result
-        except httpx.HTTPError as exc:
-            logger.warning("PresGen-Avatar HTTP error (%s); switching to mock", exc)
-            return await self._mock_generate(request)
+        client = await self._get_client()
+        # Use PresGen /training/presentation-only endpoint (same as PresGen-Core)
+        endpoint = f"{self.base_url}/training/presentation-only"
+        start_time = datetime.utcnow()
+
+        # Build payload for PresGen /training/presentation-only endpoint
+        # Use configured voice profile from settings (not provider-voice_id format)
+        from src.common.config import settings
+        voice_profile = getattr(settings, "presgen_core_voice_profile", "OpenAI Demo Voice (Your Audio)")
+
+        payload = {
+            "google_slides_url": str(request.presentation_url),
+            "mode": request.mode,  # Required field: "presentation-only", "video-only", etc.
+            "voice_profile_name": voice_profile,
+            "quality_level": request.quality,
+            "use_cache": False,
+        }
+
+        logger.info("=" * 80)
+        logger.info("📤 PRESGEN-AVATAR REQUEST")
+        logger.info("  • Endpoint: %s", endpoint)
+        logger.info("  • Workflow ID: %s", workflow_id)
+        logger.info("  • Skill ID: %s", skill_id)
+        logger.info("  • Presentation URL: %s", request.presentation_url)
+        logger.info("  • Mode: %s", request.mode)
+        logger.info("  • Quality: %s", request.quality)
+        logger.info("  • Voice Profile: %s", payload["voice_profile_name"])
+        logger.info("=" * 80)
+
+        response = await client.post(
+            endpoint,
+            json=payload,
+            headers=self._headers,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        # Log raw response for debugging
+        logger.info("=" * 80)
+        logger.info("📥 RAW PRESGEN RESPONSE")
+        logger.info("  • Response keys: %s", list(data.keys()) if isinstance(data, dict) else "N/A")
+        for key, value in (data.items() if isinstance(data, dict) else []):
+            logger.info("  • %s: %s", key, value)
+        logger.info("=" * 80)
+
+        result = self._parse_generate_response(workflow_id, skill_id, data)
+
+        duration_ms = int((datetime.utcnow() - start_time).total_seconds() * 1000)
+        logger.info("=" * 80)
+        logger.info("✅ PRESGEN-AVATAR RESPONSE RECEIVED")
+        logger.info("  • Job ID: %s", result.job_id)
+        logger.info("  • Status: %s", result.status)
+        logger.info("  • Progress: %s%%", result.progress or 0)
+        logger.info("  • Video URL: %s", result.video_url or "Pending")
+        logger.info("  • Duration: %s ms", duration_ms)
+        logger.info("=" * 80)
+
+        return result
 
     def _ensure_circuit_closed(self) -> None:
         if self._circuit_reset_at and datetime.utcnow() < self._circuit_reset_at:
@@ -308,6 +348,10 @@ class PresGenAvatarClient:
         if isinstance(data, dict) and "course_id" in data:
             return self._convert_course_response(workflow_id, skill_id, data)
 
+        # Handle TrainingVideoResponse format from PresGen /training/presentation-only
+        if isinstance(data, dict) and "success" in data and "job_id" in data:
+            return self._convert_training_response(workflow_id, skill_id, data)
+
         result = AvatarGenerationResponse.model_validate(data)
         result.status = self._normalize_status(result.status)
         result.progress = self._coerce_progress(result.progress)
@@ -321,6 +365,51 @@ class PresGenAvatarClient:
         if not result.job_id:
             result.job_id = result.course_id or uuid4().hex
         return result
+
+    def _convert_training_response(
+        self,
+        workflow_id: str,
+        skill_id: str,
+        data: Dict[str, Any],
+    ) -> AvatarGenerationResponse:
+        """Convert TrainingVideoResponse from PresGen /training/presentation-only endpoint."""
+        job_id = str(data.get("job_id", "")).strip() or uuid4().hex
+        success = data.get("success", False)
+        error = data.get("error")
+        download_url = data.get("download_url")
+
+        # Convert relative download_url to full HTTP URL
+        if download_url and not download_url.startswith("http"):
+            # download_url is like "/training/download/{job_id}"
+            download_url = f"{self.base_url}{download_url}"
+
+        # Determine status based on success/error/download_url
+        if error:
+            status = "failed"
+            progress = 0
+        elif download_url:
+            status = "completed"
+            progress = 100
+        else:
+            status = "processing"
+            progress = 50
+
+        return AvatarGenerationResponse(
+            success=success,
+            job_id=job_id,
+            status=status,
+            progress=progress,
+            video_url=download_url,
+            error_message=error,
+            workflow_id=workflow_id,
+            skill_id=skill_id,
+            context={
+                "workflow_id": workflow_id,
+                "skill_id": skill_id,
+                "api_mode": "training",
+            },
+            raw_response=data,
+        )
 
     def _convert_course_response(
         self,
