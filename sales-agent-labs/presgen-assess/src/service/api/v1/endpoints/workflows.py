@@ -2651,8 +2651,19 @@ async def generate_skill_course(
     )
 
     def _format_prompt_template(template: Optional[str]) -> Optional[str]:
+        """Format presentation prompt template with available variables.
+
+        Note: This formats simple instruction prompts for PresGen-Core, NOT complex LLM templates.
+        If template contains many unresolved variables, a default prompt is returned.
+        See PHASE_10_CRITICAL_FINDINGS.md for details on prompt architecture.
+        """
         if not template:
-            return template
+            # Return sensible default for PresGen-Core
+            return f"""Create a professional training presentation with {requested_slide_count} slides.
+Focus on clear explanations, practical examples, and learner engagement.
+Structure: Introduction → Core Concepts → Practical Applications → Review.
+Each slide should have 3-5 concise bullet points and instructor notes.
+Narration should be conversational and ≤ 75 seconds per slide."""
 
         class _SafeDict(dict):
             def __missing__(self, key):
@@ -2691,7 +2702,21 @@ async def generate_skill_course(
                 })
             )
 
-            if remaining_placeholders:
+            # ✅ Phase 10 Critical Fix - Detect LLM templates with too many unresolved variables
+            if len(remaining_placeholders) > 5:
+                logger.warning(
+                    f"⚠️ Presentation prompt has {len(remaining_placeholders)} unresolved variables - likely an LLM template. "
+                    f"Using default PresGen-Core instructions instead. "
+                    f"See PHASE_10_CRITICAL_FINDINGS.md for details."
+                )
+                # Return default instead of broken template
+                return f"""Create a professional training presentation with {requested_slide_count} slides.
+Focus on clear explanations, practical examples, and learner engagement.
+Structure: Introduction → Core Concepts → Practical Applications → Review.
+Each slide should have 3-5 concise bullet points and instructor notes.
+Narration should be conversational and ≤ 75 seconds per slide."""
+
+            elif remaining_placeholders:
                 logger.warning(
                     f"⚠️ Presentation prompt has {len(remaining_placeholders)} unresolved variables: {remaining_placeholders}"
                 )
@@ -2699,13 +2724,18 @@ async def generate_skill_course(
             return formatted
         except Exception as exc:  # pragma: no cover - formatting errors surfaced via logs
             logger.warning(
-                "⚠️ Prompt formatting failed; returning original template",
+                "⚠️ Prompt formatting failed with exception; using default prompt",
                 extra={
                     "workflow_id": workflow_id_str,
                     "error": str(exc),
                 },
             )
-            return template
+            # Return default instead of broken template
+            return f"""Create a professional training presentation with {requested_slide_count} slides.
+Focus on clear explanations, practical examples, and learner engagement.
+Structure: Introduction → Core Concepts → Practical Applications → Review.
+Each slide should have 3-5 concise bullet points and instructor notes.
+Narration should be conversational and ≤ 75 seconds per slide."""
 
     formatted_prompt = _format_prompt_template(custom_prompt)
     custom_prompt = formatted_prompt
