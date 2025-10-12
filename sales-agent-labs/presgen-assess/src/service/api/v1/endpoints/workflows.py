@@ -2656,14 +2656,32 @@ async def generate_skill_course(
         Now supports full variable substitution including course data and RAG context.
         Uses simplified variable names (e.g., {skill_name} instead of {course_record.skill_name}).
         Retrieves filtered RAG context based on learning objectives (1-2s retrieval cost acceptable).
+
+        NOTE: Detects LLM prompt templates (YAML-structured) and returns default instead.
         """
-        if not template:
-            # Return sensible default for PresGen-Core
+        def _get_default_prompt():
             return f"""Create a professional training presentation with {requested_slide_count} slides.
 Focus on clear explanations, practical examples, and learner engagement.
 Structure: Introduction → Core Concepts → Practical Applications → Review.
 Each slide should have 3-5 concise bullet points and instructor notes.
 Narration should be conversational and ≤ 75 seconds per slide."""
+
+        if not template:
+            return _get_default_prompt()
+
+        # ✅ Detect LLM prompt templates (YAML/structured prompts for LLM use, not PresGen-Core)
+        llm_prompt_indicators = ["description:", "inputs:", "roles:", "role: system", "OUTPUT FORMAT"]
+        if any(indicator in template for indicator in llm_prompt_indicators):
+            logger.info(
+                json.dumps({
+                    "event": "llm_prompt_template_detected",
+                    "workflow_id": workflow_id_str,
+                    "message": "Certification profile contains LLM prompt template (YAML-structured). Using default PresGen-Core instructions instead.",
+                    "detected_indicators": [ind for ind in llm_prompt_indicators if ind in template],
+                    "recommendation": "For PresGen-Core, use simple instruction text. For LLM outline generation, enable PRESGEN_REGENERATE_COURSE_OUTLINE.",
+                })
+            )
+            return _get_default_prompt()
 
         class _SafeDict(dict):
             def __missing__(self, key):
@@ -2725,9 +2743,16 @@ Narration should be conversational and ≤ 75 seconds per slide."""
             )
 
         except Exception as exc:
+            import traceback
             logger.warning(
                 f"⚠️ RAG context retrieval failed: {exc}",
-                extra={"workflow_id": workflow_id_str}
+                extra={
+                    "workflow_id": workflow_id_str,
+                    "error_type": type(exc).__name__,
+                    "traceback": traceback.format_exc(),
+                    "certification_profile_id": str(workflow.certification_profile_id),
+                    "queries_attempted": queries[:3] if 'queries' in locals() else [],
+                }
             )
             knowledge_base_context = ""
 
@@ -2810,11 +2835,14 @@ Narration should be conversational and ≤ 75 seconds per slide."""
             return formatted
 
         except Exception as exc:  # pragma: no cover - formatting errors surfaced via logs
+            import traceback
             logger.warning(
                 "⚠️ Prompt formatting failed with exception; using default prompt",
                 extra={
                     "workflow_id": workflow_id_str,
                     "error": str(exc),
+                    "error_type": type(exc).__name__,
+                    "traceback": traceback.format_exc(),
                 },
             )
             # Return default instead of broken template
