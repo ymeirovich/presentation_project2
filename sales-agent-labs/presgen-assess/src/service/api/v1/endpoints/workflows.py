@@ -2717,6 +2717,12 @@ Narration should be conversational and ≤ 75 seconds per slide."""
                     k=6,  # 6 chunks per query
                     balance_sources=True
                 )
+
+                # Type check: ensure result is dict, not string
+                if not isinstance(result, dict):
+                    logger.warning(f"⚠️ RAG returned unexpected type: {type(result).__name__}, expected dict. Result: {str(result)[:200]}")
+                    continue
+
                 context_text = result.get("combined_context")
                 if context_text:
                     combined_context_parts.append(f"### Context for '{query}'\n{context_text}")
@@ -2758,6 +2764,7 @@ Narration should be conversational and ≤ 75 seconds per slide."""
                     "error_type": type(exc).__name__,
                     "traceback": traceback.format_exc(),
                     "certification_profile_id": str(workflow.certification_profile_id),
+                    "rag_certification_id_attempted": rag_certification_id if 'rag_certification_id' in locals() else None,
                     "queries_attempted": queries[:3] if 'queries' in locals() else [],
                 }
             )
