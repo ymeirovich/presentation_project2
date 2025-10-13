@@ -2711,19 +2711,26 @@ Narration should be conversational and ≤ 75 seconds per slide."""
             rag_certification_id = cert_profile.collection_name if cert_profile and cert_profile.collection_name else str(workflow.certification_profile_id)
 
             for query in queries[:3]:  # Top 3 learning objectives
-                result = await rag_kb.retrieve_context_for_assessment(
-                    query=query,
-                    certification_id=rag_certification_id,
-                    k=6,  # 6 chunks per query
-                    balance_sources=True
-                )
+                try:
+                    result = await rag_kb.retrieve_context_for_assessment(
+                        query=query,
+                        certification_id=rag_certification_id,
+                        k=6,  # 6 chunks per query
+                        balance_sources=True
+                    )
 
-                # Type check: ensure result is dict, not string
-                if not isinstance(result, dict):
-                    logger.warning(f"⚠️ RAG returned unexpected type: {type(result).__name__}, expected dict. Result: {str(result)[:200]}")
+                    # Debug logging: show what we got back
+                    logger.info(f"📊 RAG result type: {type(result).__name__}, has 'get': {hasattr(result, 'get')}")
+
+                    # Type check: ensure result is dict, not string
+                    if not isinstance(result, dict):
+                        logger.warning(f"⚠️ RAG returned unexpected type: {type(result).__name__}, expected dict. Result: {str(result)[:200]}")
+                        continue
+
+                    context_text = result.get("combined_context")
+                except Exception as query_exc:
+                    logger.warning(f"⚠️ RAG query failed for '{query}': {query_exc}")
                     continue
-
-                context_text = result.get("combined_context")
                 if context_text:
                     combined_context_parts.append(f"### Context for '{query}'\n{context_text}")
                 rag_citations.extend(result.get("citations", []) or [])
