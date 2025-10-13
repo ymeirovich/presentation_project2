@@ -2710,14 +2710,18 @@ Narration should be conversational and ≤ 75 seconds per slide."""
             # not UUID from certification_profiles table
             rag_certification_id = cert_profile.collection_name if cert_profile and cert_profile.collection_name else str(workflow.certification_profile_id)
 
+            logger.info(f"🔍 Starting RAG retrieval with certification_id='{rag_certification_id}', queries={queries[:3]}")
+
             for query in queries[:3]:  # Top 3 learning objectives
                 try:
+                    logger.info(f"🔍 Calling RAG for query: '{query}'")
                     result = await rag_kb.retrieve_context_for_assessment(
                         query=query,
                         certification_id=rag_certification_id,
                         k=6,  # 6 chunks per query
                         balance_sources=True
                     )
+                    logger.info(f"✅ RAG call completed successfully")
 
                     # Debug logging: show what we got back
                     logger.info(f"📊 RAG result type: {type(result).__name__}, has 'get': {hasattr(result, 'get')}")
