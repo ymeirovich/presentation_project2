@@ -2772,7 +2772,8 @@ Narration should be conversational and ≤ 75 seconds per slide."""
 
         # ✅ Phase 10 Full Implementation - Populate all course data with simplified variable names
         import re
-        variables_in_template = re.findall(r"\{([^}]+)\}", template)
+        # Only match {variable_name} patterns, not JSON objects
+        variables_in_template = re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", template)
 
         # Build values dict with all available course data
         content_outline = skill_course.content_outline or {}
@@ -2830,7 +2831,9 @@ Narration should be conversational and ≤ 75 seconds per slide."""
             formatted = template.format_map(values)
 
             # ✅ Phase 10 Task 3.1 - Validate AFTER substitution
-            remaining_placeholders = re.findall(r"\{([^}]+)\}", formatted)
+            # Only match {variable_name} patterns, not JSON objects like {"key": "value"}
+            # Variable names: alphanumeric, underscore, no spaces, no quotes, no colons
+            remaining_placeholders = re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", formatted)
             logger.info(
                 json.dumps({
                     "event": "presentation_prompt_after_substitution",
