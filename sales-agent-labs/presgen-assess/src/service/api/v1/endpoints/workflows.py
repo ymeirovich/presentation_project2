@@ -2737,7 +2737,40 @@ Narration should be conversational and ≤ 75 seconds per slide."""
                     continue
                 if context_text:
                     combined_context_parts.append(f"### Context for '{query}'\n{context_text}")
-                rag_citations.extend(result.get("citations", []) or [])
+                raw_citations = result.get("citations", []) or []
+                logger.info(
+                    "🔍 Raw citations for query '%s': count=%s, first_type=%s, first_value=%s",
+                    query,
+                    len(raw_citations),
+                    type(raw_citations[0]).__name__ if raw_citations else None,
+                    raw_citations[0] if raw_citations else None,
+                )
+
+                normalized_citations = []
+                for citation in raw_citations:
+                    if isinstance(citation, dict):
+                        normalized_citations.append(citation)
+                        continue
+                    if isinstance(citation, str):
+                        normalized_citations.append(
+                            {
+                                "source": citation,
+                                "text": citation,
+                                "score": None,
+                            }
+                        )
+                        continue
+                    logger.warning(
+                        "⚠️ Skipping citation with unexpected type %s: %s",
+                        type(citation).__name__,
+                        citation,
+                    )
+
+                rag_citations.extend(normalized_citations)
+                logger.info(f"🔍 Citations collected so far: {len(rag_citations)} items")
+                if rag_citations:
+                    logger.info(f"🔍 First citation type: {type(rag_citations[0]).__name__}")
+                    logger.info(f"🔍 First citation value: {rag_citations[0]}")
 
             knowledge_base_context = "\n\n".join(combined_context_parts)
 
@@ -2845,15 +2878,20 @@ Narration should be conversational and ≤ 75 seconds per slide."""
             # Only match {variable_name} patterns, not JSON objects like {"key": "value"}
             # Variable names: alphanumeric, underscore, no spaces, no quotes, no colons
             remaining_placeholders = re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", formatted)
-            logger.info(
-                json.dumps({
-                    "event": "presentation_prompt_after_substitution",
-                    "workflow_id": workflow_id_str,
-                    "remaining_unresolved_variables": remaining_placeholders,
-                    "substitution_complete": len(remaining_placeholders) == 0,
-                    "prompt_length_chars": len(formatted),
-                })
-            )
+
+            # Log validation results (wrapped in try/except to prevent logging errors from breaking the flow)
+            try:
+                logger.info(
+                    json.dumps({
+                        "event": "presentation_prompt_after_substitution",
+                        "workflow_id": workflow_id_str,
+                        "remaining_unresolved_variables": remaining_placeholders,
+                        "substitution_complete": len(remaining_placeholders) == 0,
+                        "prompt_length_chars": len(formatted),
+                    })
+                )
+            except Exception as log_exc:
+                logger.warning(f"⚠️ Failed to log substitution results: {log_exc}")
 
             if remaining_placeholders:
                 logger.warning(
