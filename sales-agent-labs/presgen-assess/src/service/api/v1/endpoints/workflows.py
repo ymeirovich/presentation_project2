@@ -2902,15 +2902,10 @@ Narration should be conversational and ≤ 75 seconds per slide."""
 
         except Exception as exc:  # pragma: no cover - formatting errors surfaced via logs
             import traceback
-            logger.warning(
-                "⚠️ Prompt formatting failed with exception; using default prompt",
-                extra={
-                    "workflow_id": workflow_id_str,
-                    "error": str(exc),
-                    "error_type": type(exc).__name__,
-                    "traceback": traceback.format_exc(),
-                },
-            )
+            error_details = f"Error type: {type(exc).__name__}, Message: {str(exc)}"
+            logger.warning(f"⚠️ Prompt formatting failed with exception; using default prompt")
+            logger.warning(f"⚠️ Error details: {error_details}")
+            logger.warning(f"⚠️ Traceback:\n{traceback.format_exc()}")
             # Return default instead of broken template
             return f"""Create a professional training presentation with {requested_slide_count} slides.
 Focus on clear explanations, practical examples, and learner engagement.

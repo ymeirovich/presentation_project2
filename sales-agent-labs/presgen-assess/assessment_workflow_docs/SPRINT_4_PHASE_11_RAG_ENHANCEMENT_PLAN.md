@@ -529,12 +529,11 @@ cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs/presgen
 python3 << 'EOF'
 import asyncio
 from sqlalchemy import select
-from src.service.database import get_async_session_maker
+from src.service.database import get_db_session  # or: from src.service.database import AsyncSessionLocal
 from src.models.certification import CertificationProfile
 
 async def check_prompt():
-    async_session = get_async_session_maker()
-    async with async_session() as session:
+    async with get_db_session() as session:
         result = await session.execute(
             select(CertificationProfile).where(
                 CertificationProfile.collection_name == "aws-ml-specialty"

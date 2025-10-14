@@ -36,6 +36,7 @@ class Settings:
     # OpenAI API Configuration
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "test-key")
     openai_org_id: Optional[str] = os.getenv("OPENAI_ORG_ID")
+    openai_model: str = os.getenv("OPENAI_MODEL", "gpt-4")
 
     # Google Cloud & OAuth Configuration
     google_application_credentials: Optional[str] = os.getenv(

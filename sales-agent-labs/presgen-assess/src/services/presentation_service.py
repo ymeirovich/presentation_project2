@@ -219,9 +219,23 @@ class PresentationGenerationService:
             context_text = result.get("combined_context")
             if context_text:
                 combined_context_parts.append(f"### Context for '{query}'\n{context_text}")
-            citations.extend(result.get("citations", []) or [])
+            current_citations = result.get("citations", []) or []
+            self.logger.info(
+                "🔍 Citations collected for query '%s': count=%s, first_type=%s, first_value=%s",
+                query,
+                len(current_citations),
+                type(current_citations[0]).__name__ if current_citations else None,
+                current_citations[0] if current_citations else None,
+            )
+            citations.extend(current_citations)
 
         combined_context = "\n\n".join(combined_context_parts)
+        self.logger.info(
+            "🔍 Total RAG citations aggregated: count=%s, first_type=%s, first_value=%s",
+            len(citations),
+            type(citations[0]).__name__ if citations else None,
+            citations[0] if citations else None,
+        )
         return combined_context, citations
 
     def _normalize_recommended_course(self, recommended_course: RecommendedCourse) -> Dict[str, Any]:
