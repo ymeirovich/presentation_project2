@@ -21,7 +21,7 @@ class LLMService:
         """Initialize OpenAI client and RAG knowledge base."""
         self.client = AsyncOpenAI(api_key=settings.openai_api_key)
         self.knowledge_base = RAGKnowledgeBase()
-        self.model = "gpt-4"
+        self.model = settings.openai_model
         self.token_usage = {"total_tokens": 0, "total_cost": 0.0}
 
     def _log_llm_event(self, event: str, payload: Dict[str, Any]) -> None:
@@ -725,8 +725,9 @@ Prioritize content that directly addresses the identified learning gaps.
 
         # ✅ NEW: Phase 10 Task 3.1 - Validate substitution completed
         # Check for unresolved placeholders
+        # Only match {variable_name} patterns, not JSON objects like {"key": "value"}
         import re
-        unresolved_placeholders = re.findall(r"\{[^}]+\}", prompt)
+        unresolved_placeholders = re.findall(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", prompt)
 
         self._log_llm_event(
             "prompt_after_substitution",
