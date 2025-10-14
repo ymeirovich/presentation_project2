@@ -147,6 +147,114 @@ async def _regenerate_course_outline_for_course(
         return None
 
 
+async def _generate_slides_with_llm(
+    custom_prompt: str,
+    target_slide_count: int,
+    workflow_id: str,
+    db: AsyncSession,
+) -> List[Dict[str, Any]]:
+    """
+    Generate slides using LLM with custom RAG-enhanced prompt.
+
+    The custom_prompt already contains:
+    - Complete system instructions
+    - Quality rubric and requirements
+    - RAG context with domain tags
+    - Example output format
+    - All variable substitutions complete
+
+    This function only needs to:
+    1. Call LLM with the prepared prompt
+    2. Parse JSON response
+    3. Convert to slide_plans format
+    """
+    from src.services.llm_service import LLMService
+
+    logger.info(
+        "🤖 Generating slides with LLM | workflow_id=%s | target_slides=%d | prompt_length=%d",
+        workflow_id,
+        target_slide_count,
+        len(custom_prompt)
+    )
+
+    try:
+        llm_service = LLMService(db=db)
+
+        # Call LLM with enhanced prompt
+        # The prompt already contains complete instructions and examples
+        response = await llm_service.generate(
+            prompt=custom_prompt,
+            model="gpt-4o-mini",
+            temperature=0.7,
+            max_tokens=4000,  # Sufficient for 12 slides with detailed content
+        )
+
+        # Parse JSON response
+        # Expected format from prompt:
+        # {
+        #   "presentation_type": "course_remediation",
+        #   "sections": [
+        #     {
+        #       "title": "Section Title",
+        #       "slides": [
+        #         {
+        #           "title": "Slide Title",
+        #           "bullets": ["point 1", "point 2", ...],
+        #           "instructor_notes": "Narration script..."
+        #         }
+        #       ]
+        #     }
+        #   ]
+        # }
+
+        result = json.loads(response)
+
+        # Extract slides from sections and flatten
+        slide_plans = []
+        for section in result.get("sections", []):
+            for slide in section.get("slides", []):
+                slide_plans.append({
+                    "title": slide.get("title", "Untitled Slide"),
+                    "subtitle": "",
+                    "bullets": slide.get("bullets", []),
+                    "script": slide.get("instructor_notes", ""),
+                })
+
+        logger.info(
+            "✅ LLM generated %d slides | workflow_id=%s",
+            len(slide_plans),
+            workflow_id
+        )
+
+        # Truncate or pad to target count
+        if len(slide_plans) > target_slide_count:
+            slide_plans = slide_plans[:target_slide_count]
+        elif len(slide_plans) < target_slide_count:
+            logger.warning(
+                "⚠️ LLM generated fewer slides than requested (%d < %d) | workflow_id=%s",
+                len(slide_plans),
+                target_slide_count,
+                workflow_id
+            )
+
+        return slide_plans
+
+    except json.JSONDecodeError as e:
+        logger.error(
+            "❌ Failed to parse LLM response as JSON | workflow_id=%s | error=%s",
+            workflow_id,
+            str(e)
+        )
+        raise
+    except Exception as e:
+        logger.error(
+            "❌ LLM slide generation failed | workflow_id=%s | error=%s",
+            workflow_id,
+            str(e)
+        )
+        raise
+
+
 def _build_slide_plans(
     title: str,
     subtitle: str,
@@ -403,6 +511,8 @@ async def _ensure_presentation_deck(
     workflow_id: str,
     assessment_title: Optional[str],
     target_slide_count: int = 12,
+    custom_prompt: Optional[str] = None,
+    db: Optional[AsyncSession] = None,
 ) -> str:
     """Guarantee a Google Slides deck exists with the requested slide count and return its URL."""
 
@@ -416,14 +526,47 @@ async def _ensure_presentation_deck(
     if not bullets and skill_course.course_description:
         bullets = [skill_course.course_description.strip()[:180]]
 
-    # Build slide plans for all slides
-    slide_plans = _build_slide_plans(
-        title=title,
-        subtitle=subtitle,
-        skill_name=skill_name,
-        skill_course=skill_course,
-        target_slide_count=target_slide_count,
-    )
+    # Build slide plans - use LLM if custom prompt available
+    try:
+        if custom_prompt and db:
+            logger.info(
+                "🎯 Using LLM-based slide generation | workflow_id=%s | prompt_length=%d",
+                workflow_id,
+                len(custom_prompt)
+            )
+            slide_plans = await _generate_slides_with_llm(
+                custom_prompt=custom_prompt,
+                target_slide_count=target_slide_count,
+                workflow_id=workflow_id,
+                db=db,
+            )
+        else:
+            logger.info(
+                "📋 Using template-based slide generation | workflow_id=%s | reason=%s",
+                workflow_id,
+                "no_custom_prompt" if not custom_prompt else "no_db_session"
+            )
+            slide_plans = _build_slide_plans(
+                title=title,
+                subtitle=subtitle,
+                skill_name=skill_name,
+                skill_course=skill_course,
+                target_slide_count=target_slide_count,
+            )
+    except Exception as e:
+        logger.warning(
+            "⚠️ LLM slide generation failed, falling back to templates | workflow_id=%s | error=%s",
+            workflow_id,
+            str(e)
+        )
+        # Fallback to template-based generation
+        slide_plans = _build_slide_plans(
+            title=title,
+            subtitle=subtitle,
+            skill_name=skill_name,
+            skill_course=skill_course,
+            target_slide_count=target_slide_count,
+        )
 
     outline_preview = " | ".join(
         f"{idx + 1}: {plan.get('title', 'Untitled')}"
@@ -3061,6 +3204,8 @@ Narration should be conversational and ≤ 75 seconds per slide."""
             workflow_id=workflow_id_str,
             assessment_title=getattr(workflow, "assessment_title", None),
             target_slide_count=requested_slide_count,
+            custom_prompt=custom_prompt,  # Pass enhanced prompt for LLM-based slide generation
+            db=db,                         # Pass database session for LLM service
         )
         if course.presentation_url != presentation_url:
             course.presentation_url = presentation_url
