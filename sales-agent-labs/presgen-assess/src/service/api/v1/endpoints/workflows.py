@@ -168,7 +168,8 @@ async def _generate_slides_with_llm(
     2. Parse JSON response
     3. Convert to slide_plans format
     """
-    from src.services.llm_service import LLMService
+    from openai import AsyncOpenAI
+    from src.common.config import settings
 
     logger.info(
         "🤖 Generating slides with LLM | workflow_id=%s | target_slides=%d | prompt_length=%d",
@@ -178,16 +179,23 @@ async def _generate_slides_with_llm(
     )
 
     try:
-        llm_service = LLMService(db=db)
+        # Initialize OpenAI client
+        client = AsyncOpenAI(api_key=settings.openai_api_key)
 
         # Call LLM with enhanced prompt
         # The prompt already contains complete instructions and examples
-        response = await llm_service.generate(
-            prompt=custom_prompt,
+        completion = await client.chat.completions.create(
             model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are an AI Certification Course Architect. Generate presentation content in JSON format."},
+                {"role": "user", "content": custom_prompt}
+            ],
             temperature=0.7,
             max_tokens=4000,  # Sufficient for 12 slides with detailed content
+            response_format={"type": "json_object"}  # Ensure JSON response
         )
+
+        response = completion.choices[0].message.content
 
         # Parse JSON response
         # Expected format from prompt:
