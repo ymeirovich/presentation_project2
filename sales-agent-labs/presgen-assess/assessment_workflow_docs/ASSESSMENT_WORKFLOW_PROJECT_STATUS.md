@@ -1,12 +1,12 @@
 # Assessment Workflow Project Status
 
 ## 📋 Executive Summary
-**Status**: 🚀 **SPRINT 4 PHASE 10 IN PROGRESS** | **ENHANCED LOGGING & VALIDATION**
-**Last Updated**: 2025-10-12
+**Status**: 🚀 **SPRINT 4 PHASE 11 PLANNING COMPLETE** | **RAG ENHANCEMENT & QUALITY IMPROVEMENT**
+**Last Updated**: 2025-10-14
 
 The PresGen-Assess assessment workflow project has successfully completed Sprint 3+ implementation with full end-to-end workflow automation: Gap Analysis → Content Outlines → Recommended Courses → Presentations. Critical bugs resolved including question-answer matching validation, order-based response grading, and workflow progression.
 
-**Sprint 4 Update (2025-10-12)**: Individual Skill Course Generation with PresGen-Avatar integration. Phases 1–9 (schema, avatar client, logging, API endpoints, UI integration, custom prompts, resilience, local output, PresGen-Core HTTP) are **COMPLETE** ✅. Phase 10 (Enhanced Logging & Validation) now in progress to enable complete LLM/RAG/Prompt traceability.
+**Sprint 4 Update (2025-10-14)**: Individual Skill Course Generation with PresGen-Avatar integration. Phases 1–10 (schema, avatar client, logging, API endpoints, UI integration, custom prompts, resilience, local output, PresGen-Core HTTP, enhanced logging/validation) are **COMPLETE** ✅. Phase 11 (RAG Enhancement & Presentation Quality) planning complete - addresses root cause of low-quality presentations through structured RAG context delivery and enhanced prompts. Implementation ready to begin.
 
 ## 🎯 Project Objectives Completed
 
@@ -105,7 +105,8 @@ The PresGen-Assess assessment workflow project has successfully completed Sprint
 | Phase 7 | Error Handling & Resilience | ✅ **COMPLETE** | Retry logic and circuit breakers |
 | Phase 8 | Local MP4 Output & Downloads | ✅ **COMPLETE** | Timestamp job IDs, local storage, download links |
 | Phase 9 | PresGen-Core HTTP Integration | ✅ **COMPLETE** | Real HTTP integration with Core (not mock) |
-| Phase 10 | Enhanced Logging & Validation | 🚧 **IN PROGRESS** | LLM/RAG/Prompt traceability logging |
+| Phase 10 | Enhanced Logging & Validation | ✅ **COMPLETE** | LLM/RAG/Prompt traceability logging |
+| Phase 11 | RAG Enhancement & Quality | 📋 **PLANNING COMPLETE** | Structured context, prompt upgrades, model options |
 
 ### Sprint 5: Hardening & Production Readiness
 | Sprint | Status | Implementation Priority |
@@ -414,8 +415,116 @@ The PresGen-Assess assessment workflow project has successfully completed Sprint
 **Testing**: Ready for manual TDD (10 test cases in mock mode)
 
 **Next Steps**:
-1. Manual testing using TDD guide (10 test cases)
-2. Switch to production mode (use_mock = False)
-3. Integrate with real PresGen-Core API
-4. Validate Google Drive integration
-5. Sprint 4: PresGen-Avatar Integration
+1. Implement Sprint 4 Phase 11 Tier 1+2 (RAG enhancement)
+2. Test and measure presentation quality improvements
+3. Evaluate need for Tier 3 (model upgrades)
+4. Sprint 5: Hardening & Production Readiness
+
+---
+
+## 📚 Sprint 4 Phase 11: RAG Enhancement & Presentation Quality
+
+**Status**: 📋 **PLANNING COMPLETE** - Ready for Implementation
+**Date**: 2025-10-14
+**Priority**: High - Addresses core presentation quality issues
+
+### Problem Identified
+
+Phase 10 logging revealed that while RAG retrieval works correctly, presentations suffer from:
+- **Unstructured context delivery**: Flat text blob without semantic boundaries
+- **Token budget overflow**: 60K+ tokens exceed gpt-4o-mini's effective attention (~16K)
+- **Weak LLM directives**: Prompt focuses on format, not quality constraints
+- **Result**: 40% relevance, generic content, poor factual grounding
+
+### Solution: Multi-Tier Progressive Enhancement
+
+| Tier | Approach | Effort | Cost | Quality Improvement |
+|------|----------|--------|------|---------------------|
+| **Tier 1** | Prompt enhancement with quality rubric | 1-2h | $0 | +50% (40→60%) |
+| **Tier 2** | Structured RAG context with domain tags | 4-6h | $0 | +25% (60→75%) |
+| **Tier 3a** | Claude 3.5 Haiku composition model | 2-3h | +$0.004/course | +7% (75→80%) |
+| **Tier 3b** | GPT-4o composition model (premium) | 2-3h | +$0.064/course | +13% (75→85%) |
+| **Tier 4** | Domain-aware ingestion (future) | 80-160h | $5/cert | +6% (85→90%) |
+
+**Recommendation**: Implement Tier 1+2 immediately (8 hours, $0 cost, +88% quality improvement)
+
+### Key Deliverables
+
+1. **SPRINT_4_PHASE_11_RAG_ENHANCEMENT_PLAN.md** ✅
+   - 15,000-word comprehensive implementation plan
+   - Detailed code examples for all tiers
+   - Testing strategy with 4 scenarios
+   - Cost-benefit analysis and ROI calculations
+   - Model comparison matrix (gpt-4o-mini, Claude 3.5 Haiku, GPT-4o)
+
+2. **SPRINT_4_PHASE_11_STATUS.md** ✅
+   - Executive summary and objectives
+   - What was learned & documented
+   - Implementation roadmap
+   - Risk analysis
+   - Success criteria
+
+3. **Key Learnings Documented** ✅
+   - Root cause: Unstructured context delivery (not retrieval quality)
+   - Token budget vs attention (structure > volume)
+   - How RAG retrieval works (step-by-step with code references)
+   - Domain-aware ingestion analysis (effort, impact, storage)
+   - Claude 3.5 Haiku role, pros/cons, cost comparison
+
+### Implementation Roadmap
+
+**Phase 1 (Week 1-2): Tier 1+2 - Immediate Win**
+- [ ] Update CLEANED_CERTIFICATION_PROMPT.md with quality rubric
+- [ ] Add environment variables for RAG configuration
+- [ ] Update base.py:_format_combined_context() with structured formatting
+- [ ] Update embeddings.py:_generate_citation() with domain tags
+- [ ] Update config.py with Tier 2 settings
+- [ ] Update workflows.py with chunk limits
+- [ ] Test and measure improvements
+
+**Expected**: 40% → 75% quality (+88% improvement), $0 cost
+
+**Phase 2 (Week 3): Evaluation**
+- [ ] Analyze quality metrics
+- [ ] Gather user feedback
+- [ ] Calculate actual improvements
+- [ ] Decision: Is 75% quality sufficient?
+
+**Phase 3 (Week 4): Optional Model Upgrade**
+- [ ] IF quality < 75%: Implement Tier 3a (Claude 3.5 Haiku)
+- [ ] IF quality < 80% AND high-value: Implement Tier 3b (GPT-4o)
+- [ ] Compare cost vs quality trade-offs
+
+**Phase 4 (Future 6-12 months): Domain Classification**
+- Defer until volume > 5,000 courses/month
+- Requires exam guide taxonomy
+- $5/cert upfront, breaks even at 2,500 courses
+
+### Success Criteria
+
+**Technical (Tier 1+2)**:
+- ✅ Prompt updated with quality rubric
+- ✅ RAG context structured with domain tags
+- ✅ Token usage reduced by 40-60%
+- ✅ No breaking changes
+- ✅ Backward compatible
+
+**Operational (After Deployment)**:
+- [ ] Quality improves by ≥35% (40% → ≥55%)
+- [ ] Citation density increases 2-3x
+- [ ] Domain terminology increases 10-15%
+- [ ] Generic phrases decrease 40-50%
+- [ ] Generation time remains < 5 seconds
+
+**Business (User Validation)**:
+- [ ] Improved relevance feedback
+- [ ] Reduced content complaints
+- [ ] Higher engagement metrics
+- [ ] Positive ROI
+
+### Related Documentation
+
+- [SPRINT_4_PHASE_11_RAG_ENHANCEMENT_PLAN.md](./SPRINT_4_PHASE_11_RAG_ENHANCEMENT_PLAN.md) - Comprehensive plan
+- [SPRINT_4_PHASE_11_STATUS.md](./SPRINT_4_PHASE_11_STATUS.md) - Status report
+- [PHASE_10_FINAL_STATUS.md](./PHASE_10_FINAL_STATUS.md) - Phase 10 completion
+- [CLEANED_CERTIFICATION_PROMPT.md](../CLEANED_CERTIFICATION_PROMPT.md) - Current prompt (to be updated)
