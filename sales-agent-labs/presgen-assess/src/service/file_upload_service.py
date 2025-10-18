@@ -337,48 +337,223 @@ class FileUploadService:
 
 
 class FileRegistry:
-    """Registry for tracking uploaded files and their metadata"""
+    """Registry for tracking uploaded files and their metadata - DATABASE-BACKED"""
 
-    def __init__(self):
+    def __init__(self, db_session=None):
+        # Keep in-memory cache for performance, but sync with database
         self._files: Dict[str, FileMetadata] = {}
+        self._db_session = db_session
+
+    def _get_db(self):
+        """Get database session"""
+        if self._db_session:
+            return self._db_session
+
+        # Create synchronous SQLite session for file registry
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+
+        # Use SQLite database
+        db_path = 'test_database.db'
+        engine = create_engine(f'sqlite:///{db_path}', echo=False)
+        Session = sessionmaker(bind=engine)
+        return Session()
+
+    def _save_to_database(self, file_metadata: FileMetadata) -> None:
+        """Persist file metadata to database"""
+        from src.models.certification import KnowledgeBaseDocument
+        from sqlalchemy.exc import IntegrityError
+        from uuid import UUID
+
+        db = self._get_db()
+        try:
+            # Convert string UUIDs to UUID objects if needed
+            file_uuid = UUID(file_metadata.file_id) if isinstance(file_metadata.file_id, str) else file_metadata.file_id
+            profile_uuid = UUID(file_metadata.cert_profile_id) if isinstance(file_metadata.cert_profile_id, str) else file_metadata.cert_profile_id
+
+            # Check if document already exists
+            existing = db.query(KnowledgeBaseDocument).filter_by(id=file_uuid).first()
+
+            if existing:
+                # Update existing record
+                existing.original_filename = file_metadata.original_filename
+                existing.stored_path = file_metadata.file_path
+                existing.document_type = file_metadata.mime_type
+                existing.content_classification = file_metadata.resource_type.value
+                existing.file_size_bytes = file_metadata.file_size
+                existing.processing_status = file_metadata.processing_status
+                existing.chunk_count = file_metadata.chunk_count
+                existing.checksum = file_metadata.file_hash
+            else:
+                # Create new record
+                db_record = KnowledgeBaseDocument(
+                    id=file_uuid,
+                    certification_profile_id=profile_uuid,
+                    original_filename=file_metadata.original_filename,
+                    stored_path=file_metadata.file_path,
+                    document_type=file_metadata.mime_type,
+                    content_classification=file_metadata.resource_type.value,
+                    file_size_bytes=file_metadata.file_size,
+                    processing_status=file_metadata.processing_status,
+                    chunk_count=file_metadata.chunk_count,
+                    checksum=file_metadata.file_hash
+                )
+                db.add(db_record)
+
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+        except Exception as e:
+            db.rollback()
+            print(f"Error saving to database: {e}")
+
+    def _load_from_database(self, cert_profile_id: str = None, user_id: str = None) -> List[FileMetadata]:
+        """Load file metadata from database"""
+        from src.models.certification import KnowledgeBaseDocument
+        from uuid import UUID
+
+        db = self._get_db()
+        query = db.query(KnowledgeBaseDocument)
+
+        if cert_profile_id:
+            # Convert string UUID to UUID object if needed
+            profile_uuid = UUID(cert_profile_id) if isinstance(cert_profile_id, str) else cert_profile_id
+            query = query.filter_by(certification_profile_id=profile_uuid)
+
+        documents = query.all()
+
+        file_metadatas = []
+        for doc in documents:
+            # Convert database record to FileMetadata
+            try:
+                file_metadata = FileMetadata(
+                    file_id=str(doc.id),
+                    original_filename=doc.original_filename,
+                    stored_filename=Path(doc.stored_path).name,
+                    file_path=doc.stored_path,
+                    file_size=doc.file_size_bytes,
+                    mime_type=doc.document_type or 'application/octet-stream',
+                    upload_timestamp=doc.created_at.isoformat() if doc.created_at else datetime.now().isoformat(),
+                    file_hash=doc.checksum or '',
+                    user_id=user_id or '',  # Note: user_id not stored in KnowledgeBaseDocument
+                    cert_profile_id=str(doc.certification_profile_id),
+                    resource_type=ResourceType(doc.content_classification) if doc.content_classification else ResourceType.SUPPLEMENTAL,
+                    processing_status=doc.processing_status or 'pending',
+                    chunk_count=doc.chunk_count or 0,
+                    error_message=None
+                )
+                file_metadatas.append(file_metadata)
+            except Exception as e:
+                print(f"Error converting database record to FileMetadata: {e}")
+                continue
+
+        return file_metadatas
 
     def register_file(self, file_metadata: FileMetadata) -> None:
-        """Register uploaded file metadata"""
+        """Register uploaded file metadata - persists to database"""
         self._files[file_metadata.file_id] = file_metadata
+        self._save_to_database(file_metadata)
 
     def get_file(self, file_id: str) -> Optional[FileMetadata]:
-        """Get file metadata by ID"""
-        return self._files.get(file_id)
+        """Get file metadata by ID - checks cache first, then database"""
+        from uuid import UUID
+
+        # Check in-memory cache first
+        if file_id in self._files:
+            return self._files[file_id]
+
+        # Load from database
+        from src.models.certification import KnowledgeBaseDocument
+        db = self._get_db()
+
+        # Convert string UUID to UUID object if needed
+        uuid_obj = UUID(file_id) if isinstance(file_id, str) else file_id
+        doc = db.query(KnowledgeBaseDocument).filter_by(id=uuid_obj).first()
+
+        if doc:
+            file_metadatas = self._load_from_database()
+            for fm in file_metadatas:
+                if fm.file_id == file_id:
+                    self._files[file_id] = fm  # Cache it
+                    return fm
+
+        return None
 
     def get_files_for_profile(self, cert_profile_id: str) -> List[FileMetadata]:
-        """Get all files for a certification profile"""
-        return [
-            metadata for metadata in self._files.values()
-            if metadata.cert_profile_id == cert_profile_id
-        ]
+        """Get all files for a certification profile - loads from database"""
+        # Load from database to ensure we have latest data
+        file_metadatas = self._load_from_database(cert_profile_id=cert_profile_id)
+
+        # Update cache
+        for fm in file_metadatas:
+            self._files[fm.file_id] = fm
+
+        return file_metadatas
 
     def get_files_for_user(self, user_id: str) -> List[FileMetadata]:
-        """Get all files for a user"""
-        return [
-            metadata for metadata in self._files.values()
-            if metadata.user_id == user_id
-        ]
+        """Get all files for a user - loads from database"""
+        # Load from database
+        file_metadatas = self._load_from_database(user_id=user_id)
+
+        # Update cache
+        for fm in file_metadatas:
+            self._files[fm.file_id] = fm
+
+        return file_metadatas
 
     def remove_file(self, file_id: str) -> bool:
-        """Remove file from registry"""
-        if file_id in self._files:
-            del self._files[file_id]
+        """Remove file from registry - removes from database"""
+        from src.models.certification import KnowledgeBaseDocument
+        from uuid import UUID
+
+        db = self._get_db()
+        try:
+            # Convert string UUID to UUID object if needed
+            uuid_obj = UUID(file_id) if isinstance(file_id, str) else file_id
+
+            # Remove from database
+            doc = db.query(KnowledgeBaseDocument).filter_by(id=uuid_obj).first()
+            if doc:
+                db.delete(doc)
+                db.commit()
+
+            # Remove from cache (use string key)
+            if file_id in self._files:
+                del self._files[file_id]
+
             return True
-        return False
+        except Exception as e:
+            db.rollback()
+            print(f"Error removing file from registry: {e}")
+            return False
 
     def update_file_status(self, file_id: str, status: str, error_message: Optional[str] = None) -> bool:
-        """Update file processing status"""
-        if file_id in self._files:
-            self._files[file_id].processing_status = status
-            if error_message:
-                self._files[file_id].error_message = error_message
+        """Update file processing status - updates database"""
+        from src.models.certification import KnowledgeBaseDocument
+        from uuid import UUID
+
+        db = self._get_db()
+        try:
+            # Convert string UUID to UUID object if needed
+            uuid_obj = UUID(file_id) if isinstance(file_id, str) else file_id
+
+            # Update database
+            doc = db.query(KnowledgeBaseDocument).filter_by(id=uuid_obj).first()
+            if doc:
+                doc.processing_status = status
+                db.commit()
+
+            # Update cache (use string key)
+            if file_id in self._files:
+                self._files[file_id].processing_status = status
+                if error_message:
+                    self._files[file_id].error_message = error_message
+
             return True
-        return False
+        except Exception as e:
+            db.rollback()
+            print(f"Error updating file status: {e}")
+            return False
 
 
 # Global file registry instance

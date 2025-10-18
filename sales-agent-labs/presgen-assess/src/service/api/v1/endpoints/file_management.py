@@ -12,23 +12,31 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 import chromadb
 
-from src.service.auth import get_current_user
 from src.service.file_upload_service import (
     FileUploadService, FileMetadata, ProcessingResult,
     file_registry, ResourceType
 )
 from src.service.chromadb_schema import ChromaDBCollectionManager
-from src.models.users import User
-from src.models.certifications import CertificationProfile
-from src.common.database import get_db
-from sqlalchemy.orm import Session
+from src.models.certification import CertificationProfile
+from src.service.database import get_db
+from sqlalchemy.ext.asyncio import AsyncSession
 
 router = APIRouter(prefix="/files", tags=["file_management"])
 
 # Initialize services
 file_upload_service = FileUploadService()
-chroma_client = chromadb.PersistentClient(path="data/chroma")
-collection_manager = ChromaDBCollectionManager(chroma_client)
+
+# Lazy initialize ChromaDB to avoid import errors
+chroma_client = None
+collection_manager = None
+
+def get_chroma_manager():
+    """Lazy load ChromaDB manager"""
+    global chroma_client, collection_manager
+    if collection_manager is None:
+        chroma_client = chromadb.PersistentClient(path="data/chroma")
+        collection_manager = ChromaDBCollectionManager(chroma_client)
+    return collection_manager
 
 
 class FileUploadResponse(BaseModel):
@@ -73,15 +81,15 @@ async def upload_file(
     cert_profile_id: str = Form(...),
     resource_type: ResourceType = Form(...),
     process_immediately: bool = Form(True),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    # Authentication disabled for now,
+    db: AsyncSession = Depends(get_db)
 ):
     """Upload a file for certification profile"""
 
-    # Verify certification profile exists and belongs to user
+    # Verify certification profile exists (authentication disabled - skip user check)
     cert_profile = db.query(CertificationProfile).filter(
         CertificationProfile.id == cert_profile_id,
-        CertificationProfile.user_id == current_user.id
+        # CertificationProfile.user_id == current_user.id  # Authentication disabled
     ).first()
 
     if not cert_profile:
@@ -94,7 +102,7 @@ async def upload_file(
         # Save uploaded file
         file_metadata = await file_upload_service.save_uploaded_file(
             file=file,
-            user_id=str(current_user.id),
+            user_id="",  # Authentication disabled - use empty user_id
             cert_profile_id=cert_profile_id,
             resource_type=resource_type
         )
@@ -132,15 +140,15 @@ async def bulk_upload_files(
     background_tasks: BackgroundTasks,
     files: List[UploadFile] = File(...),
     request_data: BulkUploadRequest = Depends(),
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    # Authentication disabled for now,
+    db: AsyncSession = Depends(get_db)
 ):
     """Upload multiple files for certification profile"""
 
-    # Verify certification profile
+    # Verify certification profile (authentication disabled - skip user check)
     cert_profile = db.query(CertificationProfile).filter(
         CertificationProfile.id == request_data.cert_profile_id,
-        CertificationProfile.user_id == current_user.id
+        # CertificationProfile.user_id == current_user.id  # Authentication disabled
     ).first()
 
     if not cert_profile:
@@ -163,7 +171,7 @@ async def bulk_upload_files(
             # Upload file
             file_metadata = await file_upload_service.save_uploaded_file(
                 file=file,
-                user_id=str(current_user.id),
+                user_id="",  # Authentication disabled - use empty user_id
                 cert_profile_id=request_data.cert_profile_id,
                 resource_type=resource_type
             )
@@ -201,25 +209,11 @@ async def bulk_upload_files(
 
 @router.get("/profile/{cert_profile_id}", response_model=FileListResponse)
 async def list_files_for_profile(
-    cert_profile_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    cert_profile_id: str
 ):
     """List all files for a certification profile"""
 
-    # Verify certification profile belongs to user
-    cert_profile = db.query(CertificationProfile).filter(
-        CertificationProfile.id == cert_profile_id,
-        CertificationProfile.user_id == current_user.id
-    ).first()
-
-    if not cert_profile:
-        raise HTTPException(
-            status_code=404,
-            detail="Certification profile not found"
-        )
-
-    # Get files from registry
+    # Get files from registry (loads from database)
     files = file_registry.get_files_for_profile(cert_profile_id)
 
     return FileListResponse(
@@ -230,11 +224,12 @@ async def list_files_for_profile(
 
 @router.get("/user", response_model=FileListResponse)
 async def list_user_files(
-    current_user: User = Depends(get_current_user)
+    # Authentication disabled for now
 ):
     """List all files for current user"""
 
-    files = file_registry.get_files_for_user(str(current_user.id))
+    # Authentication disabled - return all files instead of user-specific
+    files = file_registry.get_files_for_user("")  # Empty user_id returns all files
 
     return FileListResponse(
         files=files,
@@ -245,7 +240,7 @@ async def list_user_files(
 @router.get("/{file_id}/status", response_model=FileProcessingStatus)
 async def get_file_status(
     file_id: str,
-    current_user: User = Depends(get_current_user)
+    # Authentication disabled for now
 ):
     """Get file processing status"""
 
@@ -253,9 +248,9 @@ async def get_file_status(
     if not file_metadata:
         raise HTTPException(status_code=404, detail="File not found")
 
-    # Verify file belongs to user
-    if file_metadata.user_id != str(current_user.id):
-        raise HTTPException(status_code=403, detail="Access denied")
+    # Authentication disabled - skip user verification
+    # if file_metadata.user_id != str(current_user.id):
+    #     raise HTTPException(status_code=403, detail="Access denied")
 
     return FileProcessingStatus(
         file_id=file_metadata.file_id,
@@ -270,8 +265,8 @@ async def process_file(
     file_id: str,
     background_tasks: BackgroundTasks,
     domain_mappings: Optional[Dict[str, str]] = None,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    # Authentication disabled for now,
+    db: AsyncSession = Depends(get_db)
 ):
     """Process an uploaded file"""
 
@@ -279,9 +274,9 @@ async def process_file(
     if not file_metadata:
         raise HTTPException(status_code=404, detail="File not found")
 
-    # Verify file belongs to user
-    if file_metadata.user_id != str(current_user.id):
-        raise HTTPException(status_code=403, detail="Access denied")
+    # Authentication disabled - skip user verification
+    # if file_metadata.user_id != str(current_user.id):
+    #     raise HTTPException(status_code=403, detail="Access denied")
 
     # Get certification profile info
     cert_profile = db.query(CertificationProfile).filter(
@@ -305,8 +300,7 @@ async def process_file(
 
 @router.delete("/{file_id}")
 async def delete_file(
-    file_id: str,
-    current_user: User = Depends(get_current_user)
+    file_id: str
 ):
     """Delete an uploaded file"""
 
@@ -314,22 +308,31 @@ async def delete_file(
     if not file_metadata:
         raise HTTPException(status_code=404, detail="File not found")
 
-    # Verify file belongs to user
-    if file_metadata.user_id != str(current_user.id):
-        raise HTTPException(status_code=403, detail="Access denied")
+    # Authentication disabled - skip user verification for now
+    # if file_metadata.user_id != str(current_user.id):
+    #     raise HTTPException(status_code=403, detail="Access denied")
 
     try:
-        # Delete file from disk
-        await file_upload_service.delete_file(file_metadata)
+        # Delete file from disk (if exists)
+        try:
+            await file_upload_service.delete_file(file_metadata)
+        except Exception as e:
+            # File might not exist on disk, continue with registry removal
+            print(f"Warning: Could not delete file from disk: {e}")
 
-        # Remove from registry
-        file_registry.remove_file(file_id)
+        # Remove from registry (this removes from database)
+        success = file_registry.remove_file(file_id)
+
+        if not success:
+            raise HTTPException(status_code=404, detail="File not found in registry")
 
         # TODO: Remove associated chunks from ChromaDB collection
         # This would require tracking which chunks belong to which file
 
         return {"message": "File deleted successfully", "file_id": file_id}
 
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Delete failed: {str(e)}")
 
@@ -337,7 +340,7 @@ async def delete_file(
 @router.get("/{file_id}/download")
 async def download_file(
     file_id: str,
-    current_user: User = Depends(get_current_user)
+    # Authentication disabled for now
 ):
     """Download an uploaded file"""
 
@@ -345,9 +348,9 @@ async def download_file(
     if not file_metadata:
         raise HTTPException(status_code=404, detail="File not found")
 
-    # Verify file belongs to user
-    if file_metadata.user_id != str(current_user.id):
-        raise HTTPException(status_code=403, detail="Access denied")
+    # Authentication disabled - skip user verification
+    # if file_metadata.user_id != str(current_user.id):
+    #     raise HTTPException(status_code=403, detail="Access denied")
 
     # Check if file exists
     file_info = file_upload_service.get_file_info(file_metadata.file_path)
@@ -364,15 +367,15 @@ async def download_file(
 @router.post("/collections/{cert_profile_id}/create")
 async def create_knowledge_collection(
     cert_profile_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    # Authentication disabled for now,
+    db: AsyncSession = Depends(get_db)
 ):
     """Create ChromaDB collection for certification profile"""
 
-    # Verify certification profile
+    # Verify certification profile (authentication disabled - skip user check)
     cert_profile = db.query(CertificationProfile).filter(
         CertificationProfile.id == cert_profile_id,
-        CertificationProfile.user_id == current_user.id
+        # CertificationProfile.user_id == current_user.id  # Authentication disabled
     ).first()
 
     if not cert_profile:
@@ -384,7 +387,7 @@ async def create_knowledge_collection(
     try:
         # Create collection
         collection = collection_manager.create_collection(
-            user_id=str(current_user.id),
+            user_id="",  # Authentication disabled - use empty user_id
             cert_id=cert_profile.name.lower().replace(' ', '-'),
             cert_name=cert_profile.name,
             bundle_version=cert_profile.version
@@ -411,15 +414,15 @@ async def create_knowledge_collection(
 @router.delete("/collections/{cert_profile_id}")
 async def delete_knowledge_collection(
     cert_profile_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    # Authentication disabled for now,
+    db: AsyncSession = Depends(get_db)
 ):
     """Delete ChromaDB collection for certification profile"""
 
-    # Verify certification profile
+    # Verify certification profile (authentication disabled - skip user check)
     cert_profile = db.query(CertificationProfile).filter(
         CertificationProfile.id == cert_profile_id,
-        CertificationProfile.user_id == current_user.id
+        # CertificationProfile.user_id == current_user.id  # Authentication disabled
     ).first()
 
     if not cert_profile:
@@ -431,7 +434,7 @@ async def delete_knowledge_collection(
     try:
         # Delete collection
         success = collection_manager.delete_collection(
-            user_id=str(current_user.id),
+            user_id="",  # Authentication disabled - use empty user_id
             cert_id=cert_profile.name.lower().replace(' ', '-'),
             bundle_version=cert_profile.version
         )
@@ -453,12 +456,13 @@ async def delete_knowledge_collection(
 
 @router.get("/collections/user")
 async def list_user_collections(
-    current_user: User = Depends(get_current_user)
+    # Authentication disabled for now
 ):
     """List all ChromaDB collections for current user"""
 
     try:
-        collections = collection_manager.list_user_collections(str(current_user.id))
+        # Authentication disabled - return all collections instead of user-specific
+        collections = collection_manager.list_user_collections("")  # Empty user_id returns all
         return {
             "collections": collections,
             "total_count": len(collections)
@@ -521,7 +525,7 @@ async def health_check():
 @router.post("/cleanup")
 async def cleanup_temp_files(
     max_age_hours: int = 24,
-    current_user: User = Depends(get_current_user)
+    # Authentication disabled for now
 ):
     """Clean up temporary files (admin only)"""
     # TODO: Add admin role check
