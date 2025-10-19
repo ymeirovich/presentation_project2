@@ -6,13 +6,68 @@ for certification-specific RAG knowledge bases using ChromaDB.
 """
 
 import hashlib
+import json
+import logging
+import math
 import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Literal
 from pydantic import BaseModel, Field, validator
 from enum import Enum
 import chromadb
-from chromadb.utils import embedding_functions
+# ✅ FIX: Import OpenAI for consistent embedding function
+from openai import OpenAI
+from src.common.config import settings
+
+# ✅ FIX: OpenAI embedding function (same as embeddings.py for consistency)
+class OpenAIEmbeddingFunctionV1:
+    """Custom OpenAI embedding function compatible with OpenAI v1.0+ API."""
+
+    def __init__(self, api_key: str, model_name: str = "text-embedding-3-small"):
+        """Initialize with OpenAI client."""
+        self.model_name = model_name
+        self.client = None
+
+        if api_key:
+            try:
+                self.client = OpenAI(api_key=api_key)
+            except Exception as exc:  # pragma: no cover - defensive
+                logging.getLogger(__name__).warning(
+                    "⚠️ OpenAI client initialization failed (%s). Using simple fallback embeddings.",
+                    exc
+                )
+
+    def __call__(self, input_texts: List[str]) -> List[List[float]]:
+        """Generate embeddings for input texts."""
+        if self.client is None:
+            return [self._simple_embedding(text) for text in input_texts]
+
+        try:
+            response = self.client.embeddings.create(
+                input=input_texts,
+                model=self.model_name
+            )
+            return [data.embedding for data in response.data]
+        except Exception as e:
+            logging.getLogger(__name__).warning(
+                "⚠️ OpenAI embedding failed (%s). Falling back to simple embeddings.",
+                e
+            )
+            return [self._simple_embedding(text) for text in input_texts]
+
+    @staticmethod
+    def _simple_embedding(text: str, dim: int = 128) -> List[float]:
+        """Generate deterministic hash-based embeddings for offline fallback."""
+        vector = [0.0] * dim
+        if not text:
+            return vector
+
+        encoded = text.encode("utf-8", errors="ignore")
+        for idx, byte in enumerate(encoded):
+            vector[idx % dim] += byte / 255.0
+
+        norm = math.sqrt(sum(v * v for v in vector)) or 1.0
+        return [v / norm for v in vector]
 
 
 class ResourceType(str, Enum):
@@ -105,15 +160,26 @@ class DocumentMetadata(BaseModel):
 
     def to_chromadb_metadata(self) -> Dict[str, Any]:
         """Convert to ChromaDB-compatible metadata dict"""
-        return {
-            # Convert enums to strings
+        raw_dict = {
+            k: v for k, v in self.dict().items()
+            if k not in ['resource_type', 'content_type', 'difficulty_level'] and v is not None
+        }
+
+        safe_metadata: Dict[str, Any] = {
             "resource_type": self.resource_type.value,
             "content_type": self.content_type.value,
             "difficulty_level": self.difficulty_level.value,
-            # Include all other fields
-            **{k: v for k, v in self.dict().items()
-               if k not in ['resource_type', 'content_type', 'difficulty_level'] and v is not None}
         }
+
+        for key, value in raw_dict.items():
+            if isinstance(value, list):
+                safe_metadata[key] = ", ".join(str(item) for item in value)
+            elif isinstance(value, (dict, tuple, set)):
+                safe_metadata[key] = json.dumps(value, default=str)
+            else:
+                safe_metadata[key] = value
+
+        return safe_metadata
 
 
 class ExamGuideMetadata(DocumentMetadata):
@@ -169,9 +235,24 @@ class ChromaDBCollectionManager:
     def __init__(self, chroma_client: chromadb.Client, embed_model: str = "text-embedding-3-small"):
         self.client = chroma_client
         self.embed_model = embed_model
-        self.embedding_function = embedding_functions.SentenceTransformerEmbeddingFunction(
-            model_name=embed_model
-        )
+
+        # ✅ FIX: Use OpenAI embeddings consistently (same as embeddings.py)
+        # This ensures uploaded documents use same embedding space as RAG queries
+        try:
+            self.embedding_function = OpenAIEmbeddingFunctionV1(
+                api_key=settings.openai_api_key,
+                model_name=embed_model
+            )
+            logging.getLogger(__name__).info(
+                f"✅ Using OpenAI embedding function: {embed_model}"
+            )
+        except Exception as err:
+            logging.getLogger(__name__).error(
+                f"❌ Failed to initialize OpenAI embedding function: {err}. "
+                f"Falling back to default (NOT RECOMMENDED - embeddings will be incompatible!)"
+            )
+            self.embedding_function = embedding_functions.DefaultEmbeddingFunction()
+            self.embed_model = "default"
 
     @staticmethod
     def generate_collection_name(user_id: str, cert_id: str, bundle_version: str) -> str:
@@ -204,9 +285,13 @@ class ChromaDBCollectionManager:
         )
 
         # Create collection
+        metadata_dict = collection_metadata.dict()
+        if isinstance(metadata_dict.get("resource_types"), list):
+            metadata_dict["resource_types"] = ",".join(metadata_dict["resource_types"])
+
         collection = self.client.create_collection(
             name=collection_name,
-            metadata=collection_metadata.dict(),
+            metadata=metadata_dict,
             embedding_function=self.embedding_function
         )
 

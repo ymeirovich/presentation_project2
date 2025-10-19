@@ -32,6 +32,19 @@ file_upload_service = FileUploadService()
 chroma_client = None
 collection_manager = None
 
+
+def _normalize_cert_slug(profile: CertificationProfile) -> str:
+    """Derive the canonical slug used for Chroma collections."""
+    if profile.collection_name:
+        return profile.collection_name.strip()
+
+    import re
+
+    base = profile.name.strip().lower()
+    base = re.sub(r"[^a-z0-9]+", "-", base)
+    return base.strip("-")
+
+
 def get_chroma_manager():
     """Lazy load ChromaDB manager"""
     global chroma_client, collection_manager
@@ -99,8 +112,27 @@ async def upload_file(
     # Verify certification profile exists (authentication disabled - skip user check)
     # Note: Temporarily allowing uploads without strict profile verification
     # TODO: Re-enable async profile verification when database session works correctly
-    cert_profile_name = "temp-profile"  # Placeholder
-    print(f"🔧 Using cert_profile_name: {cert_profile_name}")
+    # Look up certification profile details
+    try:
+        profile_uuid = UUID(cert_profile_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid certification profile ID")
+
+    result = await db.execute(
+        select(CertificationProfile).where(CertificationProfile.id == profile_uuid)
+    )
+    cert_profile = result.scalars().first()
+
+    if not cert_profile:
+        raise HTTPException(status_code=404, detail="Certification profile not found")
+
+    cert_profile_slug = _normalize_cert_slug(cert_profile)
+    bundle_version = cert_profile.bundle_version or cert_profile.version or "v1.0"
+    print(f"🔧 Using cert_profile_slug: {cert_profile_slug}")
+    print(f"🔧 Using bundle_version: {bundle_version}")
+
+    # Ensure ChromaDB collection manager is initialized
+    _ = get_chroma_manager()
 
     try:
         print("📥 Step 1: Saving uploaded file...")
@@ -124,9 +156,10 @@ async def upload_file(
             background_tasks.add_task(
                 process_file_background,
                 file_metadata,
-                cert_profile_name,
-                "1.0",  # version placeholder
-                {}  # domain_mappings, could be extracted from cert_profile
+                cert_profile_slug,
+                bundle_version,
+                {},  # domain_mappings, could be extracted from cert_profile
+                cert_profile.name
             )
             print("✅ Step 3 Complete: Background task scheduled")
         else:
@@ -169,16 +202,24 @@ async def bulk_upload_files(
     """Upload multiple files for certification profile"""
 
     # Verify certification profile (authentication disabled - skip user check)
-    cert_profile = db.query(CertificationProfile).filter(
-        CertificationProfile.id == request_data.cert_profile_id,
-        # CertificationProfile.user_id == current_user.id  # Authentication disabled
-    ).first()
+    try:
+        profile_uuid = UUID(request_data.cert_profile_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid certification profile ID")
+
+    result = await db.execute(
+        select(CertificationProfile).where(CertificationProfile.id == profile_uuid)
+    )
+    cert_profile = result.scalars().first()
 
     if not cert_profile:
         raise HTTPException(
             status_code=404,
             detail="Certification profile not found"
         )
+
+    cert_slug = _normalize_cert_slug(cert_profile)
+    bundle_version = cert_profile.bundle_version or cert_profile.version or "v1.0"
 
     uploaded_files = []
     errors = []
@@ -205,9 +246,10 @@ async def bulk_upload_files(
             background_tasks.add_task(
                 process_file_background,
                 file_metadata,
-                cert_profile.name.lower().replace(' ', '-'),
-                cert_profile.version,
-                request_data.domain_mappings or {}
+                cert_slug,
+                bundle_version,
+                request_data.domain_mappings or {},
+                cert_profile.name
             )
 
             uploaded_files.append({
@@ -302,20 +344,30 @@ async def process_file(
     #     raise HTTPException(status_code=403, detail="Access denied")
 
     # Get certification profile info
-    cert_profile = db.query(CertificationProfile).filter(
-        CertificationProfile.id == file_metadata.cert_profile_id
-    ).first()
+    try:
+        profile_uuid = UUID(file_metadata.cert_profile_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Stored certification profile ID is invalid")
+
+    result = await db.execute(
+        select(CertificationProfile).where(CertificationProfile.id == profile_uuid)
+    )
+    cert_profile = result.scalars().first()
 
     if not cert_profile:
         raise HTTPException(status_code=404, detail="Certification profile not found")
+
+    cert_slug = _normalize_cert_slug(cert_profile)
+    bundle_version = cert_profile.bundle_version or cert_profile.version or "v1.0"
 
     # Schedule processing
     background_tasks.add_task(
         process_file_background,
         file_metadata,
-        cert_profile.name.lower().replace(' ', '-'),
-        cert_profile.version,
-        domain_mappings or {}
+        cert_slug,
+        bundle_version,
+        domain_mappings or {},
+        cert_profile.name
     )
 
     return {"message": "File processing started", "file_id": file_id}
@@ -396,10 +448,15 @@ async def create_knowledge_collection(
     """Create ChromaDB collection for certification profile"""
 
     # Verify certification profile (authentication disabled - skip user check)
-    cert_profile = db.query(CertificationProfile).filter(
-        CertificationProfile.id == cert_profile_id,
-        # CertificationProfile.user_id == current_user.id  # Authentication disabled
-    ).first()
+    try:
+        profile_uuid = UUID(cert_profile_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid certification profile ID")
+
+    result = await db.execute(
+        select(CertificationProfile).where(CertificationProfile.id == profile_uuid)
+    )
+    cert_profile = result.scalars().first()
 
     if not cert_profile:
         raise HTTPException(
@@ -408,12 +465,13 @@ async def create_knowledge_collection(
         )
 
     try:
+        manager = get_chroma_manager()
         # Create collection
-        collection = collection_manager.create_collection(
+        collection = manager.create_collection(
             user_id="",  # Authentication disabled - use empty user_id
             cert_id=cert_profile.name.lower().replace(' ', '-'),
             cert_name=cert_profile.name,
-            bundle_version=cert_profile.version
+            bundle_version=cert_profile.bundle_version or cert_profile.version or "v1.0"
         )
 
         collection_name = collection.name
@@ -443,10 +501,15 @@ async def delete_knowledge_collection(
     """Delete ChromaDB collection for certification profile"""
 
     # Verify certification profile (authentication disabled - skip user check)
-    cert_profile = db.query(CertificationProfile).filter(
-        CertificationProfile.id == cert_profile_id,
-        # CertificationProfile.user_id == current_user.id  # Authentication disabled
-    ).first()
+    try:
+        profile_uuid = UUID(cert_profile_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid certification profile ID")
+
+    result = await db.execute(
+        select(CertificationProfile).where(CertificationProfile.id == profile_uuid)
+    )
+    cert_profile = result.scalars().first()
 
     if not cert_profile:
         raise HTTPException(
@@ -455,11 +518,12 @@ async def delete_knowledge_collection(
         )
 
     try:
+        manager = get_chroma_manager()
         # Delete collection
-        success = collection_manager.delete_collection(
+        success = manager.delete_collection(
             user_id="",  # Authentication disabled - use empty user_id
             cert_id=cert_profile.name.lower().replace(' ', '-'),
-            bundle_version=cert_profile.version
+            bundle_version=cert_profile.bundle_version or cert_profile.version or "v1.0"
         )
 
         if success:
@@ -485,7 +549,8 @@ async def list_user_collections(
 
     try:
         # Authentication disabled - return all collections instead of user-specific
-        collections = collection_manager.list_user_collections("")  # Empty user_id returns all
+        manager = get_chroma_manager()
+        collections = manager.list_user_collections("")  # Empty user_id returns all
         return {
             "collections": collections,
             "total_count": len(collections)
@@ -499,15 +564,43 @@ async def process_file_background(
     file_metadata: FileMetadata,
     cert_id: str,
     bundle_version: str,
-    domain_mappings: Dict[str, str]
+    domain_mappings: Dict[str, str],
+    cert_name: str
 ):
     """Background task to process uploaded file"""
     try:
+        manager = get_chroma_manager()
+        user_id = file_metadata.user_id or ""
+
+        # Ensure the target collection exists before processing
+        try:
+            manager.get_collection(
+                user_id=user_id,
+                cert_id=cert_id,
+                bundle_version=bundle_version
+            )
+        except Exception:
+            try:
+                manager.create_collection(
+                    user_id=user_id,
+                    cert_id=cert_id,
+                    cert_name=cert_name,
+                    bundle_version=bundle_version
+                )
+            except Exception as create_error:
+                file_registry.update_file_status(
+                    file_metadata.file_id,
+                    "failed",
+                    f"Failed to create collection: {create_error}",
+                    chunk_count=0
+                )
+                return
+
         result = await file_upload_service.process_uploaded_file(
             file_metadata=file_metadata,
             cert_id=cert_id,
             bundle_version=bundle_version,
-            collection_manager=collection_manager,
+            collection_manager=manager,
             domain_mappings=domain_mappings
         )
 
@@ -516,20 +609,23 @@ async def process_file_background(
             file_registry.update_file_status(
                 file_metadata.file_id,
                 "completed",
-                None
+                None,
+                chunk_count=result.chunk_count
             )
         else:
             file_registry.update_file_status(
                 file_metadata.file_id,
                 "failed",
-                result.error_message
+                result.error_message,
+                chunk_count=result.chunk_count
             )
 
     except Exception as e:
         file_registry.update_file_status(
             file_metadata.file_id,
             "failed",
-            str(e)
+            str(e),
+            chunk_count=0
         )
 
 

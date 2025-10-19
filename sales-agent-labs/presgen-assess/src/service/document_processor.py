@@ -251,9 +251,20 @@ class DocumentProcessor:
         # Remove multiple periods/dots
         text = re.sub(r'\.{3,}', '...', text)
 
-        # Normalize quotes
-        text = re.sub(r'["""]', '"', text)
-        text = re.sub(r'['']', "'", text)
+        # Normalize quotes by translating common variants to straight quotes
+        quote_map = str.maketrans({
+            '“': '"',
+            '”': '"',
+            '„': '"',
+            '‟': '"',
+            '‹': "'",
+            '›': "'",
+            '‚': "'",
+            '‘': "'",
+            '’': "'",
+            '`': "'",
+        })
+        text = text.translate(quote_map)
 
         return text.strip()
 

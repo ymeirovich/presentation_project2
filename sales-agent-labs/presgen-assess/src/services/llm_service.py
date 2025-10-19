@@ -2,16 +2,23 @@
 
 import logging
 import json
+import re
 from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime
+from uuid import UUID
 
 import openai
 from openai import AsyncOpenAI
+from sqlalchemy import select, or_, func
 
 from src.common.config import settings
 from src.knowledge.base import RAGKnowledgeBase
 
-logger = logging.getLogger(__name__)
+from src.common.logging_config import get_assessment_logger
+from src.models.certification import CertificationProfile
+from src.service.database import AsyncSessionLocal
+
+logger = get_assessment_logger()
 
 
 class LLMService:
@@ -23,6 +30,7 @@ class LLMService:
         self.knowledge_base = RAGKnowledgeBase()
         self.model = settings.openai_model
         self.token_usage = {"total_tokens": 0, "total_cost": 0.0}
+        self._profile_cache: Dict[str, CertificationProfile] = {}
 
     def _log_llm_event(self, event: str, payload: Dict[str, Any]) -> None:
         """Emit JSON-formatted LLM telemetry."""
@@ -46,18 +54,106 @@ class LLMService:
             if question_types is None:
                 question_types = ["multiple_choice", "scenario"]
 
+            # ✅ PHASE 2 FIX: Log certification_id at function entry
+            logger.info(
+                f"🎯 generate_assessment_questions | certification_id={certification_id} | "
+                f"domain={domain} | question_count={question_count} | difficulty={difficulty_level} | "
+                f"use_rag_context={use_rag_context}"
+            )
+
+            # Load certification profile details (prompt, slug, etc.)
+            certification_profile = await self._get_certification_profile(certification_id)
+            cert_prompt = self._get_assessment_prompt_text(certification_profile)
+            cert_slug = self._derive_cert_slug(certification_profile, certification_id)
+            focus_areas = self._determine_focus_areas(domain, certification_profile)
+
+            # ✅ PHASE 2 FIX: Log detailed certification profile resolution
+            if certification_profile is None:
+                logger.warning(
+                    f"⚠️ Certification profile NOT FOUND | identifier={certification_id} | "
+                    f"using_fallback_prompt=True | cert_slug={cert_slug}"
+                )
+            else:
+                logger.info(
+                    f"✅ Certification profile loaded | "
+                    f"profile_id={certification_profile.id} | "
+                    f"profile_name={certification_profile.name} | "
+                    f"cert_slug={cert_slug} | "
+                    f"has_assessment_prompt={bool(cert_prompt)} | "
+                    f"prompt_length={len(cert_prompt) if cert_prompt else 0}"
+                )
+                if not cert_prompt:
+                    logger.warning(
+                        f"⚠️ Certification profile missing assessment_prompt | "
+                        f"profile_id={certification_profile.id} | "
+                        f"profile_name={certification_profile.name} | "
+                        f"using_default_prompt=True"
+                    )
+
             # Retrieve RAG context for the domain
-            rag_context = ""
+            knowledge_base_context = ""
             citations = []
             if use_rag_context:
+                # ✅ PHASE 2 FIX: Log RAG retrieval attempt with certification details
+                rag_query = f"{domain} certification exam questions and concepts"
+                logger.info(
+                    f"🔍 Initiating RAG retrieval | certification_id={cert_slug} | "
+                    f"query={rag_query} | k=8 | balance_sources=True"
+                )
+
                 context_result = await self.knowledge_base.retrieve_context_for_assessment(
-                    query=f"{domain} certification exam questions and concepts",
-                    certification_id=certification_id,
+                    query=rag_query,
+                    certification_id=cert_slug,
                     k=8,
                     balance_sources=True
                 )
-                rag_context = context_result.get("combined_context", "")
-                citations = context_result.get("citations", [])
+                context_result = context_result or {}
+
+                # ✅ PHASE 2 FIX: Log RAG retrieval results
+                total_results = context_result.get("total_results", 0)
+                logger.info(
+                    f"📊 RAG retrieval result | certification_id={cert_slug} | "
+                    f"total_results={total_results} | "
+                    f"exam_guides={context_result.get('sources', {}).get('exam_guides', {}).get('count', 0)} | "
+                    f"transcripts={context_result.get('sources', {}).get('transcripts', {}).get('count', 0)}"
+                )
+
+                if total_results == 0 and certification_profile is not None:
+                    # ✅ PHASE 2 FIX: Log fallback attempt
+                    fallback_id = str(certification_profile.id)
+                    logger.warning(
+                        f"⚠️ RAG returned 0 results for cert_slug={cert_slug}, "
+                        f"trying fallback with profile_id={fallback_id}"
+                    )
+
+                    fallback_result = await self.knowledge_base.retrieve_context_for_assessment(
+                        query=rag_query,
+                        certification_id=fallback_id,
+                        k=8,
+                        balance_sources=True
+                    )
+                    fallback_total = (fallback_result or {}).get("total_results", 0)
+                    if fallback_total > 0:
+                        logger.info(
+                            f"✅ Fallback RAG retrieval succeeded | "
+                            f"certification_profile_id={fallback_id} | total_results={fallback_total}"
+                        )
+                        context_result = fallback_result
+                    else:
+                        logger.warning(
+                            f"⚠️ Fallback RAG also returned 0 results | "
+                            f"certification_profile_id={fallback_id}"
+                        )
+                    context_result = context_result or {}
+
+                knowledge_base_context = (context_result or {}).get("combined_context", "")
+                citations = (context_result or {}).get("citations", [])
+
+                # ✅ PHASE 2 FIX: Log final RAG context summary
+                logger.info(
+                    f"✅ RAG context prepared | certification_id={cert_slug} | "
+                    f"context_chars={len(knowledge_base_context)} | citations_count={len(citations)}"
+                )
 
             # Generate questions using LLM
             questions = await self._generate_questions_with_context(
@@ -65,7 +161,9 @@ class LLMService:
                 question_count=question_count,
                 difficulty_level=difficulty_level,
                 question_types=question_types,
-                rag_context=rag_context
+                knowledge_base_context=knowledge_base_context,
+                base_prompt=cert_prompt,
+                focus_areas=focus_areas
             )
 
             # Add citations to each question
@@ -82,7 +180,7 @@ class LLMService:
                 "questions": questions,
                 "domain": domain,
                 "difficulty_level": difficulty_level,
-                "rag_context_used": bool(rag_context),
+                "rag_context_used": bool(knowledge_base_context),
                 "citations": citations,
                 "token_usage": self.token_usage
             }
@@ -101,7 +199,9 @@ class LLMService:
         question_count: int,
         difficulty_level: str,
         question_types: List[str],
-        rag_context: str
+        knowledge_base_context: str,
+        base_prompt: Optional[str],
+        focus_areas: str
     ) -> List[Dict]:
         """Generate questions using OpenAI with RAG context."""
 
@@ -111,9 +211,13 @@ class LLMService:
             question_count=question_count,
             difficulty_level=difficulty_level,
             question_types=question_types,
-            rag_context=rag_context
+            knowledge_base_context=knowledge_base_context,
+            base_prompt=base_prompt,
+            focus_areas=focus_areas
         )
 
+        # ✅ PHASE 2 FIX: Enhanced LLM request logging with complete messages
+        system_prompt = self._get_system_prompt()
         self._log_llm_event(
             "generate_questions_request",
             {
@@ -122,17 +226,23 @@ class LLMService:
                 "question_count": question_count,
                 "difficulty_level": difficulty_level,
                 "question_types": question_types,
-                "rag_context_chars": len(rag_context or ""),
+                "knowledge_base_context_chars": len(knowledge_base_context or ""),
                 "prompt_chars": len(prompt),
+                "assessment_prompt_source": "profile" if base_prompt else "default",
+                # ✅ COMPLETE MESSAGES LOGGED
+                "system_message": system_prompt,
+                "user_message": prompt,
+                "knowledge_base_context_preview": (knowledge_base_context[:500] + "...") if len(knowledge_base_context) > 500 else knowledge_base_context,
             },
         )
+
         # Call OpenAI API
         response = await self.client.chat.completions.create(
             model=self.model,
             messages=[
                 {
                     "role": "system",
-                    "content": self._get_system_prompt()
+                    "content": system_prompt
                 },
                 {
                     "role": "user",
@@ -144,11 +254,17 @@ class LLMService:
             response_format={"type": "json_object"}
         )
 
+        # ✅ PHASE 2 FIX: Enhanced LLM response logging with complete response
         self._log_llm_event(
             "generate_questions_response",
             {
                 "model": self.model,
-                "token_usage": getattr(response.usage, "total_tokens", None),
+                "prompt_tokens": response.usage.prompt_tokens,
+                "completion_tokens": response.usage.completion_tokens,
+                "total_tokens": response.usage.total_tokens,
+                "finish_reason": response.choices[0].finish_reason,
+                # ✅ COMPLETE RESPONSE LOGGED
+                "raw_response": response.choices[0].message.content,
                 "response_preview": response.choices[0].message.content[:200],
             },
         )
@@ -172,79 +288,90 @@ class LLMService:
         question_count: int,
         difficulty_level: str,
         question_types: List[str],
-        rag_context: str
+        knowledge_base_context: str,
+        base_prompt: Optional[str],
+        focus_areas: str
     ) -> str:
         """Build comprehensive prompt for assessment generation."""
 
-        context_section = ""
-        if rag_context:
-            context_section = f"""
-## Reference Context
-Use the following context from official exam guides and course materials to inform your question generation:
+        primary_prompt = base_prompt.strip() if base_prompt else self._get_default_assessment_prompt(question_count)
+        prompt_sections = [primary_prompt]
 
-{rag_context}
+        if focus_areas:
+            prompt_sections.append(f"FOCUS AREAS:\n- {focus_areas}")
 
-IMPORTANT: Base your questions on the concepts, terminology, and scenarios found in the reference context above.
-"""
+        if knowledge_base_context:
+            prompt_sections.append(
+                "## Reference Context\n"
+                "Use the following context from official exam guides and course materials to inform your question generation:\n\n"
+                f"{knowledge_base_context}\n\n"
+                "IMPORTANT: Base your questions on the concepts, terminology, and scenarios found in the reference context above."
+            )
 
-        prompt = f"""Generate {question_count} high-quality certification exam questions for the {domain} domain.
+        prompt_sections.append(
+            "## Requirements:\n"
+            f"- Difficulty Level: {difficulty_level}\n"
+            f"- Question Types: {', '.join(question_types)}\n"
+            f"- Domain Focus: {domain}\n"
+            "- Each question must test practical knowledge and real-world application\n"
+            "- Include detailed explanations referencing the source material\n"
+            "- Ensure questions align with current industry best practices\n"
+            "- Each question must be unique—do not repeat, rephrase, or lightly modify any previously generated question within this assessment\n"
+            "- If you detect overlap or redundancy, replace the question with a new one covering a distinct concept\n"
+            "- Before finalizing, compare every new question against earlier ones in this assessment and regenerate anything that overlaps in topic, structure, or wording"
+        )
 
-{context_section}
+        prompt_sections.append(
+            "## Question Format:\n"
+            "For each question, provide:\n"
+            "1. **question_text**: Clear, concise question statement\n"
+            f"2. **question_type**: One of {question_types}\n"
+            "3. **options**: Array of 4 answer choices (A, B, C, D) for multiple choice\n"
+            "4. **correct_answer**: The correct option (A, B, C, or D)\n"
+            "5. **explanation**: Detailed explanation of why the answer is correct\n"
+            f"6. **domain**: {domain}\n"
+            "7. **subdomain**: Specific area within the domain\n"
+            "8. **bloom_level**: Cognitive level (remember, understand, apply, analyze, evaluate, create)\n"
+            f"9. **difficulty**: Numeric difficulty (0.0-1.0, where {self._get_difficulty_range(difficulty_level)})\n"
+            "10. **time_limit_seconds**: Recommended time limit (60-300 seconds)"
+        )
 
-## Requirements:
-- Difficulty Level: {difficulty_level}
-- Question Types: {', '.join(question_types)}
-- Domain Focus: {domain}
-- Each question must test practical knowledge and real-world application
-- Include detailed explanations referencing the source material
-- Ensure questions align with current industry best practices
+        prompt_sections.append(
+            "## Bloom's Taxonomy Distribution:\n"
+            "- Remember/Understand: 20%\n"
+            "- Apply/Analyze: 60%\n"
+            "- Evaluate/Create: 20%"
+        )
 
-## Question Format:
-For each question, provide:
-1. **question_text**: Clear, concise question statement
-2. **question_type**: One of {question_types}
-3. **options**: Array of 4 answer choices (A, B, C, D) for multiple choice
-4. **correct_answer**: The correct option (A, B, C, or D)
-5. **explanation**: Detailed explanation of why the answer is correct
-6. **domain**: {domain}
-7. **subdomain**: Specific area within the domain
-8. **bloom_level**: Cognitive level (remember, understand, apply, analyze, evaluate, create)
-9. **difficulty**: Numeric difficulty (0.0-1.0, where {self._get_difficulty_range(difficulty_level)})
-10. **time_limit_seconds**: Recommended time limit (60-300 seconds)
+        prompt_sections.append(
+            "## Response Format:\n"
+            "Return a JSON object with this structure:\n"
+            "{\n"
+            '    "questions": [\n'
+            "        {\n"
+            '            "id": "q1",\n'
+            '            "question_text": "...",\n'
+            '            "question_type": "multiple_choice",\n'
+            '            "options": [\n'
+            '                {"letter": "A", "text": "..."},\n'
+            '                {"letter": "B", "text": "..."},\n'
+            '                {"letter": "C", "text": "..."},\n'
+            '                {"letter": "D", "text": "..."}\n'
+            "            ],\n"
+            '            "correct_answer": "A",\n'
+            '            "explanation": "...",\n'
+            f'            "domain": "{domain}",\n'
+            '            "subdomain": "...",\n'
+            '            "bloom_level": "apply",\n'
+            '            "difficulty": 0.6,\n'
+            '            "time_limit_seconds": 180\n'
+            "        }\n"
+            "    ]\n"
+            "}\n\n"
+            "Generate questions that are challenging but fair, testing both theoretical knowledge and practical application."
+        )
 
-## Bloom's Taxonomy Distribution:
-- Remember/Understand: 20%
-- Apply/Analyze: 60%
-- Evaluate/Create: 20%
-
-## Response Format:
-Return a JSON object with this structure:
-{{
-    "questions": [
-        {{
-            "id": "q1",
-            "question_text": "...",
-            "question_type": "multiple_choice",
-            "options": [
-                {{"letter": "A", "text": "..."}},
-                {{"letter": "B", "text": "..."}},
-                {{"letter": "C", "text": "..."}},
-                {{"letter": "D", "text": "..."}}
-            ],
-            "correct_answer": "A",
-            "explanation": "...",
-            "domain": "{domain}",
-            "subdomain": "...",
-            "bloom_level": "apply",
-            "difficulty": 0.6,
-            "time_limit_seconds": 180
-        }}
-    ]
-}}
-
-Generate questions that are challenging but fair, testing both theoretical knowledge and practical application.
-"""
-        return prompt
+        return "\n\n".join(section.strip() for section in prompt_sections if section)
 
     def _get_system_prompt(self) -> str:
         """Get the system prompt for assessment generation."""
@@ -260,6 +387,26 @@ Key principles:
 
 Always respond with valid JSON in the specified format."""
 
+    def _get_default_assessment_prompt(self, question_count: int) -> str:
+        """Default assessment prompt when certification profile lacks custom prompt."""
+        return (
+            "You are an expert assessment designer creating high-quality certification exam questions.\n\n"
+            "GENERATION REQUIREMENTS:\n"
+            "- Clarity: Questions must be unambiguous and clearly written\n"
+            "- Relevance: Directly aligned with certification objectives\n"
+            "- Difficulty Appropriateness: Matched to target competency level\n"
+            "- Discrimination: Effectively separates competent from non-competent candidates\n\n"
+            "COGNITIVE LEVEL DISTRIBUTION:\n"
+            "- Remember/Understand (30%): Foundational knowledge and comprehension\n"
+            "- Apply/Analyze (50%): Practical application and analysis\n"
+            "- Evaluate/Create (20%): Higher-order thinking and synthesis\n\n"
+            f"Use the uploaded knowledge base content to ensure accuracy and generate {question_count} questions.\n\n"
+            "DUPLICATION SAFEGUARDS:\n"
+            "- Each question must be genuinely unique; do not reuse, rephrase, or lightly modify earlier questions in this assessment\n"
+            "- Before finalizing, compare every new question against the full set already written and regenerate anything that overlaps in concept, structure, or wording\n"
+            "- Cover distinct focus areas so no two questions assess the exact same scenario or knowledge point"
+        )
+
     def _get_difficulty_range(self, difficulty_level: str) -> str:
         """Get difficulty range description for prompt."""
         ranges = {
@@ -268,6 +415,93 @@ Always respond with valid JSON in the specified format."""
             "advanced": "0.7-0.9 represents evaluation and synthesis"
         }
         return ranges.get(difficulty_level, "0.5-0.7")
+
+    async def _get_certification_profile(self, certification_identifier: str) -> Optional[CertificationProfile]:
+        """Fetch certification profile by UUID or slug."""
+        if not certification_identifier:
+            return None
+
+        cached = self._profile_cache.get(certification_identifier)
+        if cached:
+            return cached
+
+        stmt = None
+        try:
+            profile_uuid = UUID(certification_identifier)
+            stmt = select(CertificationProfile).where(CertificationProfile.id == profile_uuid)
+        except ValueError:
+            slug = self._sanitize_slug(certification_identifier)
+            stmt = select(CertificationProfile).where(
+                or_(
+                    CertificationProfile.collection_name == slug,
+                    func.lower(CertificationProfile.name) == slug.replace("-", " ")
+                )
+            )
+
+        if stmt is None:
+            return None
+
+        try:
+            async with AsyncSessionLocal() as session:
+                result = await session.execute(stmt)
+                profile = result.scalars().first()
+        except Exception as exc:  # pragma: no cover - defensive logging
+            logger.warning(
+                "⚠️ Unable to load certification profile for identifier=%s: %s",
+                certification_identifier,
+                exc
+            )
+            return None
+
+        if profile:
+            self._profile_cache[str(profile.id)] = profile
+            slug_key = self._derive_cert_slug(profile, str(profile.id))
+            if slug_key:
+                self._profile_cache[slug_key] = profile
+        return profile
+
+    def _derive_cert_slug(self, profile: Optional[CertificationProfile], fallback: str) -> str:
+        """Derive slug used for knowledge base lookups."""
+        if profile:
+            if getattr(profile, "collection_name", None):
+                return profile.collection_name
+            if getattr(profile, "name", None):
+                return self._sanitize_slug(profile.name)
+        return self._sanitize_slug(fallback)
+
+    @staticmethod
+    def _sanitize_slug(value: str) -> str:
+        """Sanitize strings into slug-compatible format."""
+        if not value:
+            return ""
+        sanitized = re.sub(r"[^a-z0-9]+", "-", value.strip().lower())
+        return sanitized.strip("-")
+
+    @staticmethod
+    def _get_assessment_prompt_text(profile: Optional[CertificationProfile]) -> Optional[str]:
+        """Extract trimmed assessment prompt from profile."""
+        if profile and getattr(profile, "assessment_prompt", None):
+            prompt = profile.assessment_prompt.strip()
+            return prompt or None
+        return None
+
+    def _determine_focus_areas(self, domain: str, profile: Optional[CertificationProfile]) -> str:
+        """Derive focus areas based on certification profile domain metadata."""
+        if not profile or not getattr(profile, "exam_domains", None):
+            return domain
+
+        try:
+            for domain_info in profile.exam_domains:
+                if isinstance(domain_info, dict) and domain_info.get("name") == domain:
+                    subdomains = domain_info.get("subdomains") or domain_info.get("focus_areas")
+                    if subdomains:
+                        if isinstance(subdomains, list):
+                            return ", ".join(subdomains)
+                        return str(subdomains)
+        except Exception:  # pragma: no cover - defensive
+            pass
+
+        return domain
 
     def _calculate_cost(self, tokens: int) -> float:
         """Calculate estimated cost for token usage."""

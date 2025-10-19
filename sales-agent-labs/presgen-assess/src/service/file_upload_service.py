@@ -568,7 +568,13 @@ class FileRegistry:
             print(f"Error removing file from registry: {e}")
             return False
 
-    def update_file_status(self, file_id: str, status: str, error_message: Optional[str] = None) -> bool:
+    def update_file_status(
+        self,
+        file_id: str,
+        status: str,
+        error_message: Optional[str] = None,
+        chunk_count: Optional[int] = None
+    ) -> bool:
         """Update file processing status - updates database"""
         from src.models.certification import KnowledgeBaseDocument
         from uuid import UUID
@@ -582,11 +588,16 @@ class FileRegistry:
             doc = db.query(KnowledgeBaseDocument).filter_by(id=uuid_obj).first()
             if doc:
                 doc.processing_status = status
+                if chunk_count is not None:
+                    doc.chunk_count = chunk_count
+                    doc.processed_at = datetime.utcnow()
                 db.commit()
 
             # Update cache (use string key)
             if file_id in self._files:
                 self._files[file_id].processing_status = status
+                if chunk_count is not None:
+                    self._files[file_id].chunk_count = chunk_count
                 if error_message:
                     self._files[file_id].error_message = error_message
 
