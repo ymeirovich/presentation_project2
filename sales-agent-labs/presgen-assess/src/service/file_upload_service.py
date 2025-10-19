@@ -121,34 +121,49 @@ class FileUploadService:
     ) -> FileMetadata:
         """Save uploaded file to disk and create metadata"""
 
+        print(f"📥 FileUploadService: Saving file '{file.filename}'")
+        print(f"  Profile: {cert_profile_id}")
+        print(f"  Resource Type: {resource_type}")
+
         # Validate file
+        print(f"  Validating file...")
         self.validate_file(file)
+        print(f"  ✅ File validation passed")
 
         # Generate unique file ID and stored filename
         file_id = str(uuid.uuid4())
         file_extension = Path(file.filename).suffix.lower()
         stored_filename = f"{file_id}{file_extension}"
+        print(f"  Generated File ID: {file_id}")
+        print(f"  Stored filename: {stored_filename}")
 
         # Get resource directory
         resource_dir = self.get_resource_directory(resource_type)
         file_path = resource_dir / stored_filename
+        print(f"  Storage path: {file_path}")
 
         # Save file to disk
         try:
+            print(f"  Writing file to disk...")
             async with aiofiles.open(file_path, 'wb') as f:
                 content = await file.read()
                 await f.write(content)
                 file_size = len(content)
+            print(f"  ✅ File written: {file_size} bytes")
         except Exception as e:
+            print(f"  ❌ File write failed: {type(e).__name__}: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
 
         # Calculate file hash
+        print(f"  Calculating file hash...")
         file_hash = await self.calculate_file_hash(file_path)
+        print(f"  ✅ File hash: {file_hash[:16]}...")
 
         # Determine MIME type
         mime_type, _ = mimetypes.guess_type(file.filename)
         if not mime_type:
             mime_type = "application/octet-stream"
+        print(f"  MIME type: {mime_type}")
 
         # Create metadata
         metadata = FileMetadata(
@@ -165,6 +180,9 @@ class FileUploadService:
             resource_type=resource_type
         )
 
+        print(f"✅ FileUploadService: File saved successfully")
+        print(f"  File ID: {file_id}")
+        print(f"  Size: {file_size} bytes")
         return metadata
 
     async def process_uploaded_file(
@@ -365,16 +383,22 @@ class FileRegistry:
         from sqlalchemy.exc import IntegrityError
         from uuid import UUID
 
+        print(f"    💾 _save_to_database: Starting database save")
         db = self._get_db()
+        print(f"    ✅ Database session obtained")
+
         try:
             # Convert string UUIDs to UUID objects if needed
             file_uuid = UUID(file_metadata.file_id) if isinstance(file_metadata.file_id, str) else file_metadata.file_id
             profile_uuid = UUID(file_metadata.cert_profile_id) if isinstance(file_metadata.cert_profile_id, str) else file_metadata.cert_profile_id
+            print(f"    ✅ UUIDs converted: file={file_uuid}, profile={profile_uuid}")
 
             # Check if document already exists
+            print(f"    Checking for existing document...")
             existing = db.query(KnowledgeBaseDocument).filter_by(id=file_uuid).first()
 
             if existing:
+                print(f"    📝 Updating existing record")
                 # Update existing record
                 existing.original_filename = file_metadata.original_filename
                 existing.stored_path = file_metadata.file_path
@@ -385,6 +409,7 @@ class FileRegistry:
                 existing.chunk_count = file_metadata.chunk_count
                 existing.checksum = file_metadata.file_hash
             else:
+                print(f"    ➕ Creating new database record")
                 # Create new record
                 db_record = KnowledgeBaseDocument(
                     id=file_uuid,
@@ -399,13 +424,20 @@ class FileRegistry:
                     checksum=file_metadata.file_hash
                 )
                 db.add(db_record)
+                print(f"    ✅ Record added to session")
 
+            print(f"    Committing transaction...")
             db.commit()
-        except IntegrityError:
+            print(f"    ✅ Database commit successful")
+        except IntegrityError as ie:
+            print(f"    ⚠️ IntegrityError (duplicate?): {str(ie)}")
             db.rollback()
         except Exception as e:
+            print(f"    ❌ Database save failed: {type(e).__name__}: {str(e)}")
+            import traceback
+            traceback.print_exc()
             db.rollback()
-            print(f"Error saving to database: {e}")
+            raise
 
     def _load_from_database(self, cert_profile_id: str = None, user_id: str = None) -> List[FileMetadata]:
         """Load file metadata from database"""
@@ -451,8 +483,17 @@ class FileRegistry:
 
     def register_file(self, file_metadata: FileMetadata) -> None:
         """Register uploaded file metadata - persists to database"""
+        print(f"📝 FileRegistry: Registering file {file_metadata.file_id}")
+        print(f"  Filename: {file_metadata.original_filename}")
+        print(f"  Profile: {file_metadata.cert_profile_id}")
+        print(f"  Resource Type: {file_metadata.resource_type}")
+
         self._files[file_metadata.file_id] = file_metadata
+        print(f"  ✅ Added to in-memory cache")
+
+        print(f"  Saving to database...")
         self._save_to_database(file_metadata)
+        print(f"✅ FileRegistry: File registered successfully")
 
     def get_file(self, file_id: str) -> Optional[FileMetadata]:
         """Get file metadata by ID - checks cache first, then database"""

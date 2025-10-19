@@ -88,12 +88,22 @@ async def upload_file(
 ):
     """Upload a file for certification profile"""
 
+    print("="*80)
+    print("🔵 UPLOAD ENDPOINT CALLED")
+    print(f"📄 File: {file.filename if file else 'None'}")
+    print(f"📋 Profile ID: {cert_profile_id}")
+    print(f"🏷️ Resource Type: {resource_type}")
+    print(f"⚡ Process Immediately: {process_immediately}")
+    print("="*80)
+
     # Verify certification profile exists (authentication disabled - skip user check)
     # Note: Temporarily allowing uploads without strict profile verification
     # TODO: Re-enable async profile verification when database session works correctly
     cert_profile_name = "temp-profile"  # Placeholder
+    print(f"🔧 Using cert_profile_name: {cert_profile_name}")
 
     try:
+        print("📥 Step 1: Saving uploaded file...")
         # Save uploaded file
         file_metadata = await file_upload_service.save_uploaded_file(
             file=file,
@@ -101,12 +111,16 @@ async def upload_file(
             cert_profile_id=cert_profile_id,
             resource_type=resource_type
         )
+        print(f"✅ Step 1 Complete: File saved with ID: {file_metadata.file_id}")
 
         # Register file in registry
+        print("📝 Step 2: Registering file in database...")
         file_registry.register_file(file_metadata)
+        print(f"✅ Step 2 Complete: File registered in database")
 
         # Process file if requested
         if process_immediately:
+            print("⚙️ Step 3: Scheduling background processing...")
             background_tasks.add_task(
                 process_file_background,
                 file_metadata,
@@ -114,8 +128,11 @@ async def upload_file(
                 "1.0",  # version placeholder
                 {}  # domain_mappings, could be extracted from cert_profile
             )
+            print("✅ Step 3 Complete: Background task scheduled")
+        else:
+            print("⏭️ Step 3: Skipped (process_immediately=False)")
 
-        return FileUploadResponse(
+        response = FileUploadResponse(
             file_id=file_metadata.file_id,
             original_filename=file_metadata.original_filename,
             file_size=file_metadata.file_size,
@@ -125,9 +142,20 @@ async def upload_file(
             processing_status=file_metadata.processing_status,
             message="File uploaded successfully" + (" and processing started" if process_immediately else "")
         )
+        print("="*80)
+        print(f"✅ UPLOAD SUCCESSFUL: {file_metadata.file_id}")
+        print("="*80)
+        return response
 
+    except HTTPException as he:
+        print(f"❌ HTTP Exception: {he.status_code} - {he.detail}")
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+        print(f"❌ UNEXPECTED ERROR: {type(e).__name__}")
+        print(f"❌ Error message: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Upload failed: {type(e).__name__}: {str(e)}")
 
 
 @router.post("/bulk-upload")
