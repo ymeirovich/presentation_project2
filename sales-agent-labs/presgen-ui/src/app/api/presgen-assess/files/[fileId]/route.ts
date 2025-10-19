@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { MockFileStorage } from '@/lib/mock-file-storage';
 
 /**
  * Delete file - proxies to PresGen-Assess backend
+ * Backend is the single source of truth
  */
 export async function DELETE(
   request: NextRequest,
@@ -12,7 +12,7 @@ export async function DELETE(
     const { fileId } = await context.params;
 
     // Proxy the request to the PresGen-Assess backend
-    const backendUrl = `${process.env.PRESGEN_ASSESS_URL || 'http://localhost:8081'}/api/v1/presgen-assess/files/${fileId}`;
+    const backendUrl = `${process.env.PRESGEN_ASSESS_URL || 'http://localhost:8000'}/api/v1/presgen-assess/files/${fileId}`;
 
     console.log(`Proxying DELETE file request to: ${backendUrl}`);
 
@@ -24,22 +24,13 @@ export async function DELETE(
     });
 
     if (!response.ok) {
-      console.error('Backend delete file error:', response.status);
-
-      // If the endpoint doesn't exist yet, try mock storage
-      if (response.status === 404 || response.status === 405) {
-        console.log('Backend not available, trying mock storage for delete');
-        const wasDeleted = MockFileStorage.deleteFile(fileId);
-        return NextResponse.json({
-          file_id: fileId,
-          success: true,
-          message: wasDeleted ? 'File deleted from mock storage' : 'File not found in mock storage'
-        });
-      }
+      const errorText = await response.text();
+      console.error(`❌ Backend delete file failed (${response.status}):`, errorText);
 
       return NextResponse.json(
         {
           error: 'Failed to delete file',
+          detail: errorText,
           status: response.status
         },
         { status: response.status }
@@ -47,27 +38,18 @@ export async function DELETE(
     }
 
     const responseData = await response.json();
-    console.log('File deleted successfully:', responseData);
+    console.log('✅ File deleted successfully:', responseData);
     return NextResponse.json(responseData);
 
   } catch (error) {
-    console.error('Delete file error:', error);
-
-    // Try mock storage as fallback
-    try {
-      const wasDeleted = MockFileStorage.deleteFile(fileId);
-      return NextResponse.json({
-        file_id: fileId,
-        success: true,
-        message: wasDeleted ? 'File deleted from mock storage' : 'File not found in mock storage'
-      });
-    } catch (mockError) {
-      return NextResponse.json({
-        file_id: fileId,
-        success: true,
-        message: 'File delete temporarily unavailable'
-      });
-    }
+    console.error('❌ Delete file error:', error);
+    return NextResponse.json(
+      {
+        error: 'File deletion failed',
+        detail: error instanceof Error ? error.message : 'Unknown error'
+      },
+      { status: 500 }
+    );
   }
 }
 
@@ -85,7 +67,7 @@ export async function GET(
     // Check if this is a download request
     if (url.pathname.endsWith('/download')) {
       // Proxy the download request to the PresGen-Assess backend
-      const backendUrl = `${process.env.PRESGEN_ASSESS_URL || 'http://localhost:8081'}/api/v1/presgen-assess/files/${fileId}/download`;
+      const backendUrl = `${process.env.PRESGEN_ASSESS_URL || 'http://localhost:8000'}/api/v1/presgen-assess/files/${fileId}/download`;
 
       console.log(`Proxying GET file download request to: ${backendUrl}`);
 

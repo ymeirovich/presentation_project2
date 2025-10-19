@@ -11,7 +11,7 @@ export async function GET(
     const { fileId } = params;
 
     // Proxy the request to the PresGen-Assess backend
-    const backendUrl = `${process.env.PRESGEN_ASSESS_URL || 'http://localhost:8081'}/api/v1/presgen-assess/files/${fileId}/status`;
+    const backendUrl = `${process.env.PRESGEN_ASSESS_URL || 'http://localhost:8000'}/api/v1/presgen-assess/files/${fileId}/status`;
 
     console.log(`Proxying GET file status request to: ${backendUrl}`);
 

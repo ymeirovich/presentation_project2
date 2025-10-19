@@ -16,7 +16,8 @@ from src.service.api.v1.endpoints import (
     presentations,
     auth,
     monitoring,
-    ai_question_generation
+    ai_question_generation,
+    file_management
 )
 
 api_router = APIRouter()
@@ -110,4 +111,11 @@ api_router.include_router(
     ai_question_generation.router,
     prefix="/ai-question-generator",
     tags=["AI Question Generation", "ai-services"]
+)
+
+# File Management - RAG Resources
+api_router.include_router(
+    file_management.router,
+    prefix="/presgen-assess",  # Matches UI expectation: /api/v1/presgen-assess/files/...
+    tags=["file_management", "rag-resources"]
 )
