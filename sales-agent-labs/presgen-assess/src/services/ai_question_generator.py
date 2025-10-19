@@ -298,9 +298,11 @@ class AIQuestionGenerator:
                 knowledge_domains = {domain.get("name", f"Domain {i+1}"): domain.get("description", "")
                                    for i, domain in enumerate(exam_domains)}
 
+                # ✅ FIX: Include collection_name for RAG retrieval
                 resources = {
                     "certification_name": profile.name,
                     "certification_profile_id": certification_profile_id,
+                    "collection_name": profile.collection_name,  # ✅ ADDED
                     "knowledge_domains": knowledge_domains,
                     "exam_guide": f"{profile.name} certification guide and materials",
                     "documentation_refs": [
@@ -310,8 +312,8 @@ class AIQuestionGenerator:
                 }
 
                 logger.info(
-                    "✅ Retrieved certification resources | profile=%s name=%s domains=%d",
-                    certification_profile_id, profile.name, len(knowledge_domains)
+                    "✅ Retrieved certification resources | profile=%s name=%s collection_name=%s domains=%d",
+                    certification_profile_id, profile.name, profile.collection_name, len(knowledge_domains)
                 )
 
                 return resources
@@ -428,14 +430,32 @@ class AIQuestionGenerator:
                 )
                 return await self._generate_template_question(domain, question_number, difficulty_level, correlation_id)
 
-            # Retrieve context from knowledge base for this domain
-            # Use a simplified certification ID that matches what's stored in the vector database
-            # For AWS ML Specialty, the stored ID is "aws-ml-specialty"
-            vector_cert_id = "aws-ml-specialty"  # TODO: Make this dynamic based on certification
+            # ✅ FIX: Derive vector_cert_id from certification profile
+            # Try to get collection_name from cert_resources, fall back to deriving from name or using UUID
+            vector_cert_id = cert_resources.get("collection_name")
 
+            if not vector_cert_id:
+                # Derive slug from certification name
+                cert_name_lower = cert_name.lower()
+                import re
+                vector_cert_id = re.sub(r'[^a-z0-9]+', '-', cert_name_lower).strip('-')
+                logger.warning(
+                    f"⚠️ No collection_name for cert_profile_id={cert_profile_id}, "
+                    f"derived vector_cert_id={vector_cert_id} from cert_name={cert_name} | "
+                    f"correlation_id={correlation_id}"
+                )
+
+            logger.info(
+                f"🎯 Using certification_id for RAG | cert_profile_id={cert_profile_id} | "
+                f"vector_cert_id={vector_cert_id} | cert_name={cert_name} | "
+                f"correlation_id={correlation_id}"
+            )
+
+            # ✅ FIX: Pass the UUID (cert_profile_id), not the slug (vector_cert_id)
+            # The retrieve_context method will internally resolve UUID → slug
             domain_context = await self.vector_db.retrieve_context(
                 query=f"{domain} {difficulty_level} certification concepts and best practices",
-                certification_id=vector_cert_id,
+                certification_id=str(cert_profile_id),  # Use UUID, not slug
                 k=3,  # Get top 3 most relevant chunks
                 include_sources=True
             )

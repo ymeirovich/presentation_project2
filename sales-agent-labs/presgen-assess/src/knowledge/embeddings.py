@@ -3,18 +3,20 @@
 import asyncio
 import hashlib
 import logging
+import math
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from uuid import uuid4
 
 import chromadb
 from chromadb.config import Settings
-from chromadb.utils import embedding_functions
 from openai import OpenAI
 
 from src.common.config import settings
+from src.common.logging_config import get_assessment_logger
 
-logger = logging.getLogger(__name__)
+# ✅ FIX: Use assessment logger so logs appear in assessments.log and combined log
+logger = get_assessment_logger()
 
 
 class OpenAIEmbeddingFunctionV1:
@@ -22,11 +24,24 @@ class OpenAIEmbeddingFunctionV1:
 
     def __init__(self, api_key: str, model_name: str = "text-embedding-3-small"):
         """Initialize with OpenAI client."""
-        self.client = OpenAI(api_key=api_key)
+        self.client = None
         self.model_name = model_name
+        self._fallback = None
+
+        if api_key:
+            try:
+                self.client = OpenAI(api_key=api_key)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning(
+                    "⚠️ OpenAI client initialization failed (%s). Falling back to default embeddings.",
+                    exc
+                )
 
     def __call__(self, input_texts: List[str]) -> List[List[float]]:
         """Generate embeddings for input texts."""
+        if self.client is None:
+            return [self._simple_embedding(text) for text in input_texts]
+
         try:
             response = self.client.embeddings.create(
                 input=input_texts,
@@ -34,8 +49,25 @@ class OpenAIEmbeddingFunctionV1:
             )
             return [data.embedding for data in response.data]
         except Exception as e:
-            logger.error(f"❌ OpenAI embedding failed: {e}")
-            raise
+            logger.warning(
+                "⚠️ OpenAI embedding failed (%s). Falling back to default embedding function.",
+                e
+            )
+            return [self._simple_embedding(text) for text in input_texts]
+
+    @staticmethod
+    def _simple_embedding(text: str, dim: int = 128) -> List[float]:
+        """Generate a deterministic hash-based embedding as a fallback."""
+        vector = [0.0] * dim
+        if not text:
+            return vector
+
+        encoded = text.encode("utf-8", errors="ignore")
+        for idx, byte in enumerate(encoded):
+            vector[idx % dim] += (byte / 255.0)
+
+        norm = math.sqrt(sum(v * v for v in vector)) or 1.0
+        return [v / norm for v in vector]
 
 
 class VectorDatabaseManager:
@@ -85,6 +117,70 @@ class VectorDatabaseManager:
             logger.error(f"❌ Failed to initialize ChromaDB collections: {e}")
             raise
 
+    async def _get_cert_slug(self, certification_id: str) -> Optional[str]:
+        """Get the certification slug/collection_name from UUID."""
+        try:
+            from src.service.database import AsyncSessionLocal
+            from src.models.certification import CertificationProfile
+            from sqlalchemy import select, text
+
+            async with AsyncSessionLocal() as session:
+                # Remove hyphens from UUID if present for database lookup
+                cert_id_normalized = certification_id.replace('-', '')
+
+                # Use text-based query since the ID is stored as a string in SQLite
+                stmt = select(CertificationProfile).where(
+                    text(f"id = '{cert_id_normalized}'")
+                )
+                result = await session.execute(stmt)
+                cert_profile = result.scalar_one_or_none()
+
+                if cert_profile and cert_profile.collection_name:
+                    logger.debug(
+                        f"🔍 Resolved cert UUID {certification_id} -> slug '{cert_profile.collection_name}'"
+                    )
+                    return cert_profile.collection_name
+
+                logger.warning(
+                    f"⚠️ Could not find cert_slug for certification_id={certification_id}"
+                )
+                return None
+
+        except Exception as e:
+            logger.warning(
+                f"⚠️ Failed to lookup cert_slug for {certification_id}: {e}"
+            )
+            return None
+
+    def _find_cert_collection(self, cert_slug: str):
+        """Locate per-certification collection created by ChromaDBCollectionManager."""
+        try:
+            target_prefix = f"assess__{cert_slug}_"
+            logger.info(f"🔍 Looking for collection with prefix: {target_prefix}")
+
+            all_collections = self.client.list_collections()
+            logger.info(f"📚 Available collections: {[c.name for c in all_collections]}")
+
+            for collection in all_collections:
+                if collection.name.startswith(target_prefix):
+                    logger.info(f"✅ Found matching collection: {collection.name}")
+                    try:
+                        return self.client.get_collection(
+                            name=collection.name,
+                            embedding_function=self.embedding_function
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "⚠️ Failed to attach embedding function to collection %s: %s",
+                            collection.name,
+                            exc
+                        )
+                        return collection
+
+            logger.warning(f"⚠️ No collection found with prefix {target_prefix}")
+        except Exception as exc:
+            logger.warning(f"⚠️ Unable to list collections for cert {cert_slug}: {exc}")
+        return None
     async def store_document_chunks(
         self,
         chunks: List[str],
@@ -137,61 +233,242 @@ class VectorDatabaseManager:
     ) -> List[Dict]:
         """Retrieve relevant context with source attribution for RAG."""
         try:
+            # ✅ FIX: Look up cert_slug from certification UUID
+            cert_slug = await self._get_cert_slug(certification_id)
+            if not cert_slug:
+                logger.warning(
+                    f"⚠️ Could not resolve cert_slug for {certification_id}, "
+                    f"will try UUID fallback"
+                )
+                cert_slug = certification_id  # Fallback to UUID
+
+            # ✅ PHASE 1 FIX: Log RAG retrieval parameters
+            logger.info(
+                f"🔍 RAG retrieve_context | certification_id={certification_id} | "
+                f"cert_slug={cert_slug} | query={query[:100]}... | k={k} | content_types={content_types}"
+            )
+
             results = []
 
             # Default to both content types if not specified
             if content_types is None:
                 content_types = ["exam_guide", "transcript"]
 
-            # Search in exam guides collection
-            if "exam_guide" in content_types:
-                exam_results = self.exam_guides_collection.query(
-                    query_texts=[query],
-                    n_results=k // 2 if len(content_types) > 1 else k,
-                    where={"certification_id": certification_id}
+            def _query_with_fallback(collection, n_results: int, collection_name: str, resource_type: Optional[str] = None):
+                """Query collection using standardized cert_id metadata key."""
+                logger.info(
+                    f"🔍 Querying {collection_name} collection | "
+                    f"where={{cert_id: {cert_slug}}} | n_results={n_results}"
                 )
 
-                # Format exam guide results
-                for i, doc in enumerate(exam_results["documents"][0]):
-                    result = {
-                        "content": doc,
-                        "source_type": "exam_guide",
-                        "metadata": exam_results["metadatas"][0][i],
-                        "distance": exam_results["distances"][0][i],
-                        "id": exam_results["ids"][0][i]
+                # Build where clause with proper AND operator for multiple conditions
+                if resource_type:
+                    where_clause = {
+                        "$and": [
+                            {"cert_id": cert_slug},
+                            {"resource_type": resource_type}
+                        ]
                     }
-                    if include_sources:
-                        result["citation"] = self._generate_citation(
-                            exam_results["metadatas"][0][i], "exam_guide"
-                        )
-                    results.append(result)
+                else:
+                    where_clause = {"cert_id": cert_slug}
 
-            # Search in transcripts collection
-            if "transcript" in content_types:
-                transcript_results = self.transcripts_collection.query(
+                primary_results = collection.query(
                     query_texts=[query],
-                    n_results=k // 2 if len(content_types) > 1 else k,
-                    where={"certification_id": certification_id}
+                    n_results=n_results,
+                    where=where_clause
+                )
+                docs = primary_results.get("documents") or []
+                metadatas = primary_results.get("metadatas") or []
+
+                # ✅ PHASE 1 FIX: Log query results
+                result_count = len(docs[0]) if docs and docs[0] else 0
+                logger.info(
+                    f"📊 Query returned {result_count} chunks from {collection_name} | "
+                    f"cert_slug={cert_slug}"
                 )
 
-                # Format transcript results
-                for i, doc in enumerate(transcript_results["documents"][0]):
+                if docs and docs[0]:
+                    # Log first result's metadata for verification
+                    if metadatas and metadatas[0]:
+                        first_meta = metadatas[0][0] if metadatas[0] else {}
+                        logger.info(
+                            f"📋 First chunk metadata: cert_id={first_meta.get('cert_id')} | "
+                            f"doc={first_meta.get('document_name')} | "
+                            f"classification={first_meta.get('content_classification')}"
+                        )
+                    return primary_results
+
+                # Fallback to certification_id (UUID) for dual-stream collections
+                logger.warning(
+                    f"⚠️ No results with cert_id={cert_slug}, trying certification_id fallback | "
+                    f"collection={collection_name} | certification_id={certification_id}"
+                )
+                # Build legacy where clause with proper AND operator
+                if resource_type:
+                    legacy_where = {
+                        "$and": [
+                            {"certification_id": certification_id},
+                            {"resource_type": resource_type}
+                        ]
+                    }
+                else:
+                    legacy_where = {"certification_id": certification_id}
+
+                legacy_results = collection.query(
+                    query_texts=[query],
+                    n_results=n_results,
+                    where=legacy_where
+                )
+                legacy_docs = legacy_results.get("documents") or []
+                if legacy_docs and legacy_docs[0]:
+                    logger.info(
+                        f"✅ RAG retrieval using certification_id fallback | "
+                        f"certification_id={certification_id} | collection={collection_name}"
+                    )
+                    return legacy_results
+
+                # No results from either key
+                logger.warning(
+                    f"⚠️ No chunks found for cert_id={cert_slug} or certification_id={certification_id} in {collection_name}"
+                )
+                return {"documents": [], "metadatas": []}
+
+            def _format_results(collection_name: str, chroma_results: Dict, source_type: str):
+                documents = chroma_results.get("documents") or []
+                metadatas = chroma_results.get("metadatas") or []
+                distances = chroma_results.get("distances") or []
+                ids = chroma_results.get("ids") or []
+
+                if not documents or not documents[0]:
+                    return
+
+                # ✅ PHASE 1 FIX: Track validation statistics
+                total_chunks = len(documents[0])
+                passed_chunks = 0
+                failed_chunks = 0
+                missing_meta_chunks = 0
+
+                for i, doc in enumerate(documents[0]):
+                    metadata = metadatas[0][i] if metadatas and metadatas[0] else {}
+                    metadata = metadata or {}
+                    # ✅ PHASE 1 FIX: Check certification_id first (primary key)
+                    metadata_cert = metadata.get("cert_id") or metadata.get("certification_id") or metadata.get("cert_profile_id")
+                    chunk_id = ids[0][i] if ids and ids[0] else None
+
+                    if not metadata_cert:
+                        missing_meta_chunks += 1
+                        logger.warning(
+                            f"⚠️ RAG chunk missing certification metadata | "
+                            f"expected={certification_id} | chunk_id={chunk_id} | "
+                            f"source_type={source_type} | collection={collection_name}"
+                        )
+                        continue
+
+                    # ✅ FIX: Accept EITHER UUID or slug match
+                    # metadata_cert could be UUID or slug, certification_id is UUID, cert_slug is slug
+                    is_match = (metadata_cert == certification_id or metadata_cert == cert_slug)
+
+                    if not is_match:
+                        failed_chunks += 1
+                        logger.error(
+                            f"🚨 CRITICAL: RAG certification mismatch! | "
+                            f"expected_uuid={certification_id} | expected_slug={cert_slug} | actual={metadata_cert} | "
+                            f"chunk_id={chunk_id} | doc={metadata.get('document_name')} | "
+                            f"source_type={source_type} | collection={collection_name}"
+                        )
+                        continue
+
+                    passed_chunks += 1
                     result = {
                         "content": doc,
-                        "source_type": "transcript",
-                        "metadata": transcript_results["metadatas"][0][i],
-                        "distance": transcript_results["distances"][0][i],
-                        "id": transcript_results["ids"][0][i]
+                        "source_type": source_type,
+                        "metadata": metadata,
+                        "distance": distances[0][i] if distances and distances[0] else None,
+                        "id": chunk_id,
                     }
                     if include_sources:
-                        result["citation"] = self._generate_citation(
-                            transcript_results["metadatas"][0][i], "transcript"
-                        )
+                        result["citation"] = self._generate_citation(metadata, source_type)
                     results.append(result)
+
+                # ✅ PHASE 1 FIX: Log validation summary
+                logger.info(
+                    f"✅ RAG chunk validation | collection={collection_name} | "
+                    f"total={total_chunks} | passed={passed_chunks} | "
+                    f"failed_mismatch={failed_chunks} | missing_metadata={missing_meta_chunks} | "
+                    f"cert_id={certification_id}"
+                )
+
+            per_cert_collection = self._find_cert_collection(cert_slug)
+
+            if per_cert_collection:
+                logger.info(
+                    f"📚 Found per-certification collection '{per_cert_collection.name}' for {cert_slug} (cert_id={certification_id})"
+                )
+                if "exam_guide" in content_types:
+                    exam_results = _query_with_fallback(
+                        per_cert_collection,
+                        k // 2 if len(content_types) > 1 else k,
+                        f"{per_cert_collection.name} (exam_guides)",
+                        resource_type="exam_guide"
+                    )
+                    _format_results(per_cert_collection.name, exam_results, "exam_guide")
+
+                if "transcript" in content_types:
+                    transcript_results = _query_with_fallback(
+                        per_cert_collection,
+                        k // 2 if len(content_types) > 1 else k,
+                        f"{per_cert_collection.name} (transcripts)",
+                        resource_type="transcript"
+                    )
+                    _format_results(per_cert_collection.name, transcript_results, "transcript")
+            else:
+                # Fallback to dual-stream collections
+                if "exam_guide" in content_types:
+                    exam_results = _query_with_fallback(
+                        self.exam_guides_collection,
+                        k // 2 if len(content_types) > 1 else k,
+                        "exam_guides"
+                    )
+                    _format_results("exam_guides", exam_results, "exam_guide")
+
+                if "transcript" in content_types:
+                    transcript_results = _query_with_fallback(
+                        self.transcripts_collection,
+                        k // 2 if len(content_types) > 1 else k,
+                        "transcripts"
+                    )
+                    _format_results("transcripts", transcript_results, "transcript")
+
+            # ✅ PHASE 1 FIX: Log final retrieval summary
+            if not results:
+                logger.warning(
+                    f"⚠️ RAG retrieval returned NO chunks after certification filtering | "
+                    f"certification_id={certification_id} | query={query[:100]}... | "
+                    f"content_types={content_types}"
+                )
+            else:
+                # Group results by source for summary
+                exam_guide_count = sum(1 for r in results if r.get("source_type") == "exam_guide")
+                transcript_count = sum(1 for r in results if r.get("source_type") == "transcript")
+                unique_docs = set(r.get("metadata", {}).get("document_name") for r in results)
+
+                logger.info(
+                    f"✅ RAG retrieval complete | certification_id={certification_id} | "
+                    f"total_chunks={len(results)} | exam_guides={exam_guide_count} | "
+                    f"transcripts={transcript_count} | unique_docs={len(unique_docs)} | "
+                    f"docs={list(unique_docs)[:3]}"
+                )
 
             # Sort by relevance (distance) and return top k
-            results.sort(key=lambda x: x["distance"])
-            return results[:k]
+            results.sort(key=lambda x: x["distance"] if x["distance"] is not None else float('inf'))
+            final_results = results[:k]
+
+            logger.info(
+                f"📤 Returning top {len(final_results)} chunks (requested k={k}) | "
+                f"certification_id={certification_id}"
+            )
+
+            return final_results
 
         except Exception as e:
             logger.error(f"❌ Failed to retrieve context: {e}")
@@ -241,14 +518,14 @@ class VectorDatabaseManager:
         try:
             # Delete from exam guides collection
             exam_results = self.exam_guides_collection.get(
-                where={"certification_id": certification_id}
+                where={"cert_id": certification_id}
             )
             if exam_results["ids"]:
                 self.exam_guides_collection.delete(ids=exam_results["ids"])
 
             # Delete from transcripts collection
             transcript_results = self.transcripts_collection.get(
-                where={"certification_id": certification_id}
+                where={"cert_id": certification_id}
             )
             if transcript_results["ids"]:
                 self.transcripts_collection.delete(ids=transcript_results["ids"])
@@ -278,7 +555,7 @@ class VectorDatabaseManager:
                 results = collection.query(
                     query_texts=[content],
                     n_results=5,
-                    where={"certification_id": certification_id}
+                    where={"cert_id": certification_id}
                 )
 
                 for i, doc in enumerate(results["documents"][0]):
