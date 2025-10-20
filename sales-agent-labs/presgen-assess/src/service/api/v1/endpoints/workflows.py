@@ -650,239 +650,161 @@ async def _build_gap_analysis_data(
             detail="Workflow has not reached gap analysis stage"
         )
 
-    domain_performance = [
-        {
-            "domain": "Data Engineering",
-            "score": 65,
-            "question_count": 6,
-            "correct_count": 4,
-            "confidence_score": 78,
-            "overconfidence_ratio": round(78 / 65, 2),
-            "bloom_levels": [
-                {
-                    "level": "remember",
-                    "label": "Remember",
-                    "score": 70,
-                    "question_count": 2,
-                    "correct_count": 1
-                },
-                {
-                    "level": "understand",
-                    "label": "Understand",
-                    "score": 68,
-                    "question_count": 2,
-                    "correct_count": 1
-                },
-                {
-                    "level": "apply",
-                    "label": "Apply",
-                    "score": 60,
-                    "question_count": 2,
-                    "correct_count": 2
-                }
-            ]
-        },
-        {
-            "domain": "Exploratory Data Analysis",
-            "score": 72,
-            "question_count": 6,
-            "correct_count": 4,
-            "confidence_score": 71,
-            "overconfidence_ratio": round(71 / 72, 2),
-            "bloom_levels": [
-                {
-                    "level": "remember",
-                    "label": "Remember",
-                    "score": 80,
-                    "question_count": 2,
-                    "correct_count": 2
-                },
-                {
-                    "level": "analyze",
-                    "label": "Analyze",
-                    "score": 70,
-                    "question_count": 2,
-                    "correct_count": 1
-                },
-                {
-                    "level": "evaluate",
-                    "label": "Evaluate",
-                    "score": 65,
-                    "question_count": 2,
-                    "correct_count": 1
-                }
-            ]
-        },
-        {
-            "domain": "Modeling",
-            "score": 58,
-            "question_count": 6,
-            "correct_count": 3,
-            "confidence_score": 82,
-            "overconfidence_ratio": round(82 / 58, 2),
-            "bloom_levels": [
-                {
-                    "level": "understand",
-                    "label": "Understand",
-                    "score": 62,
-                    "question_count": 2,
-                    "correct_count": 1
-                },
-                {
-                    "level": "apply",
-                    "label": "Apply",
-                    "score": 55,
-                    "question_count": 2,
-                    "correct_count": 1
-                },
-                {
-                    "level": "create",
-                    "label": "Create",
-                    "score": 50,
-                    "question_count": 2,
-                    "correct_count": 1
-                }
-            ]
-        },
-        {
-            "domain": "Machine Learning Implementation and Operations",
-            "score": 68,
-            "question_count": 6,
-            "correct_count": 4,
-            "confidence_score": 69,
-            "overconfidence_ratio": round(69 / 68, 2),
-            "bloom_levels": [
-                {
-                    "level": "remember",
-                    "label": "Remember",
-                    "score": 75,
-                    "question_count": 2,
-                    "correct_count": 2
-                },
-                {
-                    "level": "apply",
-                    "label": "Apply",
-                    "score": 68,
-                    "question_count": 2,
-                    "correct_count": 1
-                },
-                {
-                    "level": "analyze",
-                    "label": "Analyze",
-                    "score": 60,
-                    "question_count": 2,
-                    "correct_count": 1
-                }
-            ]
-        }
-    ]
+    gap_stmt = (
+        select(GapAnalysisResult)
+        .where(GapAnalysisResult.workflow_id == workflow_id)
+        .order_by(GapAnalysisResult.created_at.desc())
+        .limit(1)
+    )
+    gap_result = await db.execute(gap_stmt)
+    gap_analysis = gap_result.scalar_one_or_none()
 
-    learning_gaps = [
-        {
-            "domain": "Modeling",
-            "gap_severity": "critical",
-            "confidence_gap": 24,
-            "skill_gap": 22,
-            "recommended_study_hours": 12,
-            "priority_topics": [
-                "Model Selection",
-                "Hyperparameter Tuning",
-                "Model Evaluation"
-            ],
-            "remediation_resources": [
-                {
-                    "title": "AWS ML Model Selection Guide",
-                    "type": "documentation",
-                    "url": "https://docs.aws.amazon.com/machine-learning/",
-                    "estimated_time_minutes": 90
-                }
-            ]
-        },
-        {
-            "domain": "Data Engineering",
-            "gap_severity": "high",
-            "confidence_gap": -13,
-            "skill_gap": 15,
-            "recommended_study_hours": 8,
-            "priority_topics": [
-                "Data Pipeline Architecture",
-                "ETL Processes"
-            ],
-            "remediation_resources": [
-                {
-                    "title": "AWS Data Engineering Best Practices",
-                    "type": "article",
-                    "url": "https://aws.amazon.com/data-engineering/",
-                    "estimated_time_minutes": 60
-                }
-            ]
-        }
-    ]
+    if not gap_analysis:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Gap analysis results not available for this workflow"
+        )
 
-    bloom_taxonomy_breakdown = [
-        {
-            "level": "remember",
-            "label": "Remember",
-            "score": 85,
-            "question_count": 6,
-            "correct_count": 5
-        },
-        {
-            "level": "understand",
-            "label": "Understand",
-            "score": 78,
-            "question_count": 6,
-            "correct_count": 4
-        },
-        {
-            "level": "apply",
-            "label": "Apply",
-            "score": 65,
-            "question_count": 6,
-            "correct_count": 4
-        },
-        {
-            "level": "analyze",
-            "label": "Analyze",
-            "score": 55,
-            "question_count": 4,
-            "correct_count": 2
-        },
-        {
-            "level": "evaluate",
-            "label": "Evaluate",
-            "score": 45,
-            "question_count": 2,
-            "correct_count": 1
-        },
-        {
-            "level": "create",
-            "label": "Create",
-            "score": 35,
-            "question_count": 2,
-            "correct_count": 1
-        }
-    ]
+    performance_by_domain = _ensure_dict(gap_analysis.performance_by_domain)
+    charts_data = _ensure_dict(gap_analysis.charts_data)
+    confidence_analysis = _ensure_dict(charts_data.get("confidence_analysis"))
+
+    assessment_data = workflow.assessment_data if isinstance(workflow.assessment_data, dict) else {}
+    questions: List[Dict[str, Any]] = assessment_data.get("questions", []) if isinstance(assessment_data, dict) else []
+
+    domain_question_map: Dict[str, Dict[str, int]] = {}
+    for question in questions:
+        domain = question.get("domain", "General")
+        domain_entry = domain_question_map.setdefault(domain, {"question_count": 0})
+        domain_entry["question_count"] += 1
+
+    overall_confidence = None
+    overconfidence_indicator = False
+    confidence_ratio: Optional[float] = None
+    if confidence_analysis:
+        avg_confidence = confidence_analysis.get("average_confidence")
+        if isinstance(avg_confidence, (int, float)):
+            overall_confidence = round(avg_confidence * 20, 2)  # convert 0-5 scale to percentage
+        confidence_ratio = confidence_analysis.get("confidence_accuracy_ratio")
+        if isinstance(confidence_ratio, (int, float)):
+            overconfidence_indicator = confidence_ratio > 1.1
+
+    domain_performance: List[Dict[str, Any]] = []
+    for domain, score in performance_by_domain.items():
+        question_count = domain_question_map.get(domain, {}).get("question_count", 0)
+        correct_count = int(round((score / 100.0) * question_count)) if question_count else None
+
+        domain_performance.append({
+            "domain": domain,
+            "score": round(score, 2) if isinstance(score, (int, float)) else score,
+            "question_count": question_count,
+            "correct_count": correct_count,
+            "confidence_score": overall_confidence,
+            "overconfidence_ratio": round(confidence_ratio, 2) if isinstance(confidence_ratio, (int, float)) else None,
+            "bloom_levels": []
+        })
+
+    bloom_analysis = _ensure_dict(charts_data.get("bloom_taxonomy_analysis"))
+    bloom_scores = _ensure_dict(bloom_analysis.get("bloom_level_scores"))
+    bloom_gap_lookup = {
+        gap.get("bloom_level"): gap for gap in bloom_analysis.get("cognitive_gaps", []) if isinstance(gap, dict)
+    }
+    bloom_taxonomy_breakdown: List[Dict[str, Any]] = []
+    for level, score in bloom_scores.items():
+        gap_info = bloom_gap_lookup.get(level, {})
+        question_count = gap_info.get("question_count", 0)
+        correct_count = int(round(score * question_count)) if question_count else None
+        bloom_taxonomy_breakdown.append({
+            "level": level,
+            "label": level.replace("_", " ").title(),
+            "score": round(score * 100, 1) if isinstance(score, (int, float)) else score,
+            "question_count": question_count,
+            "correct_count": correct_count
+        })
+
+    skill_gaps: List[Dict[str, Any]] = gap_analysis.skill_gaps or []
+
+    def _severity_label(severity_score: int) -> str:
+        if severity_score >= 8:
+            return "critical"
+        if severity_score >= 6:
+            return "high"
+        if severity_score >= 4:
+            return "moderate"
+        if severity_score >= 2:
+            return "low"
+        return "minimal"
+
+    aggregated_gaps: Dict[str, Dict[str, Any]] = {}
+    for gap in skill_gaps:
+        if not isinstance(gap, dict):
+            continue
+        domain = gap.get("exam_domain") or gap.get("skill_name") or "General"
+        severity_score = gap.get("severity", 0)
+        confidence_delta = gap.get("confidence_delta", 0.0)
+        skill_name = gap.get("skill_name", "Skill Gap")
+
+        entry = aggregated_gaps.setdefault(
+            domain,
+            {
+                "domain": domain,
+                "severity_score": 0,
+                "confidence_gap": 0.0,
+                "skill_gap": 0,
+                "recommended_study_hours": 0,
+                "priority_topics": set(),
+                "remediation_resources": []
+            }
+        )
+        entry["severity_score"] = max(entry["severity_score"], severity_score)
+        entry["confidence_gap"] = max(entry["confidence_gap"], abs(confidence_delta))
+        entry["skill_gap"] = max(entry["skill_gap"], int(round(severity_score * 10)))
+        entry["recommended_study_hours"] += max(2, severity_score) if severity_score else 1
+        if skill_name:
+            entry["priority_topics"].add(skill_name)
+
+    learning_gaps: List[Dict[str, Any]] = []
+    for domain, details in aggregated_gaps.items():
+        learning_gaps.append({
+            "domain": domain,
+            "gap_severity": _severity_label(details["severity_score"]),
+            "confidence_gap": int(round(details["confidence_gap"] * 100)),
+            "skill_gap": details["skill_gap"],
+            "recommended_study_hours": details["recommended_study_hours"],
+            "priority_topics": sorted(details["priority_topics"]),
+            "remediation_resources": details["remediation_resources"]
+        })
+
+    learning_gaps.sort(key=lambda item: item["recommended_study_hours"], reverse=True)
+
+    priority_domains = [gap["domain"] for gap in learning_gaps[:3]]
+    study_sequence = []
+    for gap in learning_gaps:
+        if gap["priority_topics"]:
+            study_sequence.append(f"{gap['domain']}: " + ", ".join(gap["priority_topics"]))
+        else:
+            study_sequence.append(gap["domain"])
+
+    recommended_study_plan = {
+        "total_estimated_hours": sum(gap["recommended_study_hours"] for gap in learning_gaps),
+        "priority_domains": priority_domains,
+        "study_sequence": study_sequence[:10]
+    }
 
     return {
         "workflow_id": str(workflow_id),
-        "overall_score": 66,
-        "overall_confidence": 75,
-        "overconfidence_indicator": True,
+        "overall_score": gap_analysis.overall_score,
+        "overall_confidence": overall_confidence,
+        "overconfidence_indicator": overconfidence_indicator,
         "domain_performance": domain_performance,
         "learning_gaps": learning_gaps,
         "bloom_taxonomy_breakdown": bloom_taxonomy_breakdown,
-        "recommended_study_plan": {
-            "total_estimated_hours": 24,
-            "priority_domains": ["Modeling", "Data Engineering"],
-            "study_sequence": [
-                "Model Selection and Evaluation",
-                "Feature Engineering",
-                "Data Pipeline Architecture",
-                "ML Model Deployment"
-            ]
-        },
-        "generated_at": workflow.updated_at.isoformat() if workflow.updated_at else datetime.utcnow().isoformat()
+        "recommended_study_plan": recommended_study_plan,
+        "text_summary": gap_analysis.text_summary,
+        "total_questions": gap_analysis.total_questions,
+        "correct_answers": gap_analysis.correct_answers,
+        "incorrect_answers": gap_analysis.incorrect_answers,
+        "generated_at": gap_analysis.created_at.isoformat() if gap_analysis.created_at else datetime.utcnow().isoformat()
     }
 
 

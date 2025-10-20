@@ -40,6 +40,61 @@ class LLMService:
         except Exception as exc:  # pragma: no cover
             logger.info(json.dumps({"event": event, "log_error": str(exc)}))
 
+    async def generate_text(
+        self,
+        *,
+        prompt: str,
+        max_tokens: int = 600,
+        temperature: float = 0.7,
+        system_prompt: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Generate free-form text using the configured OpenAI model."""
+        messages: List[Dict[str, str]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        response = await self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
+        choice = response.choices[0] if response.choices else None
+        content = (choice.message.content if choice and choice.message else "") or ""
+        content = content.strip()
+
+        usage = getattr(response, "usage", None)
+        if usage:
+            self.token_usage["total_tokens"] += usage.total_tokens
+            self.token_usage["total_cost"] += self._calculate_cost(usage.total_tokens)
+
+            self._log_llm_event(
+                "text_generation_complete",
+                {
+                    "model": self.model,
+                    "prompt_tokens": getattr(usage, "prompt_tokens", None),
+                    "completion_tokens": getattr(usage, "completion_tokens", None),
+                    "total_tokens": usage.total_tokens,
+                    "metadata": metadata or {},
+                    "preview": content[:200]
+                }
+            )
+        else:
+            self._log_llm_event(
+                "text_generation_complete",
+                {
+                    "model": self.model,
+                    "metadata": metadata or {},
+                    "preview": content[:200],
+                    "total_tokens": None
+                }
+            )
+
+        return content
+
     async def generate_assessment_questions(
         self,
         certification_id: str,

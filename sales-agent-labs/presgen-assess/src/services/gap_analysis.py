@@ -20,6 +20,12 @@ class GapAnalysisEngine:
         self.knowledge_base = RAGKnowledgeBase()
         self.llm_service = LLMService()
 
+    @staticmethod
+    def _safe_mean(values: List[float], default: float = 0.0) -> float:
+        """Return mean of numeric values or default when empty."""
+        numeric_values = [value for value in values if isinstance(value, (int, float))]
+        return statistics.mean(numeric_values) if numeric_values else default
+
     async def analyze_assessment_results(
         self,
         assessment_results: Dict,
@@ -90,6 +96,7 @@ class GapAnalysisEngine:
                 "identified_gaps": domain_gaps,
                 "skill_assessments": skill_assessments,
                 "enhanced_skill_gap_analysis": skill_gap_analysis,  # NEW: 5-metric analysis
+                "domain_scores": domain_scores,
                 "remediation_plan": remediation_plan,
                 "priority_learning_areas": self._extract_priority_areas(domain_gaps),
                 "estimated_preparation_time_hours": self._estimate_preparation_time(
@@ -893,7 +900,10 @@ class GapAnalysisEngine:
                 "appropriate_time_allocation": 0.5 <= time_ratio <= 2.0
             })
 
-        avg_self_assessment_gap = statistics.mean([item["accuracy_gap"] for item in self_assessment_accuracy])
+        avg_self_assessment_gap = self._safe_mean(
+            [item["accuracy_gap"] for item in self_assessment_accuracy],
+            default=0.0
+        )
         uncertainty_recognition_rate = len([item for item in uncertainty_recognition if item["appropriately_uncertain"]]) / max(len(uncertainty_recognition), 1)
         appropriate_time_allocation_rate = len([item for item in strategy_adaptation if item["appropriate_time_allocation"]]) / len(strategy_adaptation)
 
@@ -1092,8 +1102,8 @@ class GapAnalysisEngine:
         higher_order = ["analyze", "evaluate", "create"]
         lower_order = ["remember", "understand", "apply"]
 
-        higher_avg = statistics.mean([bloom_scores.get(level, 0) for level in higher_order if level in bloom_scores])
-        lower_avg = statistics.mean([bloom_scores.get(level, 0) for level in lower_order if level in bloom_scores])
+        higher_avg = self._safe_mean([bloom_scores.get(level, 0) for level in higher_order])
+        lower_avg = self._safe_mean([bloom_scores.get(level, 0) for level in lower_order])
 
         if higher_avg > 0.8:
             return "deep_understanding"
@@ -1109,8 +1119,8 @@ class GapAnalysisEngine:
         knowledge_levels = ["remember", "understand"]
         application_levels = ["apply", "analyze", "evaluate", "create"]
 
-        knowledge_avg = statistics.mean([bloom_scores.get(level, 0) for level in knowledge_levels if level in bloom_scores])
-        application_avg = statistics.mean([bloom_scores.get(level, 0) for level in application_levels if level in bloom_scores])
+        knowledge_avg = self._safe_mean([bloom_scores.get(level, 0) for level in knowledge_levels])
+        application_avg = self._safe_mean([bloom_scores.get(level, 0) for level in application_levels])
 
         return round(application_avg / max(knowledge_avg, 0.1), 3)
 
@@ -1176,9 +1186,9 @@ class GapAnalysisEngine:
             if is_correct:
                 domain_consistency[domain]["correct"] += 1
 
-        avg_consistency = statistics.mean([
+        avg_consistency = self._safe_mean([
             data["correct"] / data["total"] for data in domain_consistency.values() if data["total"] > 0
-        ]) if domain_consistency else 0
+        ], default=0.0)
 
         return {
             "domain_consistency": {domain: round(data["correct"] / data["total"], 3) for domain, data in domain_consistency.items() if data["total"] > 0},

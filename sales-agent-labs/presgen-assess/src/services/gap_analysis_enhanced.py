@@ -483,7 +483,9 @@ Your strongest areas are:
         performance_by_domain: Dict[str, float]
     ) -> Dict[str, Any]:
         """Prepare data for dashboard charts."""
-        return {
+        enhanced_metrics = gap_analysis.get("enhanced_skill_gap_analysis", {}) or {}
+
+        charts = {
             "bar_chart": {
                 "type": "bar",
                 "data": performance_by_domain,
@@ -498,8 +500,17 @@ Your strongest areas are:
                 "type": "scatter",
                 "data": [],  # Will be populated from responses
                 "title": "Confidence vs Performance"
-            }
+            },
+            "confidence_analysis": gap_analysis.get("confidence_analysis", {}),
+            "bloom_taxonomy_analysis": enhanced_metrics.get("bloom_taxonomy_analysis", {}),
+            "learning_style_indicators": enhanced_metrics.get("learning_style_indicators", {}),
+            "metacognitive_awareness": enhanced_metrics.get("metacognitive_awareness", {}),
+            "transfer_learning_assessment": enhanced_metrics.get("transfer_learning_assessment", {}),
+            "certification_specific_insights": enhanced_metrics.get("certification_specific_insights", {}),
+            "overall_skill_profile": enhanced_metrics.get("overall_skill_profile", {}),
+            "priority_learning_areas": gap_analysis.get("priority_learning_areas", [])
         }
+        return charts
 
     def _generate_placeholder_content_items(
         self,
