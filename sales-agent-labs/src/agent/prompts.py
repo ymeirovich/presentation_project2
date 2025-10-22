@@ -45,6 +45,19 @@ Rules:
 {JSON_SCHEMA_HINT}
 """.strip()
 
+
+def get_default_multi_slide_prompt(*, max_sections: int = 10, max_script_chars: int = 700) -> str:
+    """Return the formatted multi-slide prompt used by PresGen Core/Data."""
+    return MULTI_SLIDE_SYSTEM_PROMPT.format(
+        max_sections=max_sections,
+        max_script_chars=max_script_chars,
+    )
+
+
+def get_default_single_slide_prompt() -> str:
+    """Return the single-slide system prompt."""
+    return SYSTEM_PROMPT
+
 # Reuse you Day 6 JSON schema hint (no extra keys)
 SALES_SLIDE_JSON_HINT = """Return ONLY valid JSON with this exact shape:
 {

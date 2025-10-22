@@ -38,6 +38,7 @@ export async function POST(request: NextRequest) {
       has_headers: data.has_headers,
       questions: data.questions,
       report_text: data.report_text || '', // Use report_text or empty string
+      report_prompt: data.report_prompt?.trim() || undefined,
       presentation_title: data.presentation_title,
       slides: data.slide_count,
       chart_style: data.chart_style,

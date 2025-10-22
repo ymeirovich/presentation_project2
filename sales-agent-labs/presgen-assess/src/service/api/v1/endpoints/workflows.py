@@ -692,15 +692,15 @@ async def _build_gap_analysis_data(
     domain_performance: List[Dict[str, Any]] = []
     for domain, score in performance_by_domain.items():
         question_count = domain_question_map.get(domain, {}).get("question_count", 0)
-        correct_count = int(round((score / 100.0) * question_count)) if question_count else None
+        correct_count = int(round((score / 100.0) * question_count)) if question_count else 0
 
         domain_performance.append({
             "domain": domain,
             "score": round(score, 2) if isinstance(score, (int, float)) else score,
             "question_count": question_count,
             "correct_count": correct_count,
-            "confidence_score": overall_confidence,
-            "overconfidence_ratio": round(confidence_ratio, 2) if isinstance(confidence_ratio, (int, float)) else None,
+            "confidence_score": overall_confidence if isinstance(overall_confidence, (int, float)) else 0,
+            "overconfidence_ratio": round(confidence_ratio, 2) if isinstance(confidence_ratio, (int, float)) else 1,
             "bloom_levels": []
         })
 
@@ -729,11 +729,9 @@ async def _build_gap_analysis_data(
             return "critical"
         if severity_score >= 6:
             return "high"
-        if severity_score >= 4:
-            return "moderate"
-        if severity_score >= 2:
-            return "low"
-        return "minimal"
+        if severity_score >= 3:
+            return "medium"
+        return "low"
 
     aggregated_gaps: Dict[str, Dict[str, Any]] = {}
     for gap in skill_gaps:
@@ -786,7 +784,7 @@ async def _build_gap_analysis_data(
             study_sequence.append(gap["domain"])
 
     recommended_study_plan = {
-        "total_estimated_hours": sum(gap["recommended_study_hours"] for gap in learning_gaps),
+        "total_estimated_hours": float(sum(gap["recommended_study_hours"] for gap in learning_gaps)),
         "priority_domains": priority_domains,
         "study_sequence": study_sequence[:10]
     }
@@ -794,7 +792,7 @@ async def _build_gap_analysis_data(
     return {
         "workflow_id": str(workflow_id),
         "overall_score": gap_analysis.overall_score,
-        "overall_confidence": overall_confidence,
+        "overall_confidence": overall_confidence if isinstance(overall_confidence, (int, float)) else 0,
         "overconfidence_indicator": overconfidence_indicator,
         "domain_performance": domain_performance,
         "learning_gaps": learning_gaps,

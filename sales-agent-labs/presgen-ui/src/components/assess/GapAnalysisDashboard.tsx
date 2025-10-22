@@ -1029,7 +1029,7 @@ export function GapAnalysisDashboard({
               )
             })
           )}
-        </TabsContent>
+      </TabsContent>
 
         <TabsContent value="assets">
           <RemediationAssetsTable
@@ -1038,6 +1038,24 @@ export function GapAnalysisDashboard({
           />
         </TabsContent>
       </Tabs>
+
+      {/* Summary Explanation */}
+      <Card className="mt-6">
+        <CardHeader>
+          <CardTitle className="text-base">Summary Explanation</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {gapAnalysis.text_summary && gapAnalysis.text_summary.trim().length > 0 ? (
+            <p className="text-sm leading-relaxed whitespace-pre-line text-muted-foreground">
+              {gapAnalysis.text_summary}
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              A narrative summary will appear here once the analysis finishes generating.
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Study Plan Summary */}
       <Card className="mt-6">

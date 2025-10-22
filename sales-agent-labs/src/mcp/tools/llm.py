@@ -14,7 +14,7 @@ from googleapiclient.errors import HttpError
 from ..schemas import SummarizeParams, SummarizeResult
 from src.common.config import cfg
 from src.common.jsonlog import jlog
-from src.agent.prompts import MULTI_SLIDE_SYSTEM_PROMPT
+from src.agent.prompts import get_default_multi_slide_prompt
 from .imagen import _load_vertex_credentials
 
 log = logging.getLogger("mcp.tools.llm")
@@ -49,8 +49,13 @@ def _call_gemini_once(p: SummarizeParams) -> Dict[str, Any]:
 
     model = GenerativeModel(model_name)
 
-    system_prompt = MULTI_SLIDE_SYSTEM_PROMPT.format(
-        max_sections=p.max_sections, max_script_chars=p.max_script_chars
+    system_prompt = (
+        p.custom_prompt
+        if p.custom_prompt
+        else get_default_multi_slide_prompt(
+            max_sections=p.max_sections or 10,
+            max_script_chars=p.max_script_chars,
+        )
     )
 
     prompt = f"Research:\n{p.report_text}\n"
@@ -71,6 +76,7 @@ def _call_gemini_once(p: SummarizeParams) -> Dict[str, Any]:
         report_preview=p.report_text[:200],
         max_sections=p.max_sections,
         max_script_chars=p.max_script_chars,
+        custom_prompt_used=bool(p.custom_prompt),
     )
 
     resp = model.generate_content(

@@ -67,6 +67,7 @@ def orchestrate(
     llm_model: str = "models/gemini-2.0-flash-001",
     imagen_model: str = "imagegeneration@006",
     imagen_size: str = "1280x720",
+    llm_prompt: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Flow:
@@ -98,8 +99,9 @@ def orchestrate(
     max_sections_hint = max(1, min(10, slide_count))
 
     # include the hint in the cache key so different requested sizes don’t collide
+    prompt_signature = hashlib.sha256((llm_prompt or "").encode("utf-8")).hexdigest()[:12]
     llm_cache_key = (
-        llm_key(report_text, 5, 700, llm_model) + f":msec={max_sections_hint}"
+        llm_key(report_text, 5, 700, llm_model) + f":msec={max_sections_hint}:prompt={prompt_signature}"
     )
     # still in orchestrate()
     jlog(
@@ -110,6 +112,8 @@ def orchestrate(
         max_bullets=5,
         max_script_chars=700,
         req_id=req_id,
+        custom_prompt_used=bool(llm_prompt),
+        prompt_signature=prompt_signature,
     )
 
     def _call_llm() -> Dict[str, Any]:
@@ -122,6 +126,7 @@ def orchestrate(
                     "max_script_chars": 700,
                     # ✅ correct: “no more than N”, tool may return fewer
                     "max_sections": max_sections_hint,
+                    "custom_prompt": llm_prompt,
                 },
                 req_id=req_id,
             )
@@ -611,6 +616,7 @@ def orchestrate_mixed(
     sheet: str | None = None,
     client_request_id: str | None = None,
     use_cache: bool = PRESGEN_USE_CACHE,
+    llm_prompt: str | None = None,
 ) -> dict:
     # Log orchestrator function entry with cache setting
     jlog(
@@ -660,6 +666,7 @@ def orchestrate_mixed(
                 client_request_id=client_request_id,
                 slide_count=narrative_slides,
                 use_cache=use_cache,
+                llm_prompt=llm_prompt,
             )
             pres_id = pres_id or base.get("presentation_id")
             deck_url = deck_url or base.get("url")

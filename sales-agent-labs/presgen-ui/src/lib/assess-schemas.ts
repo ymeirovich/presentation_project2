@@ -222,6 +222,7 @@ export const GapAnalysisResultSchema = z.object({
     priority_domains: z.array(z.string()),
     study_sequence: z.array(z.string()),
   }),
+  text_summary: z.string().optional(),
   generated_at: z.string(),
 })
 

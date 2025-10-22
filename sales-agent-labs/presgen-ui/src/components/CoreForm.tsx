@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -19,6 +19,7 @@ import { createPresentation, ApiError } from "@/lib/api"
 import { ACCEPTED_REPORT_FILES, TEMPLATE_STYLES } from "@/lib/types"
 import { toast } from "sonner"
 import { FileText, Loader2 } from "lucide-react"
+import { useReportPrompt } from "@/hooks/useReportPrompt"
 
 interface CoreFormProps {
   className?: string
@@ -28,6 +29,8 @@ export function CoreForm({ className }: CoreFormProps) {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [serverResponse, setServerResponse] = useState<ServerResponse | null>(null)
+  const { prompt: defaultPrompt } = useReportPrompt()
+  const [reportPrompt, setReportPrompt] = useState<string>("")
 
   const form = useForm<CoreFormData>({
     resolver: zodResolver(CoreFormSchema),
@@ -44,6 +47,10 @@ export function CoreForm({ className }: CoreFormProps) {
   const { register, handleSubmit, formState: { errors }, watch, setValue, reset } = form
   const watchedValues = watch()
 
+  useEffect(() => {
+    setReportPrompt(defaultPrompt || "")
+  }, [defaultPrompt])
+
   const onFileSelect = (file: File) => {
     setUploadedFile(file)
     // Clear any existing server response when new file is selected
@@ -58,6 +65,7 @@ export function CoreForm({ className }: CoreFormProps) {
     reset()
     setUploadedFile(null)
     setServerResponse(null)
+    setReportPrompt(defaultPrompt || "")
   }
 
   const onSubmit = async (data: CoreFormData) => {
@@ -91,6 +99,7 @@ export function CoreForm({ className }: CoreFormProps) {
         include_images: data.include_images,
         speaker_notes: data.speaker_notes,
         template_style: data.template_style,
+        report_prompt: reportPrompt.trim() || undefined,
       }
 
       const response = await createPresentation(requestData, uploadedFile || undefined)
@@ -179,6 +188,17 @@ export function CoreForm({ className }: CoreFormProps) {
                   selectedFile={uploadedFile || undefined}
                   disabled={isSubmitting}
                   placeholder="Upload PDF, DOCX, or TXT file (file content takes priority)"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="report_prompt">Report Prompt</Label>
+                <Textarea
+                  id="report_prompt"
+                  value={reportPrompt}
+                  onChange={(event) => setReportPrompt(event.target.value)}
+                  placeholder="Customize the instructions sent to the presentation generator"
+                  className="min-h-32"
                 />
               </div>
 

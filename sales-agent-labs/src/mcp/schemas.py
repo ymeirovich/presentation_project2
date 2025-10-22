@@ -23,6 +23,7 @@ class SummarizeParams(BaseModel):
     max_bullets: int = Field(default=5, ge=3, le=8)
     max_script_chars: int = Field(default=700, ge=200, le=900)
     max_sections: int | None = None
+    custom_prompt: Optional[constr(strip_whitespace=True, min_length=20, max_length=10_000)] = None
 
 
 class Slide(BaseModel):

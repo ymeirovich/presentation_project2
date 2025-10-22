@@ -31,6 +31,7 @@ import re, json, time
 import subprocess
 from starlette.status import HTTP_206_PARTIAL_CONTENT
 from src.mcp_lab.orchestrator import orchestrate, orchestrate_mixed
+from src.agent.prompts import get_default_multi_slide_prompt
 from src.common.jsonlog import jlog
 from dotenv import load_dotenv
 from src.data.ingest import ingest_file
@@ -268,12 +269,23 @@ class RenderRequest(BaseModel):
     slides: int = 1
     use_cache: bool = PRESGEN_USE_CACHE
     channel_id: Optional[str] = None  # not used by /render, but kept for compatibility
+    report_prompt: Optional[str] = None
 
 
 # ---------- Routes ----------
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
+
+
+@app.get("/prompts/report")
+async def get_report_prompt():
+    prompt = get_default_multi_slide_prompt()
+    return {
+        "prompt": prompt,
+        "version": "2025.10",
+        "length": len(prompt),
+    }
 
 
 @app.post("/render")
@@ -317,6 +329,7 @@ async def render(req: RenderRequest):
             client_request_id=req.request_id,
             use_cache=req.use_cache,
             slide_count=req.slides,
+            llm_prompt=req.report_prompt or None,
         )
         
         orchestrate_time = time.time()
@@ -521,6 +534,7 @@ class DataAsk(BaseModel):
     report_text: str = "Data insights"
     slides: int = 1
     use_cache: bool = PRESGEN_USE_CACHE
+    report_prompt: Optional[str] = None
 
 
 # Video Processing Models
@@ -2254,6 +2268,7 @@ async def data_ask(req: DataAsk):
             data_questions=req.questions,
             sheet=req.sheet,
             use_cache=req.use_cache,
+            llm_prompt=req.report_prompt or None,
         )
         
         # Validate response

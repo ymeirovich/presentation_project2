@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -18,6 +18,7 @@ import { uploadDataFile, uploadReport, generateDataWithContext, ApiError } from 
 import { ACCEPTED_DATA_FILES, ACCEPTED_TEXT_FILES, CHART_STYLES, TEMPLATE_STYLES, UploadedDataset } from "@/lib/types"
 import { toast } from "sonner"
 import { BarChart3, Loader2, FileText, Eye, EyeOff } from "lucide-react"
+import { useReportPrompt } from "@/hooks/useReportPrompt"
 
 interface DataFormProps {
   className?: string
@@ -31,6 +32,8 @@ export function DataForm({ className }: DataFormProps) {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [serverResponse, setServerResponse] = useState<ServerResponse | null>(null)
   const [showMarkdownPreview, setShowMarkdownPreview] = useState(false)
+  const { prompt: defaultPrompt } = useReportPrompt()
+  const [reportPrompt, setReportPrompt] = useState<string>("")
 
   const form = useForm<DataFormData>({
     resolver: zodResolver(DataFormSchema),
@@ -51,6 +54,10 @@ export function DataForm({ className }: DataFormProps) {
 
   const { register, handleSubmit, formState: { errors }, watch, setValue, reset } = form
   const watchedValues = watch()
+
+  useEffect(() => {
+    setReportPrompt(defaultPrompt || "")
+  }, [defaultPrompt])
 
   const onDataFileSelect = async (file: File) => {
     setIsUploading(true)
@@ -157,6 +164,7 @@ export function DataForm({ className }: DataFormProps) {
     setUploadedReport(null)
     setValue("report_text", "")
     setServerResponse(null)
+    setReportPrompt(defaultPrompt || "")
   }
 
   // Helper to parse questions from multiline textarea
@@ -218,6 +226,7 @@ export function DataForm({ className }: DataFormProps) {
         include_images: data.include_images,
         speaker_notes: data.speaker_notes,
         template_style: data.template_style,
+        report_prompt: reportPrompt.trim() || undefined,
       }
 
       const response = await generateDataWithContext(requestData)
@@ -359,6 +368,17 @@ export function DataForm({ className }: DataFormProps) {
                       Processing report file...
                     </div>
                   )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="report_prompt">Report Prompt</Label>
+                  <Textarea
+                    id="report_prompt"
+                    value={reportPrompt}
+                    onChange={(event) => setReportPrompt(event.target.value)}
+                    placeholder="Customize the instructions sent to the LLM (optional)"
+                    className="min-h-[120px]"
+                  />
                 </div>
 
                 {uploadedReport && (
