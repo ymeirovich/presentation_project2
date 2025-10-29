@@ -117,7 +117,7 @@ export async function GET(
 
     // Transform exam_domains back to form format (merge subdomains and skills_measured into topics)
     if (data.exam_domains) {
-      transformedData.exam_domains = data.exam_domains.map(domain => ({
+      transformedData.exam_domains = data.exam_domains.map((domain: any) => ({
         name: domain.name,
         weight_percentage: domain.weight_percentage,
         topics: [...(domain.subdomains || []), ...(domain.skills_measured || [])]

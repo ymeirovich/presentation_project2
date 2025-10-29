@@ -43,16 +43,25 @@ export async function GET(request: NextRequest) {
     }
 
     // Backend failed - return error (no mock storage fallback)
-    const errorText = await backendResponse.text();
-    console.error(`❌ Backend get files failed (${backendResponse.status}):`, errorText);
+    if (backendResponse) {
+      const errorText = await backendResponse.text();
+      console.error(`❌ Backend get files failed (${backendResponse.status}):`, errorText);
+      return NextResponse.json({
+        files: [],
+        total: 0,
+        profileId: profileId,
+        message: 'Failed to retrieve files from backend',
+        error: errorText
+      }, { status: backendResponse.status });
+    }
 
+    // Backend not available at all
     return NextResponse.json({
       files: [],
       total: 0,
       profileId: profileId,
-      message: 'Failed to retrieve files from backend',
-      error: errorText
-    }, { status: backendResponse.status });
+      message: 'Backend not available'
+    }, { status: 503 });
 
   } catch (error) {
     console.error('Get files error:', error);

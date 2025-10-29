@@ -101,3 +101,12 @@ token.json
 
 # Test files that may contain secrets
 test/
+
+# Secrets and credentials
+secrets/
+*_accessKeys.csv
+*_credentials.csv
+google-creds.json
+*.pem
+*.key
+.env.local

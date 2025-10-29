@@ -1,0 +1,241 @@
+# Docker Compose for PresGen Sales Agent Labs
+# Complete 3-tier stack: Core API + Assess API + Frontend + nginx
+# Usage:
+#   Development: docker-compose up
+#   Production:  docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+version: '3.8'
+
+services:
+  # ===== Reverse Proxy (nginx) =====
+  nginx:
+    image: nginx:alpine
+    container_name: presgen-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/auth/.htpasswd:/etc/nginx/auth/.htpasswd:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      presgen-core:
+        condition: service_healthy
+      presgen-assess:
+        condition: service_healthy
+      presgen-ui:
+        condition: service_healthy
+    mem_limit: 100m
+    mem_reservation: 50m
+    networks:
+      - presgen-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===== PresGen Core (MCP Orchestrator + Main API) =====
+  presgen-core:
+    build:
+      context: .
+      dockerfile: Dockerfile.core
+    container_name: presgen-core
+    restart: unless-stopped
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - DEBUG=${DEBUG:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PORT=8080
+
+      # Google Cloud
+      - GOOGLE_APPLICATION_CREDENTIALS=/secrets/google-creds.json
+      - OAUTH_TOKEN_PATH=/secrets/google-oauth-token.json
+
+      # OpenAI
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+
+      # ElevenLabs
+      - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY:-}
+
+      # Storage
+      - STORAGE_PROVIDER=${STORAGE_PROVIDER:-local}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - S3_BUCKET=${S3_BUCKET:-}
+
+      # Features
+      - PRESGEN_USE_MOCK=${PRESGEN_USE_MOCK:-false}
+      - PRESGEN_CORE_MAX_SLIDES=${PRESGEN_CORE_MAX_SLIDES:-40}
+      - PRESGEN_AVATAR_MAX_SLIDES=${PRESGEN_AVATAR_MAX_SLIDES:-40}
+      - USE_AI_IMAGES=${USE_AI_IMAGES:-true}
+      - GPU_ENABLED=${GPU_ENABLED:-false}
+
+      # Performance
+      - WORKERS=1
+      - THREADS=2
+    volumes:
+      - ./data/core:/app/data
+      - ./output:/app/output
+      - ./logs/core:/app/logs
+      - ./secrets:/secrets:ro
+      - ./config:/app/config:ro
+      - ./models:/app/models
+    mem_limit: 500m
+    mem_reservation: 300m
+    cpus: '1.0'
+    networks:
+      - presgen-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ===== PresGen Assess (Assessment API) =====
+  presgen-assess:
+    build:
+      context: ./presgen-assess
+      dockerfile: Dockerfile
+    container_name: presgen-assess
+    restart: unless-stopped
+    environment:
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      - DEBUG=${DEBUG:-false}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PORT=8000
+
+      # Database
+      - DATABASE_URL=${DATABASE_URL:-sqlite+aiosqlite:////app/data/presgen_assess.db}
+      - REDIS_URL=${REDIS_URL:-redis://redis:6379/0}
+
+      # Service URLs
+      - PRESGEN_CORE_URL=http://presgen-core:8080
+      - PRESGEN_ASSESS_URL=http://presgen-assess:8000
+
+      # Google Cloud
+      - GOOGLE_APPLICATION_CREDENTIALS=/secrets/google-creds.json
+      - OAUTH_TOKEN_PATH=/secrets/google-oauth-token.json
+
+      # OpenAI
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+
+      # Storage
+      - STORAGE_PROVIDER=${STORAGE_PROVIDER:-local}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - S3_BUCKET=${S3_BUCKET:-}
+
+      # Features
+      - PRESGEN_USE_MOCK=${PRESGEN_USE_MOCK:-false}
+
+      # Performance
+      - WORKERS=1
+    volumes:
+      - ./data/assess:/app/data
+      - ./logs/assess:/app/logs
+      - ./uploads:/app/uploads
+      - ./exports:/app/exports
+      - ./secrets:/secrets:ro
+    depends_on:
+      presgen-core:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    mem_limit: 500m
+    mem_reservation: 300m
+    cpus: '1.0'
+    networks:
+      - presgen-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ===== PresGen UI (Next.js Frontend) =====
+  presgen-ui:
+    build:
+      context: ./presgen-ui
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_PRESGEN_ASSESS_URL=/api
+        - NEXT_PUBLIC_PRESGEN_CORE_URL=/core
+    container_name: presgen-ui
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - NODE_OPTIONS=--max-old-space-size=300
+      - PORT=3000
+      - NEXT_PUBLIC_PRESGEN_ASSESS_URL=/api
+      - NEXT_PUBLIC_PRESGEN_CORE_URL=/core
+    depends_on:
+      presgen-assess:
+        condition: service_healthy
+    mem_limit: 400m
+    mem_reservation: 250m
+    cpus: '0.5'
+    networks:
+      - presgen-network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # ===== Redis (Caching & Job Queue) =====
+  redis:
+    image: redis:7-alpine
+    container_name: presgen-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    mem_limit: 300m
+    mem_reservation: 128m
+    networks:
+      - presgen-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ===== PostgreSQL (Optional - for production) =====
+  # Uncomment for production deployment with PostgreSQL
+  # postgres:
+  #   image: postgres:16-alpine
+  #   container_name: presgen-postgres
+  #   restart: unless-stopped
+  #   environment:
+  #     - POSTGRES_DB=presgen_assess
+  #     - POSTGRES_USER=presgen
+  #     - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+  #   mem_limit: 512m
+  #   mem_reservation: 256m
+  #   networks:
+  #     - presgen-network
+  #   healthcheck:
+  #     test: ["CMD", "pg_isready", "-U", "presgen"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+
+# ===== Volumes =====
+volumes:
+  redis-data:
+    driver: local
+  # postgres-data:
+  #   driver: local
+
+# ===== Networks =====
+networks:
+  presgen-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

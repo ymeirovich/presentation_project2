@@ -5,10 +5,10 @@ import { NextRequest, NextResponse } from 'next/server';
  */
 export async function GET(
   request: NextRequest,
-  { params }: { params: { fileId: string } }
+  { params }: { params: Promise<{ fileId: string }> }
 ) {
   try {
-    const { fileId } = params;
+    const { fileId } = await params;
 
     // Proxy the request to the PresGen-Assess backend
     const backendUrl = `${process.env.PRESGEN_ASSESS_URL || 'http://localhost:8000'}/api/v1/presgen-assess/files/${fileId}/status`;
@@ -52,6 +52,7 @@ export async function GET(
     console.error('Get file status error:', error);
 
     // Return mock completed status as fallback
+    const { fileId } = await params;
     return NextResponse.json({
       file_id: fileId,
       status: 'completed',

@@ -4,10 +4,10 @@ const ASSESS_API_URL = process.env.NEXT_PUBLIC_ASSESS_API_URL || 'http://localho
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { workflow_id: string } }
+  { params }: { params: Promise<{ workflow_id: string }> }
 ) {
   try {
-    const { workflow_id } = params
+    const { workflow_id } = await params
     const backendUrl = `${ASSESS_API_URL}/api/v1/gap-analysis-dashboard/workflow/${workflow_id}`
 
     console.log('Proxying GET Gap Analysis for workflow:', workflow_id, 'to:', backendUrl)

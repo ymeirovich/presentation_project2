@@ -64,7 +64,7 @@ export function ServerResponseCard({ response, title = "Server Response" }: Serv
   }
 
   // Filter out common fields for the details view
-  const detailsData = { ...response }
+  const detailsData: any = { ...response }
   delete detailsData.ok
   delete detailsData.message
   delete detailsData.error
