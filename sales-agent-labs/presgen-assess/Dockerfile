@@ -2,7 +2,7 @@
 # Port: 8000
 # Purpose: Assessment workflows, gap analysis, Google Forms integration
 
-FROM python:3.13-slim
+FROM python:3.11-slim
 
 LABEL maintainer="ymeirovich@gmail.com"
 LABEL service="presgen-assess"
@@ -52,9 +52,9 @@ ENV PYTHONUNBUFFERED=1 \
     PRESGEN_CORE_URL=http://presgen-core:8080 \
     WORKERS=1
 
-# Health check
+# Health check updated 2025-10-30
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD curl -f http://localhost:8000/api/v1/health || exit 1
+    CMD curl -f http://localhost:8000/health || exit 1
 
 # Expose port
 EXPOSE 8000

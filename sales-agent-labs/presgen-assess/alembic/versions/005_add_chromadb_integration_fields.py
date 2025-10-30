@@ -19,36 +19,58 @@ depends_on = None
 
 def upgrade() -> None:
     """Add ChromaDB integration and prompt fields to certification_profiles table."""
+    from sqlalchemy import inspect
 
-    # Add new columns to certification_profiles
-    op.add_column('certification_profiles',
-                  sa.Column('bundle_version', sa.String(50), nullable=False, server_default='v1.0'))
+    # Get existing columns to make migration idempotent
+    conn = op.get_bind()
+    inspector = inspect(conn)
 
-    op.add_column('certification_profiles',
-                  sa.Column('collection_name', sa.String(255), nullable=True))
+    # Check if table exists
+    tables = inspector.get_table_names()
+    if 'certification_profiles' not in tables:
+        # Table doesn't exist yet, skip this migration
+        # (will be created by initial schema migration)
+        return
+
+    existing_columns = {col['name'] for col in inspector.get_columns('certification_profiles')}
+
+    # Add new columns to certification_profiles (only if they don't exist)
+    if 'bundle_version' not in existing_columns:
+        op.add_column('certification_profiles',
+                      sa.Column('bundle_version', sa.String(50), nullable=False, server_default='v1.0'))
+
+    if 'collection_name' not in existing_columns:
+        op.add_column('certification_profiles',
+                      sa.Column('collection_name', sa.String(255), nullable=True))
 
     # Custom prompts for different workflow processes
-    op.add_column('certification_profiles',
-                  sa.Column('assessment_prompt', sa.Text, nullable=True))
+    if 'assessment_prompt' not in existing_columns:
+        op.add_column('certification_profiles',
+                      sa.Column('assessment_prompt', sa.Text, nullable=True))
 
-    op.add_column('certification_profiles',
-                  sa.Column('presentation_prompt', sa.Text, nullable=True))
+    if 'presentation_prompt' not in existing_columns:
+        op.add_column('certification_profiles',
+                      sa.Column('presentation_prompt', sa.Text, nullable=True))
 
-    op.add_column('certification_profiles',
-                  sa.Column('gap_analysis_prompt', sa.Text, nullable=True))
+    if 'gap_analysis_prompt' not in existing_columns:
+        op.add_column('certification_profiles',
+                      sa.Column('gap_analysis_prompt', sa.Text, nullable=True))
 
     # File upload tracking
-    op.add_column('certification_profiles',
-                  sa.Column('uploaded_files_metadata', sa.JSON, nullable=False, server_default='[]'))
+    if 'uploaded_files_metadata' not in existing_columns:
+        op.add_column('certification_profiles',
+                      sa.Column('uploaded_files_metadata', sa.JSON, nullable=False, server_default='[]'))
 
-    op.add_column('certification_profiles',
-                  sa.Column('resource_binding_enabled', sa.Boolean, nullable=False, server_default='true'))
+    if 'resource_binding_enabled' not in existing_columns:
+        op.add_column('certification_profiles',
+                      sa.Column('resource_binding_enabled', sa.Boolean, nullable=False, server_default='true'))
 
-    # Update existing records with default prompts
-    connection = op.get_bind()
+    # Update existing records with default prompts (only if gap_analysis_prompt column exists)
+    if 'gap_analysis_prompt' in existing_columns:
+        connection = op.get_bind()
 
-    # Default gap analysis prompt (truncated for migration)
-    default_gap_analysis_prompt = """
+        # Default gap analysis prompt (truncated for migration)
+        default_gap_analysis_prompt = """
 You are an expert educational assessment analyst specializing in multidimensional skill gap analysis for professional certifications.
 
 Analyze assessment results across five key dimensions:
@@ -64,22 +86,41 @@ Context: {certification_name}
 Assessment Data: {assessment_results}
 """
 
-    # Update existing records with default prompt
-    connection.execute(sa.text("""
-        UPDATE certification_profiles
-        SET gap_analysis_prompt = :prompt
-        WHERE gap_analysis_prompt IS NULL
-    """), prompt=default_gap_analysis_prompt)
+        # Update existing records with default prompt
+        connection.execute(sa.text("""
+            UPDATE certification_profiles
+            SET gap_analysis_prompt = :prompt
+            WHERE gap_analysis_prompt IS NULL
+        """), prompt=default_gap_analysis_prompt)
 
 
 def downgrade() -> None:
     """Remove ChromaDB integration fields from certification_profiles table."""
+    from sqlalchemy import inspect
 
-    # Remove added columns in reverse order
-    op.drop_column('certification_profiles', 'resource_binding_enabled')
-    op.drop_column('certification_profiles', 'uploaded_files_metadata')
-    op.drop_column('certification_profiles', 'gap_analysis_prompt')
-    op.drop_column('certification_profiles', 'presentation_prompt')
-    op.drop_column('certification_profiles', 'assessment_prompt')
-    op.drop_column('certification_profiles', 'collection_name')
-    op.drop_column('certification_profiles', 'bundle_version')
+    # Get existing columns to make downgrade idempotent
+    conn = op.get_bind()
+    inspector = inspect(conn)
+
+    # Check if table exists
+    tables = inspector.get_table_names()
+    if 'certification_profiles' not in tables:
+        return
+
+    existing_columns = {col['name'] for col in inspector.get_columns('certification_profiles')}
+
+    # Remove added columns in reverse order (only if they exist)
+    if 'resource_binding_enabled' in existing_columns:
+        op.drop_column('certification_profiles', 'resource_binding_enabled')
+    if 'uploaded_files_metadata' in existing_columns:
+        op.drop_column('certification_profiles', 'uploaded_files_metadata')
+    if 'gap_analysis_prompt' in existing_columns:
+        op.drop_column('certification_profiles', 'gap_analysis_prompt')
+    if 'presentation_prompt' in existing_columns:
+        op.drop_column('certification_profiles', 'presentation_prompt')
+    if 'assessment_prompt' in existing_columns:
+        op.drop_column('certification_profiles', 'assessment_prompt')
+    if 'collection_name' in existing_columns:
+        op.drop_column('certification_profiles', 'collection_name')
+    if 'bundle_version' in existing_columns:
+        op.drop_column('certification_profiles', 'bundle_version')

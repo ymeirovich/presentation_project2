@@ -9,6 +9,7 @@ Sprint 0 Deliverable: Database schema for Gap Analysis persistence.
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+from sqlalchemy import inspect
 
 # revision identifiers, used by Alembic.
 revision = '006_gap_analysis'
@@ -17,14 +18,33 @@ branch_labels = None
 depends_on = None
 
 
+def get_uuid_column():
+    """Return database-appropriate UUID column type."""
+    # For SQLite, use String(36) to store UUID as text
+    # For PostgreSQL, use native UUID type
+    bind = op.get_bind()
+    if bind.dialect.name == 'sqlite':
+        return sa.String(36)
+    else:
+        return postgresql.UUID(as_uuid=True)
+
+
 def upgrade() -> None:
     """Create Gap Analysis tables."""
 
-    # Create gap_analysis_results table
-    op.create_table(
-        'gap_analysis_results',
-        sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column('workflow_id', postgresql.UUID(as_uuid=True), nullable=False),
+    # Check if tables already exist (idempotent)
+    conn = op.get_bind()
+    inspector = inspect(conn)
+    existing_tables = set(inspector.get_table_names())
+
+    uuid_type = get_uuid_column()
+
+    # Create gap_analysis_results table (only if doesn't exist)
+    if 'gap_analysis_results' not in existing_tables:
+        op.create_table(
+            'gap_analysis_results',
+            sa.Column('id', uuid_type, primary_key=True),
+            sa.Column('workflow_id', uuid_type, nullable=False),
 
         # Overall performance metrics
         sa.Column('overall_score', sa.Float(), nullable=False),
@@ -44,10 +64,10 @@ def upgrade() -> None:
         sa.Column('charts_data', sa.JSON()),
 
         # Metadata
-        sa.Column('certification_profile_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('generated_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), onupdate=sa.text('now()')),
+        sa.Column('certification_profile_id', uuid_type, nullable=False),
+        sa.Column('generated_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP')),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP')),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), onupdate=sa.text('CURRENT_TIMESTAMP')),
 
         # Foreign keys
         sa.ForeignKeyConstraint(['workflow_id'], ['workflow_executions.id'], ),
@@ -61,9 +81,9 @@ def upgrade() -> None:
     # Create content_outlines table
     op.create_table(
         'content_outlines',
-        sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column('gap_analysis_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('workflow_id', postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column('id', uuid_type, primary_key=True),
+        sa.Column('gap_analysis_id', uuid_type, nullable=False),
+        sa.Column('workflow_id', uuid_type, nullable=False),
 
         # Skill gap information
         sa.Column('skill_id', sa.String(255), nullable=False),
@@ -76,9 +96,9 @@ def upgrade() -> None:
         sa.Column('rag_retrieval_score', sa.Float(), nullable=False),
 
         # Metadata
-        sa.Column('retrieved_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), onupdate=sa.text('now()')),
+        sa.Column('retrieved_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP')),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP')),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), onupdate=sa.text('CURRENT_TIMESTAMP')),
 
         # Foreign keys
         sa.ForeignKeyConstraint(['gap_analysis_id'], ['gap_analysis_results.id'], ),
@@ -94,9 +114,9 @@ def upgrade() -> None:
     # Create recommended_courses table
     op.create_table(
         'recommended_courses',
-        sa.Column('id', postgresql.UUID(as_uuid=True), primary_key=True),
-        sa.Column('gap_analysis_id', postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column('workflow_id', postgresql.UUID(as_uuid=True), nullable=False),
+        sa.Column('id', uuid_type, primary_key=True),
+        sa.Column('gap_analysis_id', uuid_type, nullable=False),
+        sa.Column('workflow_id', uuid_type, nullable=False),
 
         # Skill gap information
         sa.Column('skill_id', sa.String(255), nullable=False),
@@ -127,9 +147,9 @@ def upgrade() -> None:
 
         # Metadata
         sa.Column('priority', sa.Integer(), server_default='0'),
-        sa.Column('recommended_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
-        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()')),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), onupdate=sa.text('now()')),
+        sa.Column('recommended_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP')),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP')),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), onupdate=sa.text('CURRENT_TIMESTAMP')),
 
         # Foreign keys
         sa.ForeignKeyConstraint(['gap_analysis_id'], ['gap_analysis_results.id'], ),

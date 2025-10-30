@@ -14,6 +14,7 @@ This migration creates the generated_presentations table to support:
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy import inspect
 
 # revision identifiers, used by Alembic.
 revision = '007_presentations'
@@ -25,9 +26,15 @@ depends_on = None
 def upgrade() -> None:
     """Create generated_presentations table for Sprint 3."""
 
-    # Create generated_presentations table
-    op.create_table(
-        'generated_presentations',
+    # Check if table already exists (idempotent)
+    conn = op.get_bind()
+    inspector = inspect(conn)
+    existing_tables = set(inspector.get_table_names())
+
+    # Create generated_presentations table (only if doesn't exist)
+    if 'generated_presentations' not in existing_tables:
+        op.create_table(
+            'generated_presentations',
         sa.Column('id', sa.String(36), primary_key=True),  # UUID as string
         sa.Column('workflow_id', sa.String(36), nullable=False),
 
@@ -89,12 +96,22 @@ def upgrade() -> None:
     )
 
     # Create indexes for performance
-    op.create_index('idx_presentations_workflow', 'generated_presentations', ['workflow_id'])
-    op.create_index('idx_presentations_skill', 'generated_presentations', ['skill_id'])
-    op.create_index('idx_presentations_course', 'generated_presentations', ['course_id'])
-    op.create_index('idx_presentations_status', 'generated_presentations', ['generation_status'])
-    op.create_index('idx_presentations_job', 'generated_presentations', ['job_id'])
-    op.create_index('idx_presentations_created', 'generated_presentations', ['created_at'])
+
+    # Create indexes (only if they don't exist)
+    if 'generated_presentations' in existing_tables:
+        existing_indexes = {idx['name'] for idx in inspector.get_indexes('generated_presentations')}
+        if 'idx_presentations_workflow' not in existing_indexes:
+            op.create_index('idx_presentations_workflow', 'generated_presentations', ['workflow_id'])
+        if 'idx_presentations_skill' not in existing_indexes:
+            op.create_index('idx_presentations_skill', 'generated_presentations', ['skill_id'])
+        if 'idx_presentations_course' not in existing_indexes:
+            op.create_index('idx_presentations_course', 'generated_presentations', ['course_id'])
+        if 'idx_presentations_status' not in existing_indexes:
+            op.create_index('idx_presentations_status', 'generated_presentations', ['generation_status'])
+        if 'idx_presentations_job' not in existing_indexes:
+            op.create_index('idx_presentations_job', 'generated_presentations', ['job_id'])
+        if 'idx_presentations_created' not in existing_indexes:
+            op.create_index('idx_presentations_created', 'generated_presentations', ['created_at'])
 
     # Note: SQLite doesn't support partial unique indexes like PostgreSQL
     # The unique constraint for (workflow_id, skill_id, status='completed')
@@ -102,17 +119,22 @@ def upgrade() -> None:
 
     # Create unique index for job_id (only non-null values)
     # SQLite will ignore NULL values in unique indexes by default
-    op.create_index('idx_presentations_job_unique', 'generated_presentations', ['job_id'], unique=True)
+        if 'idx_presentations_job_unique' not in existing_indexes:
+            op.create_index('idx_presentations_job_unique', 'generated_presentations', ['job_id'], unique=True)
 
     # SQLite doesn't support triggers with functions like PostgreSQL
     # The updated_at field will be managed at the application level
     # or via SQLAlchemy's onupdate parameter in the model
 
     # Update recommended_courses table to add presentation linking
-    # Note: presentation_id and presentation_url columns already exist from previous migration
-    # Just create the index (foreign key constraint will be enforced at application level)
-
-    op.create_index('idx_courses_presentation', 'recommended_courses', ['presentation_id'])
+    # Note: presentation_id column may not exist yet (comment was incorrect)
+    # Only create index if recommended_courses table exists AND has presentation_id column
+    if 'recommended_courses' in existing_tables:
+        rec_courses_columns = {col['name'] for col in inspector.get_columns('recommended_courses')}
+        if 'presentation_id' in rec_courses_columns:
+            existing_rec_indexes = {idx['name'] for idx in inspector.get_indexes('recommended_courses')}
+            if 'idx_courses_presentation' not in existing_rec_indexes:
+                op.create_index('idx_courses_presentation', 'recommended_courses', ['presentation_id'])
 
 
 def downgrade() -> None:
