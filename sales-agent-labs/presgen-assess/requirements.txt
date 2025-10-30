@@ -32,6 +32,7 @@ httpx==0.25.2
 
 # Google API clients
 google-api-python-client==2.183.0
+google-auth-oauthlib==1.2.0
 
 # Configuration and environment
 python-dotenv==1.0.0

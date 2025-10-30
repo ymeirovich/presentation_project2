@@ -19,18 +19,27 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first (layer caching)
-COPY requirements.txt .
+COPY presgen-assess/requirements.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY src/ ./src/
-COPY tests/ ./tests/
-COPY .pre-commit-config.yaml ./
-COPY alembic.ini ./
-COPY alembic/ ./alembic/
+COPY presgen-assess/src/ ./src/
+COPY presgen-assess/tests/ ./tests/
+COPY presgen-assess/.pre-commit-config.yaml ./
+COPY presgen-assess/alembic.ini ./
+COPY presgen-assess/alembic/ ./alembic/
+
+# Copy sales-agent-labs slides_google.py and dependencies for Google Slides integration
+# This creates the expected directory structure: /app/sales-agent-labs/src/agent/
+RUN mkdir -p /app/sales-agent-labs/src/agent && \
+    touch /app/sales-agent-labs/src/__init__.py && \
+    touch /app/sales-agent-labs/src/agent/__init__.py
+COPY src/agent/slides_google.py /app/sales-agent-labs/src/agent/slides_google.py
+COPY src/agent/notes_apps_script.py /app/sales-agent-labs/src/agent/notes_apps_script.py
+COPY src/agent/notes_native_api.py /app/sales-agent-labs/src/agent/notes_native_api.py
 
 # Create directories for runtime
 RUN mkdir -p /app/data /app/logs /app/uploads /app/exports && \

@@ -35,9 +35,19 @@ def get_slides_google():
 
     # Get paths
     this_file = Path(__file__)
-    presgen_assess_src = this_file.parent.parent  # .../presgen-assess/src
-    presgen_assess_dir = presgen_assess_src.parent  # .../presgen-assess
-    sales_agent_labs_dir = presgen_assess_dir.parent  # .../sales-agent-labs
+    presgen_assess_src = this_file.parent.parent  # .../presgen-assess/src or /app/src
+    presgen_assess_dir = presgen_assess_src.parent  # .../presgen-assess or /app
+
+    # In Docker: /app/src -> /app/sales-agent-labs
+    # In local: .../sales-agent-labs/presgen-assess/src -> .../sales-agent-labs
+
+    # Try Docker path first
+    if presgen_assess_dir.name == "app":
+        # Docker context: /app/
+        sales_agent_labs_dir = presgen_assess_dir / "sales-agent-labs"
+    else:
+        # Local context: .../sales-agent-labs/presgen-assess
+        sales_agent_labs_dir = presgen_assess_dir.parent
 
     sales_agent_labs_str = str(sales_agent_labs_dir)
     presgen_assess_src_str = str(presgen_assess_src)
@@ -65,7 +75,7 @@ def get_slides_google():
         if sales_agent_labs_str in sys.path:
             sys.path.remove(sales_agent_labs_str)
         sys.path.insert(0, sales_agent_labs_str)
-        logger.info(f"✅ Prioritized sales-agent-labs in sys.path")
+        logger.info(f"✅ Prioritized sales-agent-labs in sys.path: {sales_agent_labs_str}")
 
         # Import and cache the MODULE OBJECT
         logger.info("📦 Importing src.agent.slides_google...")

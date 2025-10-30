@@ -96,8 +96,8 @@ services:
   # ===== PresGen Assess (Assessment API) =====
   presgen-assess:
     build:
-      context: ./presgen-assess
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./presgen-assess/Dockerfile
     container_name: presgen-assess
     restart: unless-stopped
     environment:
