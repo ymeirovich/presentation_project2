@@ -7,6 +7,7 @@ from src.service.api.v1.endpoints import (
     certifications,
     knowledge,
     knowledge_prompts,
+    prompts,
     google_forms,
     workflows,
     llm,
@@ -28,6 +29,12 @@ api_router.include_router(
     prefix="/auth",
     tags=["authentication"]
 )
+
+# Prompts endpoints
+api_router.include_router(
+    prompts.router,
+    prefix="/prompts",
+    tags=["prompts"])
 
 # Include endpoint routers
 api_router.include_router(
