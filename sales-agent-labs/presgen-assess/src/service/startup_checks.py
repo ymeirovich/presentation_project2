@@ -20,7 +20,7 @@ def validate_google_slides_integration() -> Tuple[bool, str]:
     # Use helper to import from sales-agent-labs (handles namespace collision)
     try:
         logger.info("  Importing helper module...")
-        from common.google_slides_import_v2 import get_slides_google
+        from src.common.google_slides_import_v2 import get_slides_google
 
         logger.info("  Calling get_slides_google()...")
         slides_google = get_slides_google()
