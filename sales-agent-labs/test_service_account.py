@@ -13,7 +13,7 @@ import sys
 # Configuration - UPDATE THESE VALUES
 CREDENTIALS_FILE = './secrets/google-creds.json'
 IMPERSONATE_USER = 'presgen-service@presgen.net'  # TODO: Update with your user
-FOLDER_ID = 'YOUR_FOLDER_ID_HERE'  # TODO: Update with your folder ID
+FOLDER_ID = '14eRckmEzL-4FgXU4mn3u3-EP2GKNJX2p'  # TODO: Update with your folder ID
 
 SCOPES = [
     'https://www.googleapis.com/auth/drive',
