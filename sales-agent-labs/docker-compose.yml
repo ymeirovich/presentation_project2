@@ -50,6 +50,7 @@ services:
       - PORT=8080
 
       # Google Cloud
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-presgen}
       - GOOGLE_APPLICATION_CREDENTIALS=/secrets/google-creds.json
       - OAUTH_TOKEN_PATH=/secrets/google-oauth-token.json
 
@@ -115,6 +116,7 @@ services:
       - PRESGEN_ASSESS_URL=http://presgen-assess:8000
 
       # Google Cloud
+      - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-presgen}
       - GOOGLE_APPLICATION_CREDENTIALS=/secrets/google-creds.json
       - OAUTH_TOKEN_PATH=/secrets/google-oauth-token.json
 
