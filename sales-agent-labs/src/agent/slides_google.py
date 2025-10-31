@@ -71,8 +71,10 @@ def _load_credentials() -> Credentials:
             else:
                 log.warning("⚠️  GOOGLE_SERVICE_ACCOUNT_IMPERSONATE_USER not set. Service account will have limited permissions.")
 
+            # Apply quota project AFTER impersonation
+            creds = _apply_quota_project(creds)
             log.info("✅ Successfully authenticated with service account")
-            return _apply_quota_project(creds)
+            return creds
         except Exception as e:
             if force_service_account:
                 log.error(f"❌ Service account authentication failed and OAuth fallback disabled: {e}")
