@@ -53,6 +53,8 @@ services:
       - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-presgen}
       - GOOGLE_APPLICATION_CREDENTIALS=/secrets/google-creds.json
       - OAUTH_TOKEN_PATH=/secrets/google-oauth-token.json
+      - GOOGLE_SERVICE_ACCOUNT_IMPERSONATE_USER=${IMPERSONATE_USER:-presgen-service@presgen.net}
+      - GOOGLE_DRIVE_FOLDER_ID=${DRIVE_FOLDER_ID:-14eRckmEzL-4FgXU4mn3u3-EP2GKNJX2p}
 
       # OpenAI
       - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -119,6 +121,8 @@ services:
       - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-presgen}
       - GOOGLE_APPLICATION_CREDENTIALS=/secrets/google-creds.json
       - OAUTH_TOKEN_PATH=/secrets/google-oauth-token.json
+      - GOOGLE_SERVICE_ACCOUNT_IMPERSONATE_USER=${IMPERSONATE_USER:-presgen-service@presgen.net}
+      - GOOGLE_DRIVE_FOLDER_ID=${DRIVE_FOLDER_ID:-14eRckmEzL-4FgXU4mn3u3-EP2GKNJX2p}
 
       # OpenAI
       - OPENAI_API_KEY=${OPENAI_API_KEY}

@@ -62,6 +62,15 @@ def _load_credentials() -> Credentials:
                 service_account_path,
                 scopes=SCOPES
             )
+
+            # Check if domain-wide delegation is configured
+            impersonate_user = os.getenv("GOOGLE_SERVICE_ACCOUNT_IMPERSONATE_USER")
+            if impersonate_user:
+                log.info(f"🔐 Enabling domain-wide delegation for user: {impersonate_user}")
+                creds = creds.with_subject(impersonate_user)
+            else:
+                log.warning("⚠️  GOOGLE_SERVICE_ACCOUNT_IMPERSONATE_USER not set. Service account will have limited permissions.")
+
             log.info("✅ Successfully authenticated with service account")
             return _apply_quota_project(creds)
         except Exception as e:
@@ -160,11 +169,37 @@ def create_presentation(title: str) -> Dict[str, Any]:
     slides = _slides_service(creds)
     try:
         pres = slides.presentations().create(body={"title": title}).execute()
+        presentation_id = pres.get("presentationId")
         log.info(
             "Created presentation: %s (%s)",
             pres.get("title"),
-            pres.get("presentationId"),
+            presentation_id,
         )
+
+        # Move to shared folder if configured
+        folder_id = os.getenv("GOOGLE_DRIVE_FOLDER_ID")
+        if folder_id:
+            try:
+                drive = _drive_service(creds)
+                # Get current parents
+                file_metadata = drive.files().get(
+                    fileId=presentation_id,
+                    fields='parents'
+                ).execute()
+                previous_parents = ",".join(file_metadata.get('parents', []))
+
+                # Move to new folder
+                drive.files().update(
+                    fileId=presentation_id,
+                    addParents=folder_id,
+                    removeParents=previous_parents,
+                    fields='id, parents'
+                ).execute()
+                log.info(f"📁 Moved presentation to folder: {folder_id}")
+            except Exception as e:
+                log.warning(f"⚠️  Failed to move presentation to folder {folder_id}: {e}")
+                # Don't fail the entire operation if folder move fails
+
         return pres
     except HttpError as e:
         _log_http_error("create_presentation", e)
