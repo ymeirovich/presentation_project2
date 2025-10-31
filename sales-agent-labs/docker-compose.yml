@@ -162,6 +162,7 @@ services:
       args:
         - NEXT_PUBLIC_PRESGEN_ASSESS_URL=/api
         - NEXT_PUBLIC_PRESGEN_CORE_URL=/core
+        - NEXT_PUBLIC_API_URL=/core
     container_name: presgen-ui
     restart: unless-stopped
     environment:
@@ -170,6 +171,7 @@ services:
       - PORT=3000
       - NEXT_PUBLIC_PRESGEN_ASSESS_URL=/api
       - NEXT_PUBLIC_PRESGEN_CORE_URL=/core
+      - NEXT_PUBLIC_API_URL=/core
     depends_on:
       presgen-assess:
         condition: service_healthy
