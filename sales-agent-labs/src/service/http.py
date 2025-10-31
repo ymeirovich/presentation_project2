@@ -1305,11 +1305,7 @@ async def training_video_only(
                  **upload_info)
 
         # Import and initialize ModeOrchestrator
-        import sys
-        training_src = Path(__file__).parent.parent.parent / "presgen-training2" / "src"
-        sys.path.insert(0, str(training_src))
-
-        from modes.orchestrator import ModeOrchestrator, GenerationRequest, OperationMode
+        from src.presgen_training.orchestrator import ModeOrchestrator, GenerationRequest, OperationMode
 
         orchestrator = ModeOrchestrator(logger=log)
 
@@ -1394,10 +1390,7 @@ async def training_presentation_only(req: TrainingVideoRequest):
         # Import and initialize ModeOrchestrator
         import sys
         from pathlib import Path
-        training_src = Path(__file__).parent.parent.parent / "presgen-training2" / "src"
-        sys.path.insert(0, str(training_src))
-
-        from modes.orchestrator import ModeOrchestrator, GenerationRequest, OperationMode
+        from src.presgen_training.orchestrator import ModeOrchestrator, GenerationRequest, OperationMode
 
         orchestrator = ModeOrchestrator(logger=log)
 
@@ -1483,10 +1476,7 @@ async def training_video_presentation(req: TrainingVideoRequest):
         # Import and initialize ModeOrchestrator
         import sys
         from pathlib import Path
-        training_src = Path(__file__).parent.parent.parent / "presgen-training2" / "src"
-        sys.path.insert(0, str(training_src))
-
-        from modes.orchestrator import ModeOrchestrator, GenerationRequest, OperationMode
+        from src.presgen_training.orchestrator import ModeOrchestrator, GenerationRequest, OperationMode
 
         orchestrator = ModeOrchestrator(logger=log)
 
@@ -1588,11 +1578,7 @@ async def training_clone_voice(
              **upload_info)
 
         # Import and initialize ModeOrchestrator
-        import sys
-        training_src = Path(__file__).parent.parent.parent / "presgen-training2" / "src"
-        sys.path.insert(0, str(training_src))
-
-        from modes.orchestrator import ModeOrchestrator
+        from src.presgen_training.orchestrator import ModeOrchestrator
 
         orchestrator = ModeOrchestrator(logger=log)
 
@@ -1642,18 +1628,28 @@ async def training_clone_voice(
 async def training_voice_profiles():
     """Get list of available voice profiles"""
     try:
-        # Import and initialize ModeOrchestrator
-        import sys
-        from pathlib import Path
-        training_src = Path(__file__).parent.parent.parent / "presgen-training2" / "src"
-        sys.path.insert(0, str(training_src))
+        # Read profiles directly from file
+        profiles_file = pathlib.Path("models/voice-profiles/profiles.json")
 
-        from modes.orchestrator import ModeOrchestrator
+        if not profiles_file.exists():
+            jlog(log, logging.WARNING,
+                 event="training_voice_profiles_not_found",
+                 path=str(profiles_file))
+            return VoiceProfilesResponse(profiles=[])
 
-        orchestrator = ModeOrchestrator(logger=log)
+        with open(profiles_file, 'r') as f:
+            profiles_data = json.load(f)
 
-        # Get profiles
-        profiles = orchestrator.list_voice_profiles()
+        # Convert to list format expected by UI
+        profiles = [
+            {
+                "name": profile_data["name"],
+                "created_at": profile_data["created_at"],
+                "language": profile_data.get("language", "en"),
+                "quality": profile_data.get("quality", "standard")
+            }
+            for profile_data in profiles_data.values()
+        ]
 
         jlog(log, logging.INFO,
              event="training_voice_profiles_success",
