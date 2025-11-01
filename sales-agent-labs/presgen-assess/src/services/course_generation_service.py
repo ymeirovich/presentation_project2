@@ -8,6 +8,7 @@ from typing import Any
 
 _LOGGER_NAME = "course_generation"
 _LOG_PATH = "logs/course_generation.log"
+_debug_logger = logging.getLogger(__name__)
 
 
 def _ensure_logger() -> logging.Logger:
@@ -40,6 +41,13 @@ def _ensure_logger() -> logging.Logger:
 
 def log_course_event(event: str, **kwargs: Any) -> None:
     """Log a structured course generation event."""
+
+    if _debug_logger.isEnabledFor(logging.DEBUG):
+        _debug_logger.debug(
+            "course_generation_event | event=%s | context=%s",
+            event,
+            kwargs if kwargs else "{}",
+        )
 
     logger = _ensure_logger()
     if kwargs:

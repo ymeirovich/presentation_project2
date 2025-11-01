@@ -229,6 +229,14 @@ export function DataForm({ className }: DataFormProps) {
         report_prompt: reportPrompt.trim() || undefined,
       }
 
+      console.log('🔍 DataForm submitting with slide_count:', data.slide_count, 'requestData:', requestData)
+
+      // Validate slide_count is within bounds
+      if (!requestData.slide_count || requestData.slide_count < 3) {
+        console.error('❌ Invalid slide_count detected:', requestData.slide_count, 'Resetting to 7')
+        requestData.slide_count = 7
+      }
+
       const response = await generateDataWithContext(requestData)
       setServerResponse(response)
 
@@ -484,11 +492,11 @@ export function DataForm({ className }: DataFormProps) {
                   <div className="grid gap-6 md:grid-cols-2">
                     <div className="space-y-4">
                       <div className="space-y-2">
-                        <Label>Slide Count: {watchedValues.slide_count}</Label>
+                        <Label>Slide Count: {watchedValues.slide_count || 7}</Label>
                         <div className="flex items-center gap-3">
                           <span className="text-xs text-muted-foreground whitespace-nowrap">3 slides</span>
                           <Slider
-                            value={[watchedValues.slide_count]}
+                            value={[watchedValues.slide_count || 7]}
                             onValueChange={(value) => setValue("slide_count", value[0])}
                             min={3}
                             max={20}

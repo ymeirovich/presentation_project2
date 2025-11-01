@@ -72,6 +72,8 @@ export async function POST(request: NextRequest) {
       questions_count: backendRequest.questions.length,
       report_text_length: backendRequest.report_text.length,
       presentation_title: backendRequest.presentation_title,
+      slide_count_from_request: data.slide_count,
+      slides_in_backend_request: backendRequest.slides,
     })
 
     const controller = new AbortController()

@@ -2721,6 +2721,14 @@ async def generate_skill_course(
         or 20
     )
 
+    logger.info(
+        "🐞 generate_skill_course invoked | workflow_id=%s | skill_id=%s | requested_slide_count=%s | parameters_keys=%s",
+        workflow_id,
+        skill_id,
+        requested_slide_count,
+        list(workflow_parameters.keys()) if isinstance(workflow_parameters, dict) else type(workflow_parameters),
+    )
+
     async def _format_prompt_template(template: Optional[str]) -> Optional[str]:
         """Format presentation prompt template with available variables.
 
