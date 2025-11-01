@@ -44,6 +44,16 @@ load_dotenv()
 
 log = logging.getLogger("service")
 
+# Configure logging level from environment
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format='%(message)s',  # jlog() already adds structure
+    handlers=[logging.StreamHandler()]
+)
+log.setLevel(getattr(logging, LOG_LEVEL, logging.INFO))
+log.info(f"🔧 Logger configured: level={LOG_LEVEL}")
+
 PRESGEN_USE_CACHE = os.getenv("PRESGEN_USE_CACHE", "true").lower() == "true"
 
 # --- Env & globals ---
