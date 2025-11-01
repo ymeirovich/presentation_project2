@@ -182,6 +182,7 @@ services:
       - NEXT_PUBLIC_PRESGEN_ASSESS_URL=/api
       - NEXT_PUBLIC_PRESGEN_CORE_URL=/core
       - NEXT_PUBLIC_API_URL=/core
+      - PRESGEN_CORE_INTERNAL_URL=http://presgen-core:8080
     depends_on:
       presgen-assess:
         condition: service_healthy

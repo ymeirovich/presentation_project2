@@ -221,7 +221,7 @@ export function DataForm({ className }: DataFormProps) {
         report_text: reportText,
         report_id: reportId,
         presentation_title: data.presentation_title,
-        slide_count: data.slide_count,
+        slide_count: Math.max(3, Math.min(20, Math.round(Number(data.slide_count) || 7))),
         chart_style: data.chart_style,
         include_images: data.include_images,
         speaker_notes: data.speaker_notes,
@@ -232,7 +232,7 @@ export function DataForm({ className }: DataFormProps) {
       console.log('🔍 DataForm submitting with slide_count:', data.slide_count, 'requestData:', requestData)
 
       // Validate slide_count is within bounds
-      if (!requestData.slide_count || requestData.slide_count < 3) {
+      if (!Number.isFinite(requestData.slide_count) || requestData.slide_count < 3) {
         console.error('❌ Invalid slide_count detected:', requestData.slide_count, 'Resetting to 7')
         requestData.slide_count = 7
       }
@@ -497,7 +497,9 @@ export function DataForm({ className }: DataFormProps) {
                           <span className="text-xs text-muted-foreground whitespace-nowrap">3 slides</span>
                           <Slider
                             value={[watchedValues.slide_count || 7]}
-                            onValueChange={(value) => setValue("slide_count", value[0])}
+                            onValueChange={(value) =>
+                              setValue("slide_count", value[0] ?? 7, { shouldDirty: true, shouldValidate: true })
+                            }
                             min={3}
                             max={20}
                             step={1}

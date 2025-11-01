@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { DataGenerateRequestSchema } from '@/lib/schemas'
 
-// Backend API URL
-const BACKEND_API_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080'
+// Backend API URL (prefer internal service hostname inside container)
+const BACKEND_API_URL =
+  process.env.PRESGEN_CORE_INTERNAL_URL ||
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  'http://presgen-core:8080'
 
 // Cache setting - disable in development mode
 const USE_CACHE = process.env.PRESGEN_DEV_MODE !== 'true' && process.env.PRESGEN_USE_CACHE !== 'false'
@@ -25,6 +28,7 @@ export async function POST(request: NextRequest) {
     }
 
     const data = validation.data
+    const normalizedSlides = Math.max(3, Math.min(20, Math.round(Number(data.slide_count) || 7)))
 
     // In a real application, if report_id is provided, you would:
     // 1. Fetch the stored report content from database
@@ -40,7 +44,8 @@ export async function POST(request: NextRequest) {
       report_text: data.report_text || '', // Use report_text or empty string
       report_prompt: data.report_prompt?.trim() || undefined,
       presentation_title: data.presentation_title,
-      slides: data.slide_count,
+      slides: normalizedSlides,
+      slide_count: normalizedSlides,
       chart_style: data.chart_style,
       include_images: data.include_images,
       speaker_notes: data.speaker_notes,
@@ -72,7 +77,8 @@ export async function POST(request: NextRequest) {
       questions_count: backendRequest.questions.length,
       report_text_length: backendRequest.report_text.length,
       presentation_title: backendRequest.presentation_title,
-      slide_count_from_request: data.slide_count,
+      requested_slide_count: data.slide_count,
+      normalized_slide_count: normalizedSlides,
       slides_in_backend_request: backendRequest.slides,
     })
 
