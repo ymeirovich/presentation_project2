@@ -45,8 +45,8 @@ services:
     restart: unless-stopped
     environment:
       - ENVIRONMENT=${ENVIRONMENT:-production}
-      - DEBUG=${DEBUG:-false}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEBUG=${DEBUG:-true}
+      - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
       - PORT=8080
 
       # Google Cloud
