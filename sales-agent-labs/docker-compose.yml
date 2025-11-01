@@ -69,6 +69,8 @@ services:
 
       # Features
       - PRESGEN_USE_MOCK=${PRESGEN_USE_MOCK:-false}
+      - PRESGEN_USE_CACHE=${PRESGEN_USE_CACHE:-false}
+      - PRESGEN_DEV_MODE=${PRESGEN_DEV_MODE:-true}
       - PRESGEN_CORE_MAX_SLIDES=${PRESGEN_CORE_MAX_SLIDES:-40}
       - PRESGEN_AVATAR_MAX_SLIDES=${PRESGEN_AVATAR_MAX_SLIDES:-40}
       - USE_AI_IMAGES=${USE_AI_IMAGES:-true}
@@ -134,6 +136,8 @@ services:
 
       # Features
       - PRESGEN_USE_MOCK=${PRESGEN_USE_MOCK:-false}
+      - PRESGEN_USE_CACHE=${PRESGEN_USE_CACHE:-false}
+      - PRESGEN_DEV_MODE=${PRESGEN_DEV_MODE:-true}
 
       # Performance
       - WORKERS=1
