@@ -63,4 +63,5 @@ EXPOSE 8080
 
 # Run application
 # Use shell form to allow environment variable substitution
-CMD uvicorn src.service.http:app --host 0.0.0.0 --port 8080 --workers ${WORKERS:-1} --log-level ${LOG_LEVEL:-info}
+# Note: LOG_LEVEL env var is uppercase (DEBUG), but uvicorn needs lowercase (debug)
+CMD sh -c 'uvicorn src.service.http:app --host 0.0.0.0 --port 8080 --workers ${WORKERS:-1} --log-level $(echo ${LOG_LEVEL:-info} | tr "[:upper:]" "[:lower:]")'
