@@ -27,6 +27,7 @@ This directory contains complete documentation for deploying PresGen to AWS Ligh
 | **[GOOGLE_AUTH_CONFIGURATION.md](GOOGLE_AUTH_CONFIGURATION.md)** | Google Cloud authentication | Setup Google APIs |
 | **[GOOGLE_AUTH_SUMMARY.md](GOOGLE_AUTH_SUMMARY.md)** | Quick reference for Google auth | Quick lookup |
 | **[FINAL_SOLUTION_403.md](FINAL_SOLUTION_403.md)** | Fix Google API 403 errors | Troubleshooting auth |
+| **[FILE_UPLOAD_FIXES.md](FILE_UPLOAD_FIXES.md)** ⭐ | File upload API fixes & deployment | File upload issues |
 | **[DEMO_CREDENTIALS.md](DEMO_CREDENTIALS.md)** | Access credentials & rate limits | Share with demo users |
 
 ### Issues & Troubleshooting
@@ -34,6 +35,7 @@ This directory contains complete documentation for deploying PresGen to AWS Ligh
 | Document | Purpose | When to Use |
 |----------|---------|-------------|
 | **[CRITICAL_ISSUES_ANALYSIS.md](CRITICAL_ISSUES_ANALYSIS.md)** ⚠️ | 7 critical issues you must address | Before deployment |
+| **[FILE_UPLOAD_FIXES.md](FILE_UPLOAD_FIXES.md)** | File upload HTTP 500/405 errors | File upload problems |
 | **[runbooks/DOCKER_CONTAINER_WONT_START.md](runbooks/DOCKER_CONTAINER_WONT_START.md)** | Fix Docker container issues | Container won't start |
 | **[runbooks/DATABASE_LOCKED_ERRORS.md](runbooks/DATABASE_LOCKED_ERRORS.md)** | Fix database lock issues | "Database is locked" errors |
 

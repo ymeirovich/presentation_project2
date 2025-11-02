@@ -340,9 +340,10 @@ class ChromaDBCollectionManager:
         collection: chromadb.Collection,
         documents: List[str],
         metadatas: List[DocumentMetadata],
-        ids: Optional[List[str]] = None
+        ids: Optional[List[str]] = None,
+        batch_size: int = 100
     ) -> None:
-        """Add documents to collection with metadata validation"""
+        """Add documents to collection with metadata validation and batching"""
 
         if len(documents) != len(metadatas):
             raise ValueError("Documents and metadata lists must have same length")
@@ -354,12 +355,25 @@ class ChromaDBCollectionManager:
         # Convert metadata to ChromaDB format
         chromadb_metadatas = [meta.to_chromadb_metadata() for meta in metadatas]
 
-        # Add to collection
-        collection.add(
-            documents=documents,
-            metadatas=chromadb_metadatas,
-            ids=ids
-        )
+        # Batch documents to avoid token limits (OpenAI: 300K tokens per request)
+        # Approximate 1 chunk = ~1000 chars = ~250 tokens, so batch_size=100 ~= 25K tokens
+        total_docs = len(documents)
+        for i in range(0, total_docs, batch_size):
+            batch_end = min(i + batch_size, total_docs)
+            batch_docs = documents[i:batch_end]
+            batch_metas = chromadb_metadatas[i:batch_end]
+            batch_ids = ids[i:batch_end]
+
+            print(f"📦 Adding batch {i//batch_size + 1}/{(total_docs + batch_size - 1)//batch_size}: {len(batch_docs)} documents")
+
+            # Add batch to collection
+            collection.add(
+                documents=batch_docs,
+                metadatas=batch_metas,
+                ids=batch_ids
+            )
+
+        print(f"✅ Successfully added {total_docs} documents in {(total_docs + batch_size - 1)//batch_size} batches")
 
         # Update collection metadata
         current_meta = collection.metadata or {}

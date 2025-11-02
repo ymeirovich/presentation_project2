@@ -49,7 +49,11 @@ def get_chroma_manager():
     """Lazy load ChromaDB manager"""
     global chroma_client, collection_manager
     if collection_manager is None:
-        chroma_client = chromadb.PersistentClient(path="data/chroma")
+        # Disable telemetry to avoid "capture() takes 1 positional argument" error
+        chroma_client = chromadb.PersistentClient(
+            path="data/chroma",
+            settings=chromadb.Settings(anonymized_telemetry=False)
+        )
         collection_manager = ChromaDBCollectionManager(chroma_client)
     return collection_manager
 

@@ -370,10 +370,15 @@ class FileRegistry:
         # Create synchronous SQLite session for file registry
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
+        from src.models.base import Base
 
         # Use SQLite database
         db_path = 'test_database.db'
         engine = create_engine(f'sqlite:///{db_path}', echo=False)
+
+        # Ensure tables exist in SQLite database
+        Base.metadata.create_all(engine)
+
         Session = sessionmaker(bind=engine)
         return Session()
 
