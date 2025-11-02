@@ -10,7 +10,10 @@ from dataclasses import dataclass, asdict
 from datetime import datetime
 import tempfile
 import base64
-from pydub import AudioSegment
+try:  # optional dependency; some Python builds remove audioop
+    from pydub import AudioSegment  # type: ignore
+except Exception:  # pragma: no cover - logging handled during validation
+    AudioSegment = None  # type: ignore
 
 import logging
 # Use simple logging for now - can integrate with parent project later
@@ -904,18 +907,47 @@ class VoiceProfileManager:
         """Validate audio file for voice cloning requirements"""
 
         try:
-            # Load audio with pydub
-            audio = AudioSegment.from_file(audio_path)
+            if AudioSegment is None:
+                # Fallback to ffprobe duration check when pydub/audioop unavailable
+                cmd = [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=noprint_wrappers=1:nokey=1",
+                    audio_path,
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    self.logger.warning(
+                        "Audio validation skipped (ffprobe error): %s", result.stderr.strip()
+                    )
+                    return True  # allow pipeline to continue
 
-            # Check duration (need at least 10 seconds for good cloning)
-            duration_seconds = len(audio) / 1000.0
+                try:
+                    duration_seconds = float(result.stdout.strip())
+                except ValueError:
+                    self.logger.warning(
+                        "Audio validation skipped (unable to parse duration): %s",
+                        result.stdout.strip(),
+                    )
+                    return True
+            else:
+                audio = AudioSegment.from_file(audio_path)
+                duration_seconds = len(audio) / 1000.0
+
             if duration_seconds < 10:
-                self.logger.warning(f"Audio too short for cloning: {duration_seconds}s (minimum 10s)")
+                self.logger.warning(
+                    f"Audio too short for cloning: {duration_seconds}s (minimum 10s)"
+                )
                 return False
 
-            # Check if too long (some services have limits)
             if duration_seconds > 300:  # 5 minutes
-                self.logger.warning(f"Audio too long: {duration_seconds}s (maximum 300s)")
+                self.logger.warning(
+                    f"Audio too long: {duration_seconds}s (maximum 300s)"
+                )
                 return False
 
             self.logger.info(f"Audio validation passed: {duration_seconds}s")

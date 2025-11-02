@@ -56,6 +56,35 @@ log.info(f"🔧 Logger configured: level={LOG_LEVEL}")
 
 PRESGEN_USE_CACHE = os.getenv("PRESGEN_USE_CACHE", "true").lower() == "true"
 
+# Helper to lazily load Training v2 components with clear error messaging
+def _load_training_orchestrator_components():
+    try:
+        from src.presgen_training import orchestrator as training_orch
+    except ModuleNotFoundError as exc:
+        raise RuntimeError(
+            "PresGen-Training v1 orchestrator missing. "
+            "Verify `src/presgen_training` is packaged with the service."
+        ) from exc
+
+    mode_orchestrator = getattr(training_orch, "ModeOrchestrator", None)
+    if mode_orchestrator is None:
+        missing_reason = getattr(training_orch, "_TRAINING2_IMPORT_ERROR", None)
+        if missing_reason:
+            detail = f"Root cause: {missing_reason}"
+        else:
+            detail = "Root cause could not be determined."
+        raise RuntimeError(
+            "PresGen-Training2 components not available. Ensure 'presgen-training2/src' "
+            "is present inside the container and accessible on PYTHONPATH before starting "
+            f"the service. {detail}"
+        )
+
+    return (
+        training_orch.ModeOrchestrator,
+        training_orch.GenerationRequest,
+        training_orch.OperationMode,
+    )
+
 # --- Env & globals ---
 SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET", "")
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
@@ -1315,8 +1344,8 @@ async def training_video_only(
                  **upload_info)
 
         # Import and initialize ModeOrchestrator
-        from src.presgen_training.orchestrator import ModeOrchestrator, GenerationRequest, OperationMode
-
+        ModeOrchestrator, GenerationRequest, OperationMode = _load_training_orchestrator_components()
+        
         orchestrator = ModeOrchestrator(logger=log)
 
         # Create generation request
@@ -1398,10 +1427,8 @@ async def training_presentation_only(req: TrainingVideoRequest):
 
     try:
         # Import and initialize ModeOrchestrator
-        import sys
-        from pathlib import Path
-        from src.presgen_training.orchestrator import ModeOrchestrator, GenerationRequest, OperationMode
-
+        ModeOrchestrator, GenerationRequest, OperationMode = _load_training_orchestrator_components()
+        
         orchestrator = ModeOrchestrator(logger=log)
 
         # Create generation request
@@ -1484,10 +1511,8 @@ async def training_video_presentation(req: TrainingVideoRequest):
 
     try:
         # Import and initialize ModeOrchestrator
-        import sys
-        from pathlib import Path
-        from src.presgen_training.orchestrator import ModeOrchestrator, GenerationRequest, OperationMode
-
+        ModeOrchestrator, GenerationRequest, OperationMode = _load_training_orchestrator_components()
+        
         orchestrator = ModeOrchestrator(logger=log)
 
         # Create generation request

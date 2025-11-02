@@ -15,6 +15,8 @@ RUN apt-get update && apt-get install -y \
     curl \
     wget \
     git \
+    build-essential \
+    python3-dev \
     ffmpeg \
     libsm6 \
     libxext6 \
@@ -33,6 +35,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY src/ ./src/
 COPY config/ ./config/
 COPY models/ ./models/
+COPY presgen-training2/ ./presgen-training2/
 COPY config.yaml ./
 COPY openmp_override.py ./
 

@@ -13,13 +13,44 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 import uuid
 import subprocess
-import sys
 import os
 
 from src.common.jsonlog import jlog
 from src.presgen_training.hardware_profiler import HardwareProfiler, ResourceMonitor
 from src.presgen_training.avatar_generator import AvatarGenerator
 from src.presgen_training.video_utils import VideoUtils
+
+import sys
+
+# Bridge to next-generation PresGen-Training2 orchestrator so external callers
+# can continue importing ModeOrchestrator from this module.
+_TRAINING2_CANDIDATE_PATHS = [
+    Path(__file__).resolve().parent.parent.parent / "presgen-training2" / "src",
+    Path(__file__).resolve().parent.parent.parent / "presgen-training2/src",
+    Path("/app/presgen-training2/src"),
+    Path("presgen-training2/src"),
+]
+
+for candidate in _TRAINING2_CANDIDATE_PATHS:
+    if candidate.exists() and str(candidate) not in sys.path:
+        sys.path.insert(0, str(candidate))
+        break
+
+_TRAINING2_IMPORT_ERROR: Optional[ModuleNotFoundError] = None
+
+try:  # pragma: no cover - optional dependency
+    from modes.orchestrator import (  # type: ignore
+        ModeOrchestrator,
+        GenerationRequest,
+        GenerationResult,
+        OperationMode,
+    )
+except ModuleNotFoundError as exc:  # pragma: no cover - handled at runtime
+    _TRAINING2_IMPORT_ERROR = exc
+    ModeOrchestrator = None  # type: ignore
+    GenerationRequest = None  # type: ignore
+    GenerationResult = None  # type: ignore
+    OperationMode = None  # type: ignore
 
 
 class TrainingVideoOrchestrator:

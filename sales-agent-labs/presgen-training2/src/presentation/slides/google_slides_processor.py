@@ -12,6 +12,7 @@ from urllib.parse import urlparse, parse_qs
 from googleapiclient.discovery import build
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
+from google.oauth2 import service_account
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 # Use simple logging for now - can integrate with parent project later
@@ -81,6 +82,29 @@ class GoogleSlidesProcessor:
                 credentials_file = Path(credentials_env)
             else:
                 credentials_file = Path("oauth_slides_client.json")
+
+            # Service account support (preferred when OAUTH is not available)
+            service_account_path = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON") or os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+            if service_account_path:
+                service_account_file = Path(service_account_path)
+                if not service_account_file.exists():
+                    raise FileNotFoundError(f"Service account file not found: {service_account_file}")
+
+                impersonation_user = os.getenv("GOOGLE_SERVICE_ACCOUNT_IMPERSONATE_USER")
+                creds = service_account.Credentials.from_service_account_file(
+                    str(service_account_file),
+                    scopes=self.SCOPES,
+                )
+                if impersonation_user:
+                    creds = creds.with_subject(impersonation_user)
+
+                self.service = build('slides', 'v1', credentials=creds)
+                self.drive_service = build('drive', 'v3', credentials=creds)
+                self.logger.info(
+                    "Google Slides API authenticated via service account%s",
+                    f" (impersonating {impersonation_user})" if impersonation_user else ""
+                )
+                return
 
             # Load existing token
             if token_file.exists():
@@ -393,9 +417,27 @@ class GoogleSlidesProcessor:
         # Minimum duration of 2 seconds, maximum of 60 seconds per slide
         return max(2.0, min(60.0, estimated_seconds))
 
-    def _get_slide_image_url(self, presentation_id: str, slide_id: str) -> str:
-        """Get download URL for slide as image"""
-        # Export slide as PNG image
+    def _get_slide_image_url(self, presentation_id: str, slide_id: str) -> Optional[str]:
+        """Get an authenticated download URL for the slide thumbnail."""
+        if self.service:
+            try:
+                response = self.service.presentations().pages().getThumbnail(
+                    presentationId=presentation_id,
+                    pageObjectId=slide_id,
+                    thumbnailProperties_thumbnailSize="LARGE",
+                    thumbnailProperties_mimeType="PNG",
+                ).execute()
+                url = response.get("contentUrl")
+                if url:
+                    return url
+            except Exception as e:
+                self.logger.warning(
+                    "Failed to fetch thumbnail via Slides API for %s: %s. Falling back to direct export URL.",
+                    slide_id,
+                    e,
+                )
+
+        # Fallback to public export URL (may require sharing permissions)
         return f"https://docs.google.com/presentation/d/{presentation_id}/export/png?id={presentation_id}&pageid={slide_id}"
 
     def _download_slide_image(self, image_url: str, slide_id: str, output_dir: str) -> Optional[str]:

@@ -46,6 +46,7 @@ class SlidesToVideoRenderer:
             "video_codec": "libx264",
             "audio_codec": "aac",
             "audio_bitrate": "192k",
+            "preset": "veryfast",
             "crf": 23,  # Quality factor (lower = better quality)
         }
 
@@ -132,7 +133,7 @@ class SlidesToVideoRenderer:
                         error=f"Audio file not found: {audio_files[i]}"
                     )
 
-            transition_config = transition_config or TransitionConfig()
+            transition_config = transition_config or TransitionConfig(type="none", duration=0.0)
 
             self.logger.info(f"Starting slides-to-video rendering: {len(slides)} slides")
             jlog(self.logger, logging.INFO,
@@ -327,6 +328,7 @@ class SlidesToVideoRenderer:
                 "-i", image_path,
                 "-i", audio_path,
                 "-c:v", self.video_config["video_codec"],
+                "-preset", self.video_config.get("preset", "veryfast"),
                 "-c:a", self.video_config["audio_codec"],
                 "-b:a", self.video_config["audio_bitrate"],
                 "-crf", str(self.video_config["crf"]),
@@ -337,7 +339,7 @@ class SlidesToVideoRenderer:
                 "-y", output_path
             ]
 
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
 
             if result.returncode != 0:
                 self.logger.error(f"Failed to create slide video: {result.stderr}")
