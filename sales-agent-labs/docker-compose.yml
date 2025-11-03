@@ -49,13 +49,14 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
       - PORT=8080
 
-      # Google Cloud
+      # Google Cloud Authentication (Container Paths)
       - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-presgen}
       - GOOGLE_APPLICATION_CREDENTIALS=/secrets/google-creds.json
       - OAUTH_TOKEN_PATH=/secrets/google-oauth-token.json
       - OAUTH_CLIENT_JSON=/secrets/oauth_slides_client.json
       - GOOGLE_SERVICE_ACCOUNT_IMPERSONATE_USER=${IMPERSONATE_USER:-presgen-service@presgen.net}
       - GOOGLE_DRIVE_FOLDER_ID=${DRIVE_FOLDER_ID:-14eRckmEzL-4FgXU4mn3u3-EP2GKNJX2p}
+      - GOOGLE_QUOTA_PROJECT=${GOOGLE_QUOTA_PROJECT:-presgen}
 
       # OpenAI
       - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -76,8 +77,9 @@ services:
       - PRESGEN_AVATAR_MAX_SLIDES=${PRESGEN_AVATAR_MAX_SLIDES:-40}
       - USE_AI_IMAGES=${USE_AI_IMAGES:-true}
       - GPU_ENABLED=${GPU_ENABLED:-false}
-      - GOOGLE_SERVICE_ACCOUNT_JSON=${GOOGLE_SERVICE_ACCOUNT_JSON:-/app/secrets/google-creds.json}
-      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-/app/secrets/google-creds.json}
+      # Override with container paths (do not use .env value for Docker)
+      - GOOGLE_SERVICE_ACCOUNT_JSON=/app/secrets/google-creds.json
+      - GOOGLE_APPLICATION_CREDENTIALS=/secrets/google-creds.json
 
       # Performance
       - WORKERS=1

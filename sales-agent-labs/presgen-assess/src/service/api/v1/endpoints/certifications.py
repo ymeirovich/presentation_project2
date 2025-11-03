@@ -702,6 +702,68 @@ async def update_certification_profile(
         )
 
 
+@router.post("/delete", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_certification_profile_post(
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete a certification profile via POST (alternative to DELETE method for frontend compatibility)."""
+    # Parse request body to get profile_id
+    body = await request.json()
+    profile_id = UUID(body.get("profile_id") or body.get("id"))
+
+    # Log incoming request
+    log_request_details("POST /delete", "POST", profile_id=str(profile_id))
+    logger.info(f"🗑️ Deleting certification profile (via POST): {profile_id}")
+
+    try:
+        # Get existing profile
+        log_database_operation("SELECT", "certification_profiles", profile_id=str(profile_id))
+
+        stmt = select(CertificationProfile).where(CertificationProfile.id == profile_id)
+        result = await db.execute(stmt)
+        profile = result.scalar_one_or_none()
+
+        if not profile:
+            logger.warning(f"❌ Profile not found for deletion: {profile_id}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Certification profile with ID {profile_id} not found"
+            )
+
+        logger.info(f"✅ Found profile for deletion: {profile.name} v{profile.version}")
+
+        # Store profile info for logging before deletion
+        profile_name = profile.name
+        profile_version = profile.version
+
+        # Delete profile
+        log_database_operation("DELETE", "certification_profiles", profile_id=str(profile_id), data={"name": profile_name, "version": profile_version})
+
+        await db.delete(profile)
+        await db.commit()
+
+        logger.info(f"✅ Deleted certification profile: {profile_name} v{profile_version}")
+
+        # Log successful response
+        log_response_details("POST /delete", profile_id=str(profile_id), status_code=204)
+        logger.info(f"✅ Successfully deleted profile: {profile_name} v{profile_version}")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        logger.error(f"❌ Failed to delete certification profile {profile_id}: {e}")
+        logger.error(f"Error type: {type(e)}")
+        logger.error(f"Error args: {e.args}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete certification profile"
+        )
+
+
 @router.delete("/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_certification_profile(
     profile_id: UUID,
