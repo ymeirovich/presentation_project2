@@ -110,3 +110,13 @@ google-creds.json
 *.pem
 *.key
 .env.local
+
+# Uploaded user files (transcripts, exam guides, etc.)
+uploads/
+presgen-assess/uploads/
+data/assess/chroma/
+
+# Database files (exclude from git)
+*.db
+*.db-shm
+*.db-wal
