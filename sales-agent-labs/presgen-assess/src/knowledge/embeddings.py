@@ -164,18 +164,10 @@ class VectorDatabaseManager:
             for collection in all_collections:
                 if collection.name.startswith(target_prefix):
                     logger.info(f"✅ Found matching collection: {collection.name}")
-                    try:
-                        return self.client.get_collection(
-                            name=collection.name,
-                            embedding_function=self.embedding_function
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "⚠️ Failed to attach embedding function to collection %s: %s",
-                            collection.name,
-                            exc
-                        )
-                        return collection
+                    # ⚠️ IMPORTANT: Do NOT attach embedding_function to existing collections
+                    # created by ChromaDBCollectionManager. They already have their own
+                    # embedding function and attaching a different one causes segfaults.
+                    return collection
 
             logger.warning(f"⚠️ No collection found with prefix {target_prefix}")
         except Exception as exc:
