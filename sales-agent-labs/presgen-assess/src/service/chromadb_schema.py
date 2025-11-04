@@ -238,7 +238,16 @@ class ChromaDBCollectionManager:
 
         # ✅ FIX: Use OpenAI embeddings consistently (same as embeddings.py)
         # This ensures uploaded documents use same embedding space as RAG queries
+        # ⚠️ FAIL FAST: Do NOT fall back to DefaultEmbeddingFunction
+        # Fallback creates collections with incompatible dimensions (128 vs 1536)
         try:
+            # Validate API key exists
+            if not settings.openai_api_key:
+                raise ValueError(
+                    "OPENAI_API_KEY is required for embedding generation. "
+                    "Set OPENAI_API_KEY environment variable."
+                )
+
             self.embedding_function = OpenAIEmbeddingFunctionV1(
                 api_key=settings.openai_api_key,
                 model_name=embed_model
@@ -248,11 +257,18 @@ class ChromaDBCollectionManager:
             )
         except Exception as err:
             logging.getLogger(__name__).error(
-                f"❌ Failed to initialize OpenAI embedding function: {err}. "
-                f"Falling back to default (NOT RECOMMENDED - embeddings will be incompatible!)"
+                f"❌ CRITICAL: Failed to initialize OpenAI embedding function: {err}"
             )
-            self.embedding_function = embedding_functions.DefaultEmbeddingFunction()
-            self.embed_model = "default"
+            logging.getLogger(__name__).error(
+                f"❌ Cannot proceed without valid OpenAI API key."
+            )
+            logging.getLogger(__name__).error(
+                f"❌ DO NOT fall back to DefaultEmbeddingFunction - it creates incompatible collections!"
+            )
+            raise RuntimeError(
+                f"OpenAI API key is required for embedding generation. "
+                f"Set OPENAI_API_KEY environment variable. Error: {err}"
+            ) from err
 
     @staticmethod
     def generate_collection_name(user_id: str, cert_id: str, bundle_version: str) -> str:
