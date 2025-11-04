@@ -572,26 +572,44 @@ async def process_file_background(
     cert_name: str
 ):
     """Background task to process uploaded file"""
+    print("="*80)
+    print("🔄 BACKGROUND PROCESSING STARTED")
+    print(f"   File ID: {file_metadata.file_id}")
+    print(f"   Filename: {file_metadata.original_filename}")
+    print(f"   Cert ID: {cert_id}")
+    print(f"   Bundle Version: {bundle_version}")
+    print("="*80)
+
     try:
+        print("📊 Step 1: Getting ChromaDB manager...")
         manager = get_chroma_manager()
+        print("✅ ChromaDB manager obtained")
+
         user_id = file_metadata.user_id or ""
+        print(f"👤 User ID: {user_id or '(empty)'}")
 
         # Ensure the target collection exists before processing
+        print("📦 Step 2: Checking/creating collection...")
         try:
-            manager.get_collection(
+            collection = manager.get_collection(
                 user_id=user_id,
                 cert_id=cert_id,
                 bundle_version=bundle_version
             )
-        except Exception:
+            print(f"✅ Collection found: {collection.name}")
+        except Exception as get_error:
+            print(f"⚠️  Collection not found: {get_error}")
+            print(f"🔨 Creating new collection...")
             try:
-                manager.create_collection(
+                collection = manager.create_collection(
                     user_id=user_id,
                     cert_id=cert_id,
                     cert_name=cert_name,
                     bundle_version=bundle_version
                 )
+                print(f"✅ Collection created: {collection.name}")
             except Exception as create_error:
+                print(f"❌ Failed to create collection: {create_error}")
                 file_registry.update_file_status(
                     file_metadata.file_id,
                     "failed",
@@ -600,6 +618,7 @@ async def process_file_background(
                 )
                 return
 
+        print("🔄 Step 3: Processing file and creating embeddings...")
         result = await file_upload_service.process_uploaded_file(
             file_metadata=file_metadata,
             cert_id=cert_id,
@@ -607,8 +626,10 @@ async def process_file_background(
             collection_manager=manager,
             domain_mappings=domain_mappings
         )
+        print(f"✅ File processing completed: success={result.success}, chunks={result.chunk_count}")
 
         # Update file registry with results
+        print("💾 Step 4: Updating file status...")
         if result.success:
             file_registry.update_file_status(
                 file_metadata.file_id,
@@ -616,6 +637,7 @@ async def process_file_background(
                 None,
                 chunk_count=result.chunk_count
             )
+            print(f"✅ Status updated to 'completed' with {result.chunk_count} chunks")
         else:
             file_registry.update_file_status(
                 file_metadata.file_id,
@@ -623,14 +645,28 @@ async def process_file_background(
                 result.error_message,
                 chunk_count=result.chunk_count
             )
+            print(f"❌ Status updated to 'failed': {result.error_message}")
+
+        print("="*80)
+        print(f"{'✅ SUCCESS' if result.success else '❌ FAILED'}: Background processing complete")
+        print("="*80)
 
     except Exception as e:
+        print(f"❌ BACKGROUND PROCESSING EXCEPTION: {type(e).__name__}")
+        print(f"❌ Error message: {str(e)}")
+        import traceback
+        print("❌ Traceback:")
+        traceback.print_exc()
+
         file_registry.update_file_status(
             file_metadata.file_id,
             "failed",
             str(e),
             chunk_count=0
         )
+        print("="*80)
+        print("❌ FAILURE: Background processing failed with exception")
+        print("="*80)
 
 
 # Health check endpoints
