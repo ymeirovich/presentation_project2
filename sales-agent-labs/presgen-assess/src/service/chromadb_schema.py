@@ -8,66 +8,15 @@ for certification-specific RAG knowledge bases using ChromaDB.
 import hashlib
 import json
 import logging
-import math
 import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Literal
 from pydantic import BaseModel, Field, validator
 from enum import Enum
 import chromadb
-# ✅ FIX: Import OpenAI for consistent embedding function
-from openai import OpenAI
+
 from src.common.config import settings
-
-# ✅ FIX: OpenAI embedding function (same as embeddings.py for consistency)
-class OpenAIEmbeddingFunctionV1:
-    """Custom OpenAI embedding function compatible with OpenAI v1.0+ API."""
-
-    def __init__(self, api_key: str, model_name: str = "text-embedding-3-small"):
-        """Initialize with OpenAI client."""
-        self.model_name = model_name
-        self.client = None
-
-        if api_key:
-            try:
-                self.client = OpenAI(api_key=api_key)
-            except Exception as exc:  # pragma: no cover - defensive
-                logging.getLogger(__name__).warning(
-                    "⚠️ OpenAI client initialization failed (%s). Using simple fallback embeddings.",
-                    exc
-                )
-
-    def __call__(self, input_texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for input texts."""
-        if self.client is None:
-            return [self._simple_embedding(text) for text in input_texts]
-
-        try:
-            response = self.client.embeddings.create(
-                input=input_texts,
-                model=self.model_name
-            )
-            return [data.embedding for data in response.data]
-        except Exception as e:
-            logging.getLogger(__name__).warning(
-                "⚠️ OpenAI embedding failed (%s). Falling back to simple embeddings.",
-                e
-            )
-            return [self._simple_embedding(text) for text in input_texts]
-
-    @staticmethod
-    def _simple_embedding(text: str, dim: int = 128) -> List[float]:
-        """Generate deterministic hash-based embeddings for offline fallback."""
-        vector = [0.0] * dim
-        if not text:
-            return vector
-
-        encoded = text.encode("utf-8", errors="ignore")
-        for idx, byte in enumerate(encoded):
-            vector[idx % dim] += byte / 255.0
-
-        norm = math.sqrt(sum(v * v for v in vector)) or 1.0
-        return [v / norm for v in vector]
+from src.common.embeddings import OpenAIEmbeddingFunctionV1
 
 
 class ResourceType(str, Enum):

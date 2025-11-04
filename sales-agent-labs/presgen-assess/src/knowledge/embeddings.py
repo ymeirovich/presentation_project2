@@ -3,71 +3,19 @@
 import asyncio
 import hashlib
 import logging
-import math
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from uuid import uuid4
 
 import chromadb
 from chromadb.config import Settings
-from openai import OpenAI
 
 from src.common.config import settings
+from src.common.embeddings import OpenAIEmbeddingFunctionV1
 from src.common.logging_config import get_assessment_logger
 
 # ✅ FIX: Use assessment logger so logs appear in assessments.log and combined log
 logger = get_assessment_logger()
-
-
-class OpenAIEmbeddingFunctionV1:
-    """Custom OpenAI embedding function compatible with OpenAI v1.0+ API."""
-
-    def __init__(self, api_key: str, model_name: str = "text-embedding-3-small"):
-        """Initialize with OpenAI client."""
-        self.client = None
-        self.model_name = model_name
-        self._fallback = None
-
-        if api_key:
-            try:
-                self.client = OpenAI(api_key=api_key)
-            except Exception as exc:  # pragma: no cover - defensive
-                logger.warning(
-                    "⚠️ OpenAI client initialization failed (%s). Falling back to default embeddings.",
-                    exc
-                )
-
-    def __call__(self, input_texts: List[str]) -> List[List[float]]:
-        """Generate embeddings for input texts."""
-        if self.client is None:
-            return [self._simple_embedding(text) for text in input_texts]
-
-        try:
-            response = self.client.embeddings.create(
-                input=input_texts,
-                model=self.model_name
-            )
-            return [data.embedding for data in response.data]
-        except Exception as e:
-            logger.warning(
-                "⚠️ OpenAI embedding failed (%s). Falling back to default embedding function.",
-                e
-            )
-            return [self._simple_embedding(text) for text in input_texts]
-
-    @staticmethod
-    def _simple_embedding(text: str, dim: int = 128) -> List[float]:
-        """Generate a deterministic hash-based embedding as a fallback."""
-        vector = [0.0] * dim
-        if not text:
-            return vector
-
-        encoded = text.encode("utf-8", errors="ignore")
-        for idx, byte in enumerate(encoded):
-            vector[idx % dim] += (byte / 255.0)
-
-        norm = math.sqrt(sum(v * v for v in vector)) or 1.0
-        return [v / norm for v in vector]
 
 
 class VectorDatabaseManager:
@@ -164,10 +112,24 @@ class VectorDatabaseManager:
             for collection in all_collections:
                 if collection.name.startswith(target_prefix):
                     logger.info(f"✅ Found matching collection: {collection.name}")
-                    # ⚠️ IMPORTANT: Do NOT attach embedding_function to existing collections
-                    # created by ChromaDBCollectionManager. They already have their own
-                    # embedding function and attaching a different one causes segfaults.
-                    return collection
+                    # CRITICAL: We must attach the correct embedding function for queries
+                    # The collection was created with OpenAIEmbeddingFunctionV1, so we
+                    # attach the same embedding function type here
+                    try:
+                        collection_with_embed = self.client.get_collection(
+                            name=collection.name,
+                            embedding_function=self.embedding_function
+                        )
+                        logger.info(f"✅ Successfully attached embedding function to {collection.name}")
+                        return collection_with_embed
+                    except Exception as exc:
+                        logger.error(
+                            f"❌ Failed to attach embedding function to {collection.name}: {exc}"
+                        )
+                        # Return collection without embedding function as fallback
+                        # This will use default embeddings (384 dim) and may fail queries
+                        logger.warning(f"⚠️ Returning collection without embedding function - queries may fail")
+                        return collection
 
             logger.warning(f"⚠️ No collection found with prefix {target_prefix}")
         except Exception as exc:
