@@ -31,7 +31,7 @@ class Settings:
         "DATABASE_URL",
         "postgresql+asyncpg://presgen_assess_user:secure_password@localhost:5432/presgen_assess",
     )
-    chroma_db_path: str = os.getenv("CHROMA_DB_PATH", "./knowledge-base/embeddings")
+    chroma_db_path: str = os.getenv("CHROMA_DB_PATH", "data/chroma")
 
     # OpenAI API Configuration
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "test-key")
