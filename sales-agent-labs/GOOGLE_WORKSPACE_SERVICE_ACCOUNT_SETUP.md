@@ -156,7 +156,7 @@ Based on your previous work, you should already have:
 
 4. **Save Folder ID**
    ```bash
-   DRIVE_FOLDER_ID=1a2b3c4d5e6f7g8h9i0j
+   DRIVE_FOLDER_ID=14eRckmEzL-4FgXU4mn3u3-EP2GKNJX2p
    ```
 
 ### Alternative: Share with Entire Domain (Optional)

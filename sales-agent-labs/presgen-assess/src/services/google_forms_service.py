@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 try:
@@ -442,3 +443,93 @@ class GoogleFormsService:
         except Exception as e:
             logger.warning(f"⚠️ Could not move form {form_id} to folder: {e}")
             print(f"⚠️ Could not move to folder: {e}")
+
+    async def upload_video_to_drive(
+        self,
+        video_path: str,
+        filename: str,
+        folder_id: str,
+    ) -> str:
+        """Upload a video file to Google Drive and return public download link.
+
+        Args:
+            video_path: Local path to the video file
+            filename: Name for the file in Google Drive
+            folder_id: Google Drive folder ID to upload to
+
+        Returns:
+            Public download URL for the uploaded video
+        """
+        from googleapiclient.http import MediaFileUpload
+
+        local_path = Path(video_path)
+        file_size = local_path.stat().st_size if local_path.exists() else None
+        logger.info(
+            "drive.video_upload.start | filename=%s | folder_id=%s | local_path=%s | size_bytes=%s",
+            filename,
+            folder_id,
+            video_path,
+            file_size,
+        )
+
+        try:
+            # Upload the file
+            async def _upload_file():
+                file_metadata = {
+                    'name': filename,
+                    'parents': [folder_id],
+                    'mimeType': 'video/mp4'
+                }
+
+                media = MediaFileUpload(
+                    video_path,
+                    mimetype='video/mp4',
+                    resumable=True
+                )
+
+                request = self.drive_service.files().create(
+                    body=file_metadata,
+                    media_body=media,
+                    fields='id, webViewLink, webContentLink'
+                )
+                return request.execute()
+
+            file_data = await self.error_handler.execute_with_retry(_upload_file)
+            file_id = file_data.get('id')
+
+            logger.info(
+                "drive.video_upload.complete | filename=%s | file_id=%s | folder_id=%s",
+                filename,
+                file_id,
+                folder_id,
+            )
+
+            # Set public access (Anyone with Link can view/download)
+            async def _set_public_permission():
+                permission = {
+                    'type': 'anyone',
+                    'role': 'reader',  # Allow anyone to view/download
+                }
+                request = self.drive_service.permissions().create(
+                    fileId=file_id,
+                    body=permission,
+                    fields='id'
+                )
+                return request.execute()
+
+            await self.error_handler.execute_with_retry(_set_public_permission)
+            logger.info("drive.video_upload.permission_granted | file_id=%s", file_id)
+
+            # Return the download link
+            download_url = f"https://drive.google.com/uc?export=download&id={file_id}"
+            logger.info(
+                "drive.video_upload.download_url | file_id=%s | url=%s",
+                file_id,
+                download_url,
+            )
+
+            return download_url
+
+        except Exception as e:
+            logger.error("❌ Failed to upload video to Drive: %s", e, exc_info=True)
+            raise

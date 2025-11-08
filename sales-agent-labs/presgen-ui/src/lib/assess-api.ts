@@ -29,8 +29,6 @@ import {
   GapAnalysisSummarySchema,
   CourseGenerationResponse,
   CourseGenerationResponseSchema,
-  CourseStatusResponse,
-  CourseStatusResponseSchema,
 } from '@/lib/assess-schemas'
 
 // Use Next.js API routes as proxy to PresGen-Assess backend
@@ -387,23 +385,24 @@ export async function fetchGeneratedCourses(workflowId: string): Promise<CourseG
 
 export async function fetchCourseStatus(
   workflowId: string,
-  courseId: string
-): Promise<CourseStatusResponse> {
+  skillId: string
+): Promise<CourseGenerationResponse> {
   const startedAt = Date.now()
   const response = await fetch(
-    buildUrl(`/workflows/${workflowId}/courses/${courseId}/status`),
+    buildUrl(`/workflows/${workflowId}/skills/${skillId}/course-status`),
     {
       headers: getHeaders(),
       cache: 'no-store',
     }
   )
 
-  const result = await parseResponse<CourseStatusResponse>(response, CourseStatusResponseSchema)
+  const result = await parseResponse<CourseGenerationResponse>(response, CourseGenerationResponseSchema)
   console.info(
     JSON.stringify({
       scope: 'ui.courseStatus',
       workflowId,
-      courseId,
+      skillId,
+      courseId: result.course_id,
       status: result.status,
       progress: result.progress,
       duration_ms: Date.now() - startedAt,

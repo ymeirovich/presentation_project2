@@ -289,6 +289,7 @@ class CourseGenerationResponse(BaseModel):
     course_title: Optional[str] = None
     presentation_url: Optional[str] = None
     video_url: Optional[str] = None
+    drive_download_url: Optional[str] = None  # Public Google Drive download link
     presgen_core_job_id: Optional[str] = None
     presgen_core_download_url: Optional[str] = None
     presgen_avatar_job_id: Optional[str] = None

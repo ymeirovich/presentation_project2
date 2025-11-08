@@ -105,6 +105,28 @@ services:
       retries: 3
       start_period: 60s
 
+  # ===== PresGen Avatar (Video Generation Stub) =====
+  presgen-avatar:
+    build:
+      context: .
+      dockerfile: ./presgen-avatar/Dockerfile
+    container_name: presgen-avatar
+    restart: unless-stopped
+    environment:
+      - PORT=8002
+      - AVATAR_PUBLIC_BASE_URL=http://presgen-avatar:8002
+      - AVATAR_SIM_DELAY_SECONDS=4
+    volumes:
+      - ./presgen-avatar/assets:/app/assets:ro
+    networks:
+      - presgen-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8002/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
   # ===== PresGen Assess (Assessment API) =====
   presgen-assess:
     build:
@@ -125,6 +147,7 @@ services:
       # Service URLs
       - PRESGEN_CORE_URL=http://presgen-core:8080
       - PRESGEN_ASSESS_URL=http://presgen-assess:8000
+      - PRESGEN_AVATAR_URL=http://presgen-avatar:8002
 
       # Google Cloud (Service Account Only - OAuth disabled)
       - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-presgen}
@@ -149,6 +172,10 @@ services:
 
       # Performance
       - WORKERS=1
+      # Rate limiting (overrides .env defaults)
+      - ENABLE_RATE_LIMITING=${ENABLE_RATE_LIMITING:-false}
+      - RATE_LIMIT_CALLS=${RATE_LIMIT_CALLS:-1000}
+      - RATE_LIMIT_WINDOW_MINUTES=${RATE_LIMIT_WINDOW_MINUTES:-15}
     volumes:
       - ./data/assess:/app/data
       - ./logs/assess:/app/logs
@@ -158,6 +185,8 @@ services:
     depends_on:
       presgen-core:
         condition: service_healthy
+      presgen-avatar:
+        condition: service_started
       redis:
         condition: service_healthy
     mem_limit: 500m

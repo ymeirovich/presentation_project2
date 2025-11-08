@@ -156,7 +156,18 @@ export function GapAnalysisDashboard({
     clearPollTimer(skillId)
     const timerId = window.setTimeout(async () => {
       try {
-        const status = await fetchCourseStatus(workflowId, courseId)
+        console.info('[GapAnalysisDashboard] Polling course status', { workflowId, skillId, courseId, attempt })
+        const status = await fetchCourseStatus(workflowId, skillId)
+        console.info('[GapAnalysisDashboard] Course status response', {
+          workflowId,
+          skillId,
+          courseId: status.course_id ?? courseId,
+          attempt,
+          status: status.status,
+          progress: status.progress,
+          hasVideoUrl: Boolean(status.video_url),
+          hasDriveLink: Boolean(status.drive_download_url),
+        })
 
         const progressValue = status.status === 'completed' ? 100 : status.progress ?? 0
         setCourseProgress(prev => ({ ...prev, [skillId]: progressValue }))
@@ -174,6 +185,13 @@ export function GapAnalysisDashboard({
           if (typeof status.video_url === 'string' && status.video_url.length > 0) {
             setCourseVideos(prev => ({ ...prev, [skillId]: status.video_url as string }))
           }
+          console.info('[GapAnalysisDashboard] Course generation completed', {
+            workflowId,
+            skillId,
+            courseId: status.course_id ?? courseId,
+            videoUrl: status.video_url,
+            driveDownloadUrl: status.drive_download_url,
+          })
           toast.success('Course generated!')
           return
         }
@@ -181,6 +199,12 @@ export function GapAnalysisDashboard({
         if (status.status === 'failed') {
           clearPollTimer(skillId)
           setGeneratingCourseId(current => (current === skillId ? null : current))
+          console.warn('[GapAnalysisDashboard] Course generation failed', {
+            workflowId,
+            skillId,
+            courseId: status.course_id ?? courseId,
+            error: status.error_message,
+          })
           toast.error(status.error_message || 'Course generation failed')
           return
         }
@@ -188,6 +212,13 @@ export function GapAnalysisDashboard({
         if (attempt + 1 >= MAX_ATTEMPTS) {
           clearPollTimer(skillId)
           setGeneratingCourseId(current => (current === skillId ? null : current))
+          console.warn('[GapAnalysisDashboard] Course generation timed out', {
+            workflowId,
+            skillId,
+            courseId: status.course_id ?? courseId,
+            lastKnownStatus: status.status,
+            lastKnownProgress: status.progress,
+          })
           toast.error('Timed out waiting for course generation to finish')
           return
         }
@@ -212,6 +243,7 @@ export function GapAnalysisDashboard({
     if (!workflowId) return
 
     clearPollTimer(skillId)
+    console.info('[GapAnalysisDashboard] Generate Course clicked', { workflowId, skillId })
     setGeneratingCourseId(skillId)
     setCourseProgress(prev => ({ ...prev, [skillId]: 0 }))
     setCourseVideos(prev => {
@@ -222,6 +254,13 @@ export function GapAnalysisDashboard({
 
     try {
       const response = await generateSkillCourse(workflowId, skillId)
+      console.info('[GapAnalysisDashboard] Generate Course response', {
+        workflowId,
+        skillId,
+        status: response.status,
+        courseId: response.course_id,
+        progress: response.progress,
+      })
       const initialProgress = response.status === 'completed' ? 100 : response.progress ?? 0
       setCourseProgress(prev => ({ ...prev, [skillId]: initialProgress }))
       setRecommendedCourses(prev =>

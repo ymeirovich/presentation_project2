@@ -3216,6 +3216,55 @@ Narration should be conversational and ≤ 75 seconds per slide."""
         )
         raise HTTPException(status_code=502, detail="Failed to create Google Slides presentation") from exc
 
+    # IMPORTANT: Return immediately to avoid 504 timeout
+    # PresGen-Core and Avatar processing will happen in the polling endpoint
+    course.status = "pending_core_processing"
+    course.progress = 25
+    await db.commit()
+    await db.refresh(course)
+
+    log_course_event(
+        "COURSE_GENERATION_QUEUED",
+        workflow_id=workflow_id_str,
+        course_id=course_id,
+        presentation_url=course.presentation_url,
+    )
+
+    logger.info("=" * 80)
+    logger.info("✅ COURSE GENERATION QUEUED - RETURNING IMMEDIATELY")
+    logger.info("🎯 Presentation created successfully")
+    logger.info("  • Workflow ID: %s", workflow_id_str)
+    logger.info("  • Course ID: %s", course_id)
+    logger.info("  • Status: %s", course.status)
+    logger.info("  • Progress: %s%%", course.progress)
+    logger.info("  • Presentation URL: %s", course.presentation_url)
+    logger.info("⏳ Frontend should poll /course-status endpoint for progress")
+    logger.info("=" * 80)
+
+    return CourseGenerationResponse(
+        course_id=course.id,
+        workflow_id=workflow_id_str,
+        skill_id=skill_id,
+        skill_name=skill_course.skill_name,
+        course_title=course.course_title,
+        presentation_url=course.presentation_url,
+        video_url=None,
+        drive_download_url=None,
+        presgen_core_job_id=None,
+        presgen_core_download_url=None,
+        presgen_avatar_job_id=None,
+        local_video_path=None,
+        status=course.status,
+        progress=course.progress,
+        created_at=course.created_at,
+        updated_at=course.updated_at,
+        completed_at=None,
+    )
+
+    # Everything below this point is now handled by the polling endpoint
+    # Keeping the code commented for reference
+    if False:
+        pass
     # 5. Call PresGen-Core for presentation
     presgen_core = PresGenCoreClient(base_url=os.getenv("PRESGEN_CORE_URL"))
 
@@ -3580,40 +3629,21 @@ Narration should be conversational and ≤ 75 seconds per slide."""
             status=avatar_result.status,
         )
 
+        # IMPORTANT: Do NOT poll for completion here to avoid 504 Gateway Timeout
+        # The frontend will poll the status endpoint to check progress
+        # Video upload to Drive happens in a background task/separate endpoint
         final_status = avatar_result
-        if avatar_api_mode != "course" and avatar_result.status not in {"completed", "failed"}:
-            final_status = await avatar_client.poll_until_complete(avatar_result.job_id)
-            log_course_event(
-                "PRESGEN_AVATAR_PROGRESS",
-                workflow_id=workflow_id_str,
-                job_id=avatar_result.job_id,
-                status=final_status.status,
-                progress=final_status.progress,
-            )
 
-        if avatar_api_mode == "course":
-            if final_status.status == "failed":
-                course.status = "failed"
-                course.progress = final_status.progress or course.progress
-                course.error_message = final_status.error_message or "PresGen-Avatar generation failed"
-                await db.commit()
-                await db.refresh(course)
+        log_course_event(
+            "PRESGEN_AVATAR_JOB_QUEUED",
+            workflow_id=workflow_id_str,
+            job_id=avatar_result.job_id,
+            status=avatar_result.status,
+            progress=avatar_result.progress,
+        )
 
-                log_course_event(
-                    "COURSE_GENERATION_FAILED",
-                    workflow_id=workflow_id_str,
-                    job_id=avatar_result.job_id,
-                    error=course.error_message,
-                )
-
-                raise HTTPException(status_code=502, detail="PresGen-Avatar generation failed")
-
-            course.progress = final_status.progress or course.progress
-            if final_status.video_url and not course.video_url:
-                course.video_url = str(final_status.video_url)
-            await db.commit()
-            await db.refresh(course)
-        elif final_status.status == "failed":
+        # Handle failure status
+        if final_status.status == "failed":
             course.status = "failed"
             course.progress = final_status.progress or course.progress
             course.error_message = final_status.error_message or "PresGen-Avatar generation failed"
@@ -3629,7 +3659,57 @@ Narration should be conversational and ≤ 75 seconds per slide."""
 
             raise HTTPException(status_code=502, detail="PresGen-Avatar generation failed")
 
-        if avatar_api_mode != "course":
+        # Update course status - video generation is in progress
+        course.status = "generating_video"
+        course.progress = final_status.progress or 70
+        await db.commit()
+        await db.refresh(course)
+
+        # NOTE: Video download and Drive upload will happen asynchronously
+        # The frontend should poll the course status endpoint to check for completion
+        # A background worker or webhook will handle:
+        #   1. Polling avatar service until complete
+        #   2. Downloading the video locally
+        #   3. Uploading to Google Drive
+        #   4. Updating course.drive_download_url and course.status = "completed"
+
+        logger.info(
+            "=" * 80
+        )
+        logger.info(
+            "✅ COURSE GENERATION STARTED SUCCESSFULLY"
+        )
+        logger.info(
+            "🎯 generate_course_pipeline | stage=avatar_queued | workflow_id=%s | skill_id=%s | course_id=%s | job_id=%s",
+            workflow_id,
+            skill_id,
+            course_id,
+            avatar_result.job_id,
+        )
+        logger.info(
+            "📊 Course Status:"
+        )
+        logger.info(
+            "  • Status: %s", course.status
+        )
+        logger.info(
+            "  • Progress: %s%%", course.progress
+        )
+        logger.info(
+            "  • Avatar Job ID: %s", course.presgen_avatar_job_id
+        )
+        logger.info(
+            "  • Presentation URL: %s", course.presentation_url
+        )
+        logger.info(
+            "⏳ Video generation in progress - poll status endpoint for updates"
+        )
+        logger.info(
+            "=" * 80
+        )
+
+        # Skip video download for now - return immediately to avoid timeout
+        if False and avatar_api_mode != "course":
             job_output_dir = settings.avatar_output_dir / workflow_id_str / "jobs" / course_id
             job_output_dir.mkdir(parents=True, exist_ok=True)
             output_filename = f"avatar-{skill_slug}-{course_id}.mp4"
@@ -3868,6 +3948,7 @@ Narration should be conversational and ≤ 75 seconds per slide."""
         course_title=course.course_title,
         presentation_url=course.presentation_url,
         video_url=course.video_url,
+        drive_download_url=getattr(course, 'drive_download_url', None),  # Public Drive download link
         presgen_core_job_id=course.presgen_core_job_id,
         presgen_core_download_url=course.presgen_core_download_url,
         presgen_avatar_job_id=course.presgen_avatar_job_id,
@@ -3878,6 +3959,626 @@ Narration should be conversational and ≤ 75 seconds per slide."""
         updated_at=course.updated_at,
         completed_at=course.completed_at,
     )
+
+
+@router.get(
+    "/{workflow_id}/skills/{skill_id}/course-status",
+    response_model=CourseGenerationResponse,
+    summary="Poll course generation status",
+    description="Poll avatar service for completion and handle video upload to Drive"
+)
+async def poll_course_status(
+    workflow_id: UUID,
+    skill_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Poll course generation status and handle completion.
+
+    Processing pipeline:
+    1. If pending_core_processing: Call PresGen-Core
+    2. If generating_presentation: Check Core status
+    3. If pending_avatar: Call PresGen-Avatar
+    4. If generating_video: Check Avatar status
+    5. When complete: Download video, upload to Drive
+    """
+    from src.integrations.presgen_avatar.client import PresGenAvatarClient, CircuitOpenError as AvatarCircuitOpenError
+    from src.integrations.presgen_core.client import PresGenCoreClient, CircuitOpenError as CoreCircuitOpenError
+    from src.integrations.presgen_core.schemas import PresGenPresentationRequest
+    from src.services.google_forms_service import GoogleFormsService
+    from pathlib import Path
+    import shutil
+    import httpx
+
+    workflow_id_str = str(workflow_id)
+    workflow_id_normalized = workflow_id.hex
+
+    # Fetch course and workflow records
+    result = await db.execute(
+        select(GeneratedCourse).where(
+            and_(
+                GeneratedCourse.workflow_id == workflow_id_normalized,
+                GeneratedCourse.skill_id == skill_id
+            )
+        )
+    )
+    course = result.scalar_one_or_none()
+    if not course:
+        raise HTTPException(status_code=404, detail="Course not found")
+
+    # Fetch workflow for metadata
+    workflow_result = await db.execute(
+        select(WorkflowExecution).where(WorkflowExecution.id == workflow_id)
+    )
+    workflow = workflow_result.scalar_one_or_none()
+    if not workflow:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+
+    # Fetch skill course for metadata
+    skill_result = await db.execute(
+        select(RecommendedCourse).where(
+            and_(
+                RecommendedCourse.workflow_id == workflow_id,
+                RecommendedCourse.skill_id == skill_id
+            )
+        ).order_by(RecommendedCourse.recommended_at.desc())
+    )
+    skill_course = skill_result.scalars().first()
+    if not skill_course:
+        raise HTTPException(status_code=404, detail="Skill not found")
+
+    # Get certification profile for custom prompt
+    cert_result = await db.execute(
+        select(CertificationProfile).where(
+            CertificationProfile.id == workflow.certification_profile_id
+        )
+    )
+    cert_profile = cert_result.scalar_one_or_none()
+    custom_prompt = cert_profile.presentation_prompt if cert_profile else None
+
+    logger.info(
+        "📡 course_status_poll | workflow_id=%s | skill_id=%s | course_id=%s | status=%s | progress=%s",
+        workflow_id_str,
+        skill_id,
+        course.id,
+        course.status,
+        course.progress,
+    )
+    log_course_event(
+        "COURSE_STATUS_POLL",
+        workflow_id=workflow_id_str,
+        skill_id=skill_id,
+        course_id=course.id,
+        status=course.status,
+        progress=course.progress,
+    )
+
+    # Step 1: If pending Core processing, call PresGen-Core
+    if course.status == "pending_core_processing":
+        logger.info(
+            "🧠 PresGen-Core processing starting | workflow_id=%s | course_id=%s | skill_id=%s | presentation_url=%s",
+            workflow_id_str,
+            course.id,
+            skill_id,
+            course.presentation_url,
+        )
+        log_course_event(
+            "CORE_ASYNC_START",
+            workflow_id=workflow_id_str,
+            skill_id=skill_id,
+            course_id=course.id,
+            presentation_url=course.presentation_url,
+        )
+
+        presgen_core = PresGenCoreClient(base_url=os.getenv("PRESGEN_CORE_URL"))
+
+        try:
+            core_response = await presgen_core.generate_presentation(
+                PresGenPresentationRequest(
+                    skill=skill_course.skill_name,
+                    domain=skill_course.exam_domain,
+                    target_duration_minutes=10,
+                    custom_prompt=custom_prompt,
+                    presentation_url=course.presentation_url,
+                    content_text=skill_course.course_description,
+                    metadata={
+                        "workflow_id": workflow_id_str,
+                        "skill_id": skill_id,
+                    },
+                )
+            )
+
+            # Update course with Core results
+            course.presgen_core_job_id = core_response.job_id
+            course.presgen_core_download_url = core_response.download_url
+            if core_response.duration_ms:
+                course.presgen_core_processing_time_ms = core_response.duration_ms
+
+            if core_response.presentation_url:
+                course.presentation_url = core_response.presentation_url
+
+            logger.info(
+                "🧠 PresGen-Core completed | workflow_id=%s | course_id=%s | skill_id=%s | job_id=%s | download_url=%s",
+                workflow_id_str,
+                course.id,
+                skill_id,
+                course.presgen_core_job_id,
+                course.presgen_core_download_url,
+            )
+            log_course_event(
+                "CORE_ASYNC_COMPLETED",
+                workflow_id=workflow_id_str,
+                skill_id=skill_id,
+                course_id=course.id,
+                job_id=course.presgen_core_job_id,
+                download_url=course.presgen_core_download_url,
+            )
+
+            if not core_response.success or core_response.error:
+                course.status = "failed"
+                course.error_message = core_response.error or "PresGen-Core reported failure"
+                await db.commit()
+                await db.refresh(course)
+                await presgen_core.close()
+                return CourseGenerationResponse(
+                    course_id=course.id,
+                    workflow_id=workflow_id_str,
+                    skill_id=skill_id,
+                    skill_name=skill_course.skill_name,
+                    course_title=course.course_title,
+                    presentation_url=course.presentation_url,
+                    video_url=None,
+                    drive_download_url=None,
+                    presgen_core_job_id=course.presgen_core_job_id,
+                    presgen_core_download_url=course.presgen_core_download_url,
+                    presgen_avatar_job_id=None,
+                    local_video_path=None,
+                    status=course.status,
+                    progress=course.progress,
+                    created_at=course.created_at,
+                    updated_at=course.updated_at,
+                    completed_at=None,
+                )
+
+            # Core succeeded, move to Avatar
+            course.status = "pending_avatar"
+            course.progress = 50
+            await db.commit()
+            await db.refresh(course)
+            await presgen_core.close()
+
+            logger.info(f"✅ PresGen-Core completed - moving to Avatar")
+            log_course_event(
+                "CORE_ASYNC_NEXT_STEP_AVATAR",
+                workflow_id=workflow_id_str,
+                skill_id=skill_id,
+                course_id=course.id,
+            )
+
+        except Exception as e:
+            await presgen_core.close()
+            logger.exception(
+                "❌ PresGen-Core failed | workflow_id=%s | course_id=%s | skill_id=%s",
+                workflow_id_str,
+                course.id,
+                skill_id,
+            )
+            log_course_event(
+                "CORE_ASYNC_FAILED",
+                workflow_id=workflow_id_str,
+                skill_id=skill_id,
+                course_id=course.id,
+                error=str(e),
+            )
+            course.status = "failed"
+            course.error_message = f"PresGen-Core failed: {str(e)}"
+            await db.commit()
+            await db.refresh(course)
+            raise HTTPException(status_code=502, detail="PresGen-Core generation failed")
+
+    # Step 2: If pending Avatar, call PresGen-Avatar
+    if course.status == "pending_avatar":
+        logger.info(
+            "🎤 PresGen-Avatar submission starting | workflow_id=%s | course_id=%s | skill_id=%s | presentation_url=%s",
+            workflow_id_str,
+            course.id,
+            skill_id,
+            course.presentation_url,
+        )
+        log_course_event(
+            "AVATAR_SUBMISSION_START",
+            workflow_id=workflow_id_str,
+            skill_id=skill_id,
+            course_id=course.id,
+            presentation_url=course.presentation_url,
+        )
+
+        avatar_client = PresGenAvatarClient(base_url=os.getenv("PRESGEN_AVATAR_URL"))
+
+        try:
+            avatar_result = await avatar_client.generate_video(
+                workflow_id=workflow_id_str,
+                skill_id=skill_id,
+                presentation_url=course.presentation_url,
+                mode="presentation-only",
+                quality="fast",
+                voice_provider="openai",
+                voice_id="alloy",
+            )
+
+            course.presgen_avatar_job_id = avatar_result.job_id
+            course.status = "generating_video"
+            course.progress = 60
+            await db.commit()
+            await db.refresh(course)
+            await avatar_client.close()
+
+            logger.info(
+                "🎤 PresGen-Avatar job queued | workflow_id=%s | course_id=%s | skill_id=%s | job_id=%s",
+                workflow_id_str,
+                course.id,
+                skill_id,
+                avatar_result.job_id,
+            )
+            log_course_event(
+                "AVATAR_JOB_QUEUED",
+                workflow_id=workflow_id_str,
+                skill_id=skill_id,
+                course_id=course.id,
+                job_id=avatar_result.job_id,
+            )
+
+        except Exception as e:
+            await avatar_client.close()
+            logger.exception(
+                "❌ PresGen-Avatar failed | workflow_id=%s | course_id=%s | skill_id=%s",
+                workflow_id_str,
+                course.id,
+                skill_id,
+            )
+            log_course_event(
+                "AVATAR_SUBMISSION_FAILED",
+                workflow_id=workflow_id_str,
+                skill_id=skill_id,
+                course_id=course.id,
+                error=str(e),
+            )
+            course.status = "failed"
+            course.error_message = f"PresGen-Avatar failed: {str(e)}"
+            await db.commit()
+            await db.refresh(course)
+            raise HTTPException(status_code=502, detail="PresGen-Avatar generation failed")
+
+    # If already completed, just return the current status
+    if course.status == "completed" and course.drive_download_url:
+        return CourseGenerationResponse(
+            course_id=course.id,
+            workflow_id=workflow_id_str,
+            skill_id=skill_id,
+            skill_name=course.skill_name,
+            course_title=course.course_title,
+            presentation_url=course.presentation_url,
+            video_url=course.video_url,
+            drive_download_url=course.drive_download_url,
+            presgen_core_job_id=course.presgen_core_job_id,
+            presgen_core_download_url=course.presgen_core_download_url,
+            presgen_avatar_job_id=course.presgen_avatar_job_id,
+            local_video_path=course.local_video_path,
+            status=course.status,
+            progress=course.progress,
+            created_at=course.created_at,
+            updated_at=course.updated_at,
+            completed_at=course.completed_at,
+        )
+
+    # Check avatar job status
+    if not course.presgen_avatar_job_id:
+        raise HTTPException(status_code=400, detail="No avatar job ID found")
+
+    avatar_client = PresGenAvatarClient(base_url=os.getenv("PRESGEN_AVATAR_URL"))
+
+    try:
+        # Poll avatar service for status
+        avatar_status = await avatar_client.get_job_status(course.presgen_avatar_job_id)
+
+        # Update progress
+        course.progress = avatar_status.progress or course.progress
+
+        logger.info(
+            "📊 Avatar job polled | workflow_id=%s | course_id=%s | job_id=%s | status=%s | progress=%s",
+            workflow_id_str,
+            course.id,
+            course.presgen_avatar_job_id,
+            avatar_status.status,
+            avatar_status.progress,
+        )
+        log_course_event(
+            "AVATAR_JOB_POLLED",
+            workflow_id=workflow_id_str,
+            skill_id=skill_id,
+            course_id=course.id,
+            job_id=course.presgen_avatar_job_id,
+            status=avatar_status.status,
+            progress=avatar_status.progress,
+        )
+
+        # Handle failure
+        if avatar_status.status == "failed":
+            course.status = "failed"
+            course.error_message = avatar_status.error_message or "Avatar generation failed"
+            await db.commit()
+            await db.refresh(course)
+            logger.error(
+                "❌ Avatar job failed | workflow_id=%s | course_id=%s | job_id=%s | error=%s",
+                workflow_id_str,
+                course.id,
+                course.presgen_avatar_job_id,
+                course.error_message,
+            )
+            log_course_event(
+                "AVATAR_JOB_FAILED",
+                workflow_id=workflow_id_str,
+                skill_id=skill_id,
+                course_id=course.id,
+                job_id=course.presgen_avatar_job_id,
+                error=course.error_message,
+            )
+            return CourseGenerationResponse(
+                course_id=course.id,
+                workflow_id=workflow_id_str,
+                skill_id=skill_id,
+                skill_name=course.skill_name,
+                course_title=course.course_title,
+                presentation_url=course.presentation_url,
+                video_url=course.video_url,
+                drive_download_url=None,
+                presgen_core_job_id=course.presgen_core_job_id,
+                presgen_core_download_url=course.presgen_core_download_url,
+                presgen_avatar_job_id=course.presgen_avatar_job_id,
+                local_video_path=course.local_video_path,
+                status=course.status,
+                progress=course.progress,
+                created_at=course.created_at,
+                updated_at=course.updated_at,
+                completed_at=course.completed_at,
+            )
+
+        # If still in progress, return current status
+        if avatar_status.status not in {"completed"}:
+            course.status = "generating_video"
+            await db.commit()
+            await db.refresh(course)
+            logger.info(
+                "⏳ Avatar job still running | workflow_id=%s | course_id=%s | job_id=%s | status=%s | progress=%s",
+                workflow_id_str,
+                course.id,
+                course.presgen_avatar_job_id,
+                avatar_status.status,
+                avatar_status.progress,
+            )
+            log_course_event(
+                "AVATAR_JOB_IN_PROGRESS",
+                workflow_id=workflow_id_str,
+                skill_id=skill_id,
+                course_id=course.id,
+                job_id=course.presgen_avatar_job_id,
+                status=avatar_status.status,
+                progress=avatar_status.progress,
+            )
+            return CourseGenerationResponse(
+                course_id=course.id,
+                workflow_id=workflow_id_str,
+                skill_id=skill_id,
+                skill_name=course.skill_name,
+                course_title=course.course_title,
+                presentation_url=course.presentation_url,
+                video_url=course.video_url,
+                drive_download_url=None,
+                presgen_core_job_id=course.presgen_core_job_id,
+                presgen_core_download_url=course.presgen_core_download_url,
+                presgen_avatar_job_id=course.presgen_avatar_job_id,
+                local_video_path=course.local_video_path,
+                status=course.status,
+                progress=course.progress,
+                created_at=course.created_at,
+                updated_at=course.updated_at,
+                completed_at=course.completed_at,
+            )
+
+        # Video is complete! Download and upload to Drive
+        logger.info(
+            "✅ Avatar job completed - downloading and uploading to Drive | workflow_id=%s | course_id=%s | avatar_job_id=%s",
+            workflow_id_str,
+            course.id,
+            course.presgen_avatar_job_id,
+        )
+        log_course_event(
+            "AVATAR_JOB_COMPLETED",
+            workflow_id=workflow_id_str,
+            skill_id=skill_id,
+            course_id=course.id,
+            job_id=course.presgen_avatar_job_id,
+        )
+
+        # Download video
+        assessment_name_slug = _slugify_skill_name(course.skill_name)
+        domain_value = skill_course.exam_domain or course.skill_name
+        assessment_domain_slug = _slugify_skill_name(domain_value)
+        timestamp_str = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        output_filename = f"{assessment_name_slug}-{assessment_domain_slug}-{timestamp_str}.mp4"
+
+        job_output_dir = settings.avatar_output_dir / workflow_id_str / "jobs" / course.id
+        job_output_dir.mkdir(parents=True, exist_ok=True)
+        mp4_path = job_output_dir / output_filename
+
+        if avatar_status.video_url:
+            logger.info(
+                "📥 Downloading avatar video | workflow_id=%s | course_id=%s | source=%s | destination=%s",
+                workflow_id_str,
+                course.id,
+                avatar_status.video_url,
+                mp4_path,
+            )
+            log_course_event(
+                "VIDEO_DOWNLOAD_START",
+                workflow_id=workflow_id_str,
+                skill_id=skill_id,
+                course_id=course.id,
+                source=str(avatar_status.video_url),
+                destination=str(mp4_path),
+            )
+            if str(avatar_status.video_url).startswith("http"):
+                async with httpx.AsyncClient(timeout=None) as client:
+                    async with client.stream("GET", str(avatar_status.video_url)) as stream:
+                        stream.raise_for_status()
+                        with mp4_path.open("wb") as fh:
+                            async for chunk in stream.aiter_bytes():
+                                fh.write(chunk)
+            else:
+                source_path = Path(str(avatar_status.video_url))
+                if source_path.exists():
+                    shutil.copy2(source_path, mp4_path)
+
+            if mp4_path.exists():
+                file_size_mb = mp4_path.stat().st_size / (1024 * 1024)
+                logger.info(
+                    "📦 Video download complete | workflow_id=%s | course_id=%s | path=%s | size_mb=%.2f",
+                    workflow_id_str,
+                    course.id,
+                    mp4_path,
+                    file_size_mb,
+                )
+                log_course_event(
+                    "VIDEO_DOWNLOAD_COMPLETE",
+                    workflow_id=workflow_id_str,
+                    skill_id=skill_id,
+                    course_id=course.id,
+                    path=str(mp4_path),
+                    size_mb=f"{file_size_mb:.2f}",
+                )
+            else:
+                logger.warning(
+                    "⚠️ Expected downloaded video missing | workflow_id=%s | course_id=%s | path=%s",
+                    workflow_id_str,
+                    course.id,
+                    mp4_path,
+                )
+                log_course_event(
+                    "VIDEO_DOWNLOAD_MISSING",
+                    workflow_id=workflow_id_str,
+                    skill_id=skill_id,
+                    course_id=course.id,
+                    path=str(mp4_path),
+                )
+
+            # Upload to Google Drive
+            drive_folder_id = os.getenv("GOOGLE_DRIVE_COURSE_FOLDER_ID", "1iRBfFiD4fp_rsAUv2RN8J6K4Xrt1_t8f")
+            forms_service = GoogleFormsService()
+
+            logger.info(
+                "📤 Uploading video to Drive | workflow_id=%s | course_id=%s | filename=%s | folder_id=%s",
+                workflow_id_str,
+                course.id,
+                output_filename,
+                drive_folder_id,
+            )
+            log_course_event(
+                "DRIVE_UPLOAD_START",
+                workflow_id=workflow_id_str,
+                skill_id=skill_id,
+                course_id=course.id,
+                filename=output_filename,
+                folder_id=drive_folder_id,
+            )
+            drive_download_url = await forms_service.upload_video_to_drive(
+                video_path=str(mp4_path),
+                filename=output_filename,
+                folder_id=drive_folder_id
+            )
+            logger.info(
+                "🔗 Drive download URL generated | workflow_id=%s | course_id=%s | url=%s",
+                workflow_id_str,
+                course.id,
+                drive_download_url,
+            )
+            log_course_event(
+                "DRIVE_UPLOAD_COMPLETE",
+                workflow_id=workflow_id_str,
+                skill_id=skill_id,
+                course_id=course.id,
+                filename=output_filename,
+                drive_download_url=drive_download_url,
+            )
+
+            # Update course record
+            course.video_url = f"{settings.api_v1_prefix}/workflows/{workflow_id_str}/courses/{course.id}/video"
+            course.local_video_path = str(mp4_path)
+            course.drive_download_url = drive_download_url
+            course.status = "completed"
+            course.progress = 100
+            course.completed_at = datetime.utcnow()
+            await db.commit()
+            await db.refresh(course)
+
+            logger.info(
+                "🎬 Course assets persisted | workflow_id=%s | course_id=%s | video_url=%s | drive_url=%s",
+                workflow_id_str,
+                course.id,
+                course.video_url,
+                course.drive_download_url,
+            )
+            log_course_event(
+                "COURSE_ASSETS_PERSISTED",
+                workflow_id=workflow_id_str,
+                skill_id=skill_id,
+                course_id=course.id,
+                video_url=course.video_url,
+                drive_download_url=course.drive_download_url,
+            )
+        else:
+            logger.error(
+                "❌ Avatar job completed but video_url missing | workflow_id=%s | course_id=%s | avatar_job_id=%s",
+                workflow_id_str,
+                course.id,
+                course.presgen_avatar_job_id,
+            )
+            log_course_event(
+                "AVATAR_JOB_MISSING_VIDEO",
+                workflow_id=workflow_id_str,
+                skill_id=skill_id,
+                course_id=course.id,
+                job_id=course.presgen_avatar_job_id,
+            )
+            course.status = "failed"
+            course.error_message = "Avatar job completed without providing video URL"
+            await db.commit()
+            await db.refresh(course)
+            raise HTTPException(status_code=502, detail="Avatar job missing video URL")
+
+    finally:
+        await avatar_client.close()
+
+    return CourseGenerationResponse(
+        course_id=course.id,
+        workflow_id=workflow_id_str,
+        skill_id=skill_id,
+        skill_name=course.skill_name,
+        course_title=course.course_title,
+        presentation_url=course.presentation_url,
+        video_url=course.video_url,
+        drive_download_url=course.drive_download_url,
+        presgen_core_job_id=course.presgen_core_job_id,
+        presgen_core_download_url=course.presgen_core_download_url,
+        presgen_avatar_job_id=course.presgen_avatar_job_id,
+        local_video_path=course.local_video_path,
+        status=course.status,
+        progress=course.progress,
+        created_at=course.created_at,
+        updated_at=course.updated_at,
+        completed_at=course.completed_at,
+    )
+
+
 @router.get(
     "/{workflow_id}/courses/{course_id}/video",
     summary="Download course video",
@@ -3904,12 +4605,17 @@ async def download_course_video(
     if not course:
         raise HTTPException(status_code=404, detail="Course not found")
 
-    job_dir = settings.avatar_output_dir / workflow_id_str / "jobs" / course_id
-    if not job_dir.exists():
-        raise HTTPException(status_code=404, detail="Video file not available")
+    expected_path = None
+    if course.local_video_path:
+        candidate_path = Path(course.local_video_path)
+        if candidate_path.exists():
+            expected_path = candidate_path
 
-    expected_path = job_dir / f"avatar-{_slugify_skill_name(course.skill_name)}-{course_id}.mp4"
-    if not expected_path.exists():
+    if expected_path is None:
+        job_dir = settings.avatar_output_dir / workflow_id_str / "jobs" / course_id
+        if not job_dir.exists():
+            raise HTTPException(status_code=404, detail="Video file not available")
+
         mp4_candidates = sorted(job_dir.glob("*.mp4"))
         if not mp4_candidates:
             raise HTTPException(status_code=404, detail="Video file missing")
