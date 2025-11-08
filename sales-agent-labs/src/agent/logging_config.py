@@ -1,21 +1,26 @@
 import logging
 import os
+from pathlib import Path
 
 
 def setup_logging() -> None:
     """
     Global logging config.
     LOG_LEVEL controls app logs; HTTP_DEBUG=1 enables verbose HTTP logs for GOOGLE API.
-    All logs are sent to both terminal and src/logs/ directory.
+    All logs are sent to both terminal and the directory indicated by PRESGEN_LOG_DIR (defaults to src/logs/).
     """
-    import pathlib
     from datetime import datetime
     
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()
     
-    # Ensure logs directory exists
-    logs_dir = pathlib.Path("src/logs")
-    logs_dir.mkdir(exist_ok=True)
+    # Determine log directory (supports container override)
+    logs_dir_env = os.getenv("PRESGEN_LOG_DIR")
+    if logs_dir_env:
+        logs_dir = Path(logs_dir_env).expanduser()
+    else:
+        logs_dir = Path(__file__).resolve().parent.parent / "logs"
+
+    logs_dir.mkdir(parents=True, exist_ok=True)
     
     # Create timestamped log file for main application logs
     app_log_file = logs_dir / f"presgen-{datetime.now().strftime('%Y%m%d-%H%M%S')}.log"

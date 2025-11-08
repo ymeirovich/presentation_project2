@@ -125,9 +125,9 @@ def get_slides_google():
             logger.info(f"✅ 'src' module verified: {src_file}")
             logger.info(f"  Module __path__: {list(src_path)[:3]}")
 
-            # Verify it's pointing to presgen-assess
-            if 'presgen-assess' in str(src_file) or 'presgen-assess' in str(src_path):
-                logger.info("  ✅ Points to presgen-assess (correct)")
+            # Verify it's pointing to the app directory (presgen-assess or /app/src)
+            if 'presgen-assess' in str(src_file) or 'presgen-assess' in str(src_path) or '/app/src' in str(src_file):
+                logger.info("  ✅ Points to correct location")
             else:
                 logger.warning(f"  ⚠️  Points to {src_file} (may cause issues)")
         else:

@@ -68,9 +68,9 @@ class AssessmentFormsMapper:
         options = question.get("options", [])
         choice_options = [{"value": option} for option in options]
 
-        return {
+        # Build item - exclude description if None (Google Forms API doesn't accept null)
+        item = {
             "title": question.get("question_text", ""),
-            "description": question.get("explanation"),
             "questionItem": {
                 "question": {
                     "required": True,
@@ -83,11 +83,19 @@ class AssessmentFormsMapper:
             },
         }
 
+        # Only add description if it exists
+        explanation = question.get("explanation")
+        if explanation:
+            item["description"] = explanation
+
+        return item
+
     def _create_true_false_item(self, question: Dict[str, Any]) -> Dict[str, Any]:
         options = [{"value": "True"}, {"value": "False"}]
-        return {
+
+        # Build item - exclude description if None (Google Forms API doesn't accept null)
+        item = {
             "title": question.get("question_text", ""),
-            "description": question.get("explanation"),
             "questionItem": {
                 "question": {
                     "required": True,
@@ -100,10 +108,17 @@ class AssessmentFormsMapper:
             },
         }
 
+        # Only add description if it exists
+        explanation = question.get("explanation")
+        if explanation:
+            item["description"] = explanation
+
+        return item
+
     def _create_paragraph_item(self, question: Dict[str, Any]) -> Dict[str, Any]:
-        return {
+        # Build item - exclude description if None (Google Forms API doesn't accept null)
+        item = {
             "title": question.get("question_text", ""),
-            "description": question.get("explanation"),
             "questionItem": {
                 "question": {
                     "required": True,
@@ -113,6 +128,13 @@ class AssessmentFormsMapper:
                 }
             },
         }
+
+        # Only add description if it exists
+        explanation = question.get("explanation")
+        if explanation:
+            item["description"] = explanation
+
+        return item
 
     def _generate_form_title(self, assessment_data: Dict[str, Any]) -> str:
         metadata = assessment_data.get("metadata", {})

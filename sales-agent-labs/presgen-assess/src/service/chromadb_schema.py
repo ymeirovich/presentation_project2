@@ -5,9 +5,11 @@ This module provides the schema definitions and collection management
 for certification-specific RAG knowledge bases using ChromaDB.
 """
 
+import asyncio
 import hashlib
 import json
 import logging
+import time
 import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Literal
@@ -306,9 +308,14 @@ class ChromaDBCollectionManager:
         documents: List[str],
         metadatas: List[DocumentMetadata],
         ids: Optional[List[str]] = None,
-        batch_size: int = 100
+        batch_size: int = 20  # ✅ REDUCED from 100 to 20 to prevent Pulsar queue overflow
     ) -> None:
-        """Add documents to collection with metadata validation and batching"""
+        """Add documents to collection with metadata validation and batching.
+
+        IMPORTANT: Batch size reduced to 20 to prevent ChromaDB internal Pulsar
+        consumer queue overflow errors. The Pulsar receiver queue has a capacity
+        of 100, and smaller batches with delays prevent backpressure.
+        """
 
         if len(documents) != len(metadatas):
             raise ValueError("Documents and metadata lists must have same length")
@@ -320,16 +327,20 @@ class ChromaDBCollectionManager:
         # Convert metadata to ChromaDB format
         chromadb_metadatas = [meta.to_chromadb_metadata() for meta in metadatas]
 
-        # Batch documents to avoid token limits (OpenAI: 300K tokens per request)
-        # Approximate 1 chunk = ~1000 chars = ~250 tokens, so batch_size=100 ~= 25K tokens
+        # Batch documents to avoid token limits and Pulsar queue overflow
+        # Reduced batch_size from 100 to 20 to prevent "Index with capacity 100" errors
+        # OpenAI limit: 300K tokens per request. batch_size=20 ~= 5K tokens (safe)
         total_docs = len(documents)
+        total_batches = (total_docs + batch_size - 1) // batch_size
+
         for i in range(0, total_docs, batch_size):
             batch_end = min(i + batch_size, total_docs)
             batch_docs = documents[i:batch_end]
             batch_metas = chromadb_metadatas[i:batch_end]
             batch_ids = ids[i:batch_end]
+            batch_num = i // batch_size + 1
 
-            print(f"📦 Adding batch {i//batch_size + 1}/{(total_docs + batch_size - 1)//batch_size}: {len(batch_docs)} documents")
+            print(f"📦 Adding batch {batch_num}/{total_batches}: {len(batch_docs)} documents")
 
             # Add batch to collection
             collection.add(
@@ -338,7 +349,13 @@ class ChromaDBCollectionManager:
                 ids=batch_ids
             )
 
-        print(f"✅ Successfully added {total_docs} documents in {(total_docs + batch_size - 1)//batch_size} batches")
+            # ✅ Add delay between batches to prevent Pulsar queue overflow
+            # This gives ChromaDB's internal Pulsar consumer time to process messages
+            if batch_num < total_batches:  # Don't delay after last batch
+                time.sleep(0.2)  # 200ms delay between batches
+                print(f"⏸️  Pausing 200ms to prevent queue overflow...")
+
+        print(f"✅ Successfully added {total_docs} documents in {total_batches} batches")
 
         # Update collection metadata
         current_meta = collection.metadata or {}

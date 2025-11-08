@@ -37,14 +37,18 @@ class WorkflowOrchestrator:
     """
 
     def __init__(self):
+        print("🚨 DEBUG: WorkflowOrchestrator.__init__() called")
         self.logger = get_enhanced_logger(__name__)
         self.structured_logger = StructuredLogger("workflow_orchestrator")  # Sprint 0
+        print("🚨 DEBUG: About to create GoogleFormsService()")
         self.google_forms_service = GoogleFormsService()
+        print(f"🚨 DEBUG: GoogleFormsService created: {type(self.google_forms_service)}")
         self.assessment_mapper = AssessmentFormsMapper()
         self.response_processor = FormResponseProcessor()
         self.response_ingestion = ResponseIngestionService()
         self.ai_question_generator = AIQuestionGenerator()  # Sprint 1
         self.gap_analysis_service = EnhancedGapAnalysisService()  # Sprint 1
+        print("🚨 DEBUG: WorkflowOrchestrator fully initialized")
 
     async def execute_assessment_to_form_workflow(
         self,
@@ -287,16 +291,36 @@ class WorkflowOrchestrator:
         form_settings: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Execute Google Form creation phase."""
+        import json
+
         self.logger.info("Starting Google Form creation phase", extra={
             "workflow_id": str(workflow.id)
         })
+
+        # DEBUG: Log the assessment data structure
+        questions = assessment_data.get("questions", [])
+        self.logger.info(f"🔍 DEBUG: Assessment data overview", extra={
+            "workflow_id": str(workflow.id),
+            "question_count": len(questions),
+            "has_metadata": "metadata" in assessment_data,
+            "metadata_keys": list(assessment_data.get("metadata", {}).keys()) if "metadata" in assessment_data else []
+        })
+
+        if questions:
+            first_q = questions[0]
+            self.logger.info(f"🔍 DEBUG: First question structure: {json.dumps(first_q, indent=2, default=str)}")
 
         try:
             # Generate form title and description
             form_title = self._generate_form_title(assessment_data)
             form_description = self._generate_form_description(assessment_data)
 
+            self.logger.info(f"🔍 DEBUG: Generated form metadata - Title: '{form_title}' ({len(form_title) if form_title else 0} chars)")
+            self.logger.info(f"🔍 DEBUG: Generated form description: '{form_description}' ({len(form_description) if form_description else 0} chars)")
+
             # Create Google Form
+            self.logger.info(f"📞 Calling google_forms_service.create_assessment_form()")
+
             form_result = await self.google_forms_service.create_assessment_form(
                 assessment_data=assessment_data,
                 form_title=form_title,
@@ -336,12 +360,16 @@ class WorkflowOrchestrator:
             return {"success": False, "error": str(e)}
 
     def _generate_form_title(self, assessment_data: Dict[str, Any]) -> str:
-        """Generate appropriate form title from assessment data."""
+        """Generate appropriate form title from assessment data.
+
+        Uses the assessment name directly (certification_name from metadata).
+        """
         metadata = assessment_data.get("metadata", {})
-        cert_name = metadata.get("certification_name", "Assessment")
+        assessment_name = metadata.get("certification_name", "Assessment")
         version = metadata.get("certification_version", "")
 
-        title = f"{cert_name} Assessment"
+        # Use assessment name directly (it already includes what it's for)
+        title = assessment_name
         if version:
             title += f" ({version})"
 

@@ -89,8 +89,8 @@ class VectorDatabaseManager:
                     )
                     return cert_profile.collection_name
 
-                logger.warning(
-                    f"⚠️ Could not find cert_slug for certification_id={certification_id}"
+                logger.debug(
+                    f"📝 No cert_slug mapping found for certification_id={certification_id} - will use UUID as-is"
                 )
                 return None
 
@@ -190,11 +190,10 @@ class VectorDatabaseManager:
             # ✅ FIX: Look up cert_slug from certification UUID
             cert_slug = await self._get_cert_slug(certification_id)
             if not cert_slug:
-                logger.warning(
-                    f"⚠️ Could not resolve cert_slug for {certification_id}, "
-                    f"will try UUID fallback"
+                logger.debug(
+                    f"📝 No cert_slug mapping for {certification_id}, using certification_id directly"
                 )
-                cert_slug = certification_id  # Fallback to UUID
+                cert_slug = certification_id  # Fallback to UUID (this is expected and works correctly)
 
             # ✅ PHASE 1 FIX: Log RAG retrieval parameters
             logger.info(

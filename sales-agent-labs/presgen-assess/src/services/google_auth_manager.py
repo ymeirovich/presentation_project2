@@ -76,6 +76,15 @@ class GoogleAuthManager:
                 scopes=self.scopes,
             )
             logger.debug("Loaded Google service account credentials from %s", self.credentials_path)
+
+            # Apply domain-wide delegation if impersonate user is configured
+            impersonate_user = os.getenv("GOOGLE_SERVICE_ACCOUNT_IMPERSONATE_USER")
+            if impersonate_user:
+                logger.info(f"🔧 Applying domain-wide delegation for: {impersonate_user}")
+                credentials = credentials.with_subject(impersonate_user)
+            else:
+                logger.warning("⚠️ GOOGLE_SERVICE_ACCOUNT_IMPERSONATE_USER not set - domain-wide delegation disabled")
+
             return self._apply_quota_project(credentials)
 
         raise FileNotFoundError(

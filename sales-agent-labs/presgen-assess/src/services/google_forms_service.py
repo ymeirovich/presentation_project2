@@ -40,6 +40,7 @@ class GoogleAPIErrorHandler:
 
     async def execute_with_retry(self, func):
         """Execute a callable with retry support for rate limits and transient errors."""
+        import traceback
         attempt = 0
         while True:
             try:
@@ -49,7 +50,17 @@ class GoogleAPIErrorHandler:
                 return result
             except HttpError as exc:  # type: ignore[misc]
                 status = getattr(exc.resp, "status", None)
+
+                # DEBUG: Log detailed error information
+                logger.error(f"🔴 Google API HttpError Details:")
+                logger.error(f"  Status: {status}")
+                logger.error(f"  URI: {exc.uri}")
+                logger.error(f"  Error details: {exc.error_details}")
+                logger.error(f"  Response: {exc.resp}")
+                logger.error(f"  Content: {getattr(exc.resp, 'content', 'N/A')}")
+
                 if status not in self.retry_statuses or attempt >= self.max_retries:
+                    logger.error(f"🔴 Max retries reached or non-retryable status. Raising exception.")
                     raise
                 delay = self.base_delay * (self.backoff_factor ** attempt)
                 attempt += 1
@@ -84,6 +95,7 @@ class GoogleFormsService:
         forms_service: Any = None,
         drive_service: Any = None,
     ) -> None:
+        print("🚨 DEBUG: GoogleFormsService.__init__() called")
         self.mapper = mapper or AssessmentFormsMapper()
         self.validator = FormCreationValidator()
         self.error_handler = error_handler or GoogleAPIErrorHandler()
@@ -91,13 +103,29 @@ class GoogleFormsService:
 
         credentials = None
         if forms_service is None or drive_service is None:
+            print("🚨 DEBUG: Loading credentials via auth_manager.get_service_credentials()")
             try:
                 credentials = self.auth_manager.get_service_credentials()
+                print(f"🚨 DEBUG: Credentials loaded - type: {type(credentials)}")
+                print(f"🚨 DEBUG: Has _subject: {hasattr(credentials, '_subject')}")
+                if hasattr(credentials, '_subject'):
+                    print(f"🚨 DEBUG: Impersonating: {credentials._subject}")
+                logger.info(f"✅ GoogleFormsService credentials loaded successfully")
+                logger.info(f"   Credential type: {type(credentials)}")
+                logger.info(f"   Has scopes: {hasattr(credentials, 'scopes')}")
+                if hasattr(credentials, 'scopes'):
+                    logger.info(f"   Scopes: {credentials.scopes}")
+                if hasattr(credentials, '_subject'):
+                    logger.info(f"   Impersonating: {credentials._subject}")
             except Exception as exc:  # pragma: no cover - surfaced via tests when mocked
+                print(f"🚨 DEBUG: Exception loading credentials: {exc}")
                 logger.warning("Using deferred credential loading: %s", exc)
 
+        print("🚨 DEBUG: Building forms_service...")
         self.forms_service = forms_service or self._build_service("forms", "v1", credentials)
         self.drive_service = drive_service or self._build_service("drive", "v3", credentials)
+        print(f"🚨 DEBUG: GoogleFormsService initialized - forms_service type: {type(self.forms_service)}")
+        logger.info(f"✅ GoogleFormsService initialized - forms_service type: {type(self.forms_service)}")
 
     def _build_service(self, service_name: str, version: str, credentials):
         if build is None:
@@ -124,15 +152,41 @@ class GoogleFormsService:
             or mapped_form["info"].get("description")
         )
 
-        async def _create_form():
-            request = self.forms_service.forms().create(body={"info": {"title": base_title}})
-            return request.execute()
+        # DEBUG: Use print() to bypass logger
+        print(f"🚨 DEBUG: Creating form with title: {base_title}")
+        print(f"🚨 DEBUG: Questions to add: {len(assessment_data.get('questions', []))}")
 
+        logger.info(f"📝 Creating form with title: {base_title}")
+        logger.info(f"📝 Questions to add: {len(assessment_data.get('questions', []))}")
+
+        # DEBUG: Log the exact request body
+        import json
+        create_body = {"info": {"title": base_title}}
+        print(f"🚨 DEBUG: EXACT REQUEST BODY: {json.dumps(create_body, indent=2)}")
+        logger.info(f"🔍 EXACT REQUEST BODY for forms().create():")
+        logger.info(f"   {json.dumps(create_body, indent=2)}")
+        logger.info(f"   Title type: {type(base_title)}, Title repr: {repr(base_title)}")
+
+        async def _create_form():
+            print(f"🚨 DEBUG: Inside _create_form(), about to call forms().create()...")
+            logger.info(f"🔍 Inside _create_form(), about to call forms().create()...")
+            request = self.forms_service.forms().create(body=create_body)
+            print(f"🚨 DEBUG: Request object created, executing...")
+            logger.info(f"🔍 Request object created, executing...")
+            result = request.execute()
+            print(f"🚨 DEBUG: Request executed successfully!")
+            logger.info(f"🔍 Request executed successfully!")
+            return result
+
+        print(f"🚨 DEBUG: Step 1: Creating base form...")
+        logger.info("🔨 Step 1: Creating base form...")
         creation_response = await self.error_handler.execute_with_retry(_create_form)
         form_id = creation_response.get("formId")
         form_url = creation_response.get("responderUri")
+        logger.info(f"✅ Base form created: {form_id}")
 
         if description_to_apply:
+            logger.info(f"🔨 Step 2: Adding description...")
             async def _update_description():
                 request = self.forms_service.forms().batchUpdate(
                     formId=form_id,
@@ -150,13 +204,24 @@ class GoogleFormsService:
                 return request.execute()
 
             await self.error_handler.execute_with_retry(_update_description)
+            logger.info(f"✅ Description added")
 
         questions = assessment_data.get("questions", [])
         if questions:
+            logger.info(f"🔨 Step 3: Adding {len(questions)} questions...")
             await self.add_questions_to_form(form_id=form_id, questions=questions, start_index=0)
+            logger.info(f"✅ Questions added successfully")
 
         if settings:
             await self.configure_form_settings(form_id=form_id, settings=settings)
+
+        # Set public access (Anyone with Link can view/respond)
+        print(f"🔨 Step 4: Setting public access...")
+        await self._set_public_access(form_id)
+
+        # Move form to shared Drive folder
+        print(f"🔨 Step 5: Moving to shared folder...")
+        await self._move_to_shared_folder(form_id)
 
         return {
             "success": True,
@@ -173,7 +238,13 @@ class GoogleFormsService:
         start_index: int = 0,
     ) -> Dict[str, Any]:
         """Append assessment questions to an existing form."""
+        import json
+
         requests = self.mapper.build_batch_update_requests(questions, start_index=start_index)
+
+        # DEBUG: Log the actual batch update payload
+        logger.info(f"🔍 Batch update payload for {len(questions)} questions:")
+        logger.info(f"🔍 First question sample: {json.dumps(requests[0] if requests else {}, indent=2)}")
 
         async def _batch_update():
             request = self.forms_service.forms().batchUpdate(
@@ -302,3 +373,72 @@ class GoogleFormsService:
 
         result = await self.error_handler.execute_with_retry(_create_permission)
         return {"success": True, "permission": result}
+
+    async def _set_public_access(self, form_id: str) -> None:
+        """Set form to be publicly accessible (Anyone with Link can view/respond)."""
+        import os
+
+        print(f"🔓 Setting public access for form {form_id}...")
+        logger.info(f"Setting public access for form: {form_id}")
+
+        try:
+            # Use Drive API to set permissions
+            async def _set_permission():
+                permission = {
+                    'type': 'anyone',
+                    'role': 'writer',  # Allow anyone to respond
+                }
+                request = self.drive_service.permissions().create(
+                    fileId=form_id,
+                    body=permission,
+                    fields='id'
+                )
+                return request.execute()
+
+            await self.error_handler.execute_with_retry(_set_permission)
+            print(f"✅ Public access enabled for form {form_id}")
+            logger.info(f"✅ Public access enabled for form: {form_id}")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not set public access for form {form_id}: {e}")
+            print(f"⚠️ Could not set public access: {e}")
+
+    async def _move_to_shared_folder(self, form_id: str) -> None:
+        """Move form to the shared Drive folder specified by GOOGLE_DRIVE_FOLDER_ID."""
+        import os
+
+        folder_id = os.getenv("GOOGLE_DRIVE_FOLDER_ID")
+        if not folder_id:
+            logger.warning("⚠️ GOOGLE_DRIVE_FOLDER_ID not set - skipping folder move")
+            return
+
+        print(f"📁 Moving form {form_id} to folder {folder_id}...")
+        logger.info(f"Moving form {form_id} to shared folder: {folder_id}")
+
+        try:
+            # First, get the current parents
+            async def _get_file():
+                request = self.drive_service.files().get(
+                    fileId=form_id,
+                    fields='parents'
+                )
+                return request.execute()
+
+            file_data = await self.error_handler.execute_with_retry(_get_file)
+            previous_parents = ",".join(file_data.get('parents', []))
+
+            # Move the file to the new folder
+            async def _move_file():
+                request = self.drive_service.files().update(
+                    fileId=form_id,
+                    addParents=folder_id,
+                    removeParents=previous_parents,
+                    fields='id, parents'
+                )
+                return request.execute()
+
+            await self.error_handler.execute_with_retry(_move_file)
+            print(f"✅ Form moved to shared folder {folder_id}")
+            logger.info(f"✅ Form {form_id} moved to folder: {folder_id}")
+        except Exception as e:
+            logger.warning(f"⚠️ Could not move form {form_id} to folder: {e}")
+            print(f"⚠️ Could not move to folder: {e}")

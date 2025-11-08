@@ -49,11 +49,11 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-DEBUG}
       - PORT=8080
 
-      # Google Cloud Authentication (Container Paths)
+      # Google Cloud Authentication (Service Account Only - OAuth disabled)
       - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-presgen}
       - GOOGLE_APPLICATION_CREDENTIALS=/secrets/google-creds.json
-      - OAUTH_TOKEN_PATH=/secrets/google-oauth-token.json
-      - OAUTH_CLIENT_JSON=/secrets/oauth_slides_client.json
+      # OAUTH_TOKEN_PATH removed - using service account only
+      # OAUTH_CLIENT_JSON removed - using service account only
       - GOOGLE_SERVICE_ACCOUNT_IMPERSONATE_USER=${IMPERSONATE_USER:-presgen-service@presgen.net}
       - GOOGLE_DRIVE_FOLDER_ID=${DRIVE_FOLDER_ID:-14eRckmEzL-4FgXU4mn3u3-EP2GKNJX2p}
       - GOOGLE_QUOTA_PROJECT=${GOOGLE_QUOTA_PROJECT:-presgen}
@@ -77,6 +77,7 @@ services:
       - PRESGEN_AVATAR_MAX_SLIDES=${PRESGEN_AVATAR_MAX_SLIDES:-40}
       - USE_AI_IMAGES=${USE_AI_IMAGES:-true}
       - GPU_ENABLED=${GPU_ENABLED:-false}
+      - PRESGEN_LOG_DIR=/app/logs
       # Override with container paths (do not use .env value for Docker)
       - GOOGLE_SERVICE_ACCOUNT_JSON=/app/secrets/google-creds.json
       - GOOGLE_APPLICATION_CREDENTIALS=/secrets/google-creds.json
@@ -125,10 +126,10 @@ services:
       - PRESGEN_CORE_URL=http://presgen-core:8080
       - PRESGEN_ASSESS_URL=http://presgen-assess:8000
 
-      # Google Cloud
+      # Google Cloud (Service Account Only - OAuth disabled)
       - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-presgen}
       - GOOGLE_APPLICATION_CREDENTIALS=/secrets/google-creds.json
-      - OAUTH_TOKEN_PATH=/secrets/google-oauth-token.json
+      # OAUTH_TOKEN_PATH removed - using service account only for Google Forms API
       - GOOGLE_SERVICE_ACCOUNT_IMPERSONATE_USER=${IMPERSONATE_USER:-presgen-service@presgen.net}
       - GOOGLE_DRIVE_FOLDER_ID=${DRIVE_FOLDER_ID:-14eRckmEzL-4FgXU4mn3u3-EP2GKNJX2p}
 
@@ -144,6 +145,7 @@ services:
       - PRESGEN_USE_MOCK=${PRESGEN_USE_MOCK:-false}
       - PRESGEN_USE_CACHE=${PRESGEN_USE_CACHE:-false}
       - PRESGEN_DEV_MODE=${PRESGEN_DEV_MODE:-true}
+      - PRESGEN_LOG_DIR=/app/logs
 
       # Performance
       - WORKERS=1

@@ -11,6 +11,24 @@ from typing import Optional
 from src.common.config import settings
 
 
+def _resolve_log_dir() -> Path:
+    """
+    Determine the filesystem directory for log output.
+
+    Priority order:
+    1. PRESGEN_LOG_DIR environment variable (supports Docker volume mounts)
+    2. Default to src/logs relative to the project (matches local dev expectations)
+    """
+    presgen_log_dir = os.getenv("PRESGEN_LOG_DIR")
+    if presgen_log_dir:
+        log_dir = Path(presgen_log_dir).expanduser()
+    else:
+        log_dir = Path(__file__).resolve().parent.parent / "logs"
+
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir
+
+
 class ColoredFormatter(logging.Formatter):
     """Custom formatter with color coding for different log levels."""
 
@@ -48,8 +66,7 @@ def setup_file_logging(service_name: str, log_level: str = None) -> logging.Logg
     log_level = log_level or settings.log_level.upper()
 
     # Create logs directory if it doesn't exist
-    log_dir = Path("src/logs")
-    log_dir.mkdir(parents=True, exist_ok=True)
+    log_dir = _resolve_log_dir()
 
     # Create service-specific logger
     logger = logging.getLogger(f"presgen_assess.{service_name}")
@@ -126,8 +143,7 @@ def setup_uvicorn_logging():
     """Configure uvicorn logging to use our file-based system."""
 
     # Create logs directory
-    log_dir = Path("src/logs")
-    log_dir.mkdir(parents=True, exist_ok=True)
+    log_dir = _resolve_log_dir()
 
     # Uvicorn access log
     uvicorn_access_file = log_dir / "uvicorn_access.log"

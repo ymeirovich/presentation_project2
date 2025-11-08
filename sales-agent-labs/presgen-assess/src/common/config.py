@@ -5,6 +5,11 @@ from pathlib import Path
 from typing import Optional
 from dataclasses import dataclass
 
+try:
+    from sqlalchemy.engine.url import make_url
+except ModuleNotFoundError:  # pragma: no cover - fallback for lightweight environments
+    make_url = None
+
 # Get the project root directory (where .env should be)
 PROJECT_ROOT = Path(__file__).parent.parent.parent
 ENV_FILE = PROJECT_ROOT / ".env"
@@ -109,6 +114,44 @@ class Settings:
     # API Configuration
     api_v1_prefix: str = os.getenv("API_V1_PREFIX", "/api/v1")
     secret_key: str = os.getenv("SECRET_KEY", "change-me-in-production")
+
+    def __post_init__(self) -> None:
+        """Normalize settings after initialization."""
+        self.database_url = self._normalize_database_url(self.database_url)
+
+    def _normalize_database_url(self, url: str) -> str:
+        """Ensure SQLite URLs consistently resolve relative to the project root."""
+        if not url.startswith("sqlite"):
+            return url
+
+        if make_url is not None:
+            try:
+                url_obj = make_url(url)
+            except Exception:
+                url_obj = None
+            else:
+                database = url_obj.database
+                if database:
+                    normalized = self._normalize_sqlite_path(database)
+                    url_obj = url_obj.set(database=normalized)
+                    return url_obj.render_as_string(hide_password=False)
+
+        # Fallback for environments without SQLAlchemy URL helpers
+        prefix, sep, path = url.partition(":///")
+        if not sep:
+            return url
+
+        normalized_path = self._normalize_sqlite_path(path)
+        return f"{prefix}:///{normalized_path}"
+
+    def _normalize_sqlite_path(self, raw_path: str) -> str:
+        """Normalize SQLite file paths to absolute paths within the project."""
+        db_path = Path(raw_path).expanduser()
+        if not db_path.is_absolute():
+            db_path = (PROJECT_ROOT / db_path).resolve()
+        else:
+            db_path = db_path.resolve()
+        return str(db_path)
 
 
 # Global settings instance

@@ -3,20 +3,24 @@
 import logging
 import json
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from uuid import UUID
 
+import chromadb
 from fastapi import APIRouter, Depends, HTTPException, status, Request
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.common.config import settings
 from src.models.certification import CertificationProfile
+from src.models.knowledge_base_prompts import KnowledgeBasePrompts
 from src.schemas.certification import (
     CertificationProfileCreate,
     CertificationProfileResponse,
     CertificationProfileUpdate
 )
 from src.service.database import get_db
+from src.services.slug_utils import slugify_name, ensure_unique_slug
 
 # Import enhanced logging
 from src.common.logging_config import get_certification_logger, get_database_logger
@@ -178,6 +182,37 @@ def log_prompt_values(step: str, profile_id: str, prompts: Dict[str, Any], sourc
 router = APIRouter()
 
 
+def _delete_chroma_collections_for_slug(collection_slug: Optional[str]) -> int:
+    """Remove per-certification Chroma collections that match the slug prefix."""
+    if not collection_slug:
+        return 0
+
+    try:
+        client = chromadb.PersistentClient(path=str(settings.chroma_db_path))
+    except Exception as exc:  # pragma: no cover - defensive logging
+        logger.error("❌ Failed to connect to Chroma for cleanup: %s", exc)
+        return 0
+
+    prefix = f"assess__{collection_slug}"
+    removed = 0
+
+    for collection in client.list_collections():
+        if collection.name.startswith(prefix):
+            try:
+                client.delete_collection(collection.name)
+                removed += 1
+                logger.info("🧹 Deleted Chroma collection %s for slug=%s", collection.name, collection_slug)
+            except Exception as exc:  # pragma: no cover - log and continue
+                logger.warning("⚠️ Failed to delete Chroma collection %s: %s", collection.name, exc)
+
+    if removed:
+        logger.info("🧼 Removed %s Chroma collections for slug=%s", removed, collection_slug)
+    else:
+        logger.info("ℹ️ No Chroma collections matched slug=%s", collection_slug)
+
+    return removed
+
+
 @router.post("/", response_model=CertificationProfileResponse, status_code=status.HTTP_201_CREATED)
 async def create_certification_profile(
     profile_data: CertificationProfileCreate,
@@ -258,13 +293,21 @@ async def create_certification_profile(
             }
         )
 
+        # Generate or reuse the collection slug used across RAG resources
+        slug_source = f"{profile_data.name}-{profile_data.version}"
+        base_slug = slugify_name(slug_source)
+        collection_slug = await ensure_unique_slug(db, base_slug)
+        logger.info("🏷️ Assigned collection slug '%s' to certification '%s v%s'", collection_slug, profile_data.name, profile_data.version)
+
         # Create profile data for database model (including prompt fields directly in columns)
         db_profile_data = {
             'name': profile_data.name,
             'version': profile_data.version,
             'exam_domains': db_exam_domains,
-            'knowledge_base_path': f"knowledge_base/{profile_data.name.lower().replace(' ', '_')}_v{profile_data.version}",
+            'knowledge_base_path': f"knowledge_base/{collection_slug}",
             'assessment_template': assessment_template,
+            'bundle_version': getattr(profile_data, 'bundle_version', "v1.0"),
+            'collection_name': collection_slug,
             # Store certification profile prompts directly in database columns
             'assessment_prompt': getattr(profile_data, 'assessment_prompt', None),
             'presentation_prompt': getattr(profile_data, 'presentation_prompt', None),
@@ -324,7 +367,9 @@ async def create_certification_profile(
             'assessment_prompt': profile.assessment_prompt,
             'presentation_prompt': profile.presentation_prompt,
             'gap_analysis_prompt': profile.gap_analysis_prompt,
-            'resource_binding_enabled': profile.resource_binding_enabled
+            'resource_binding_enabled': profile.resource_binding_enabled,
+            'collection_name': profile.collection_name,
+            'bundle_version': profile.bundle_version
         }
 
         return CertificationProfileResponse(**response_data)
@@ -402,7 +447,9 @@ async def list_certification_profiles(
                 'assessment_prompt': profile.assessment_prompt,
                 'presentation_prompt': profile.presentation_prompt,
                 'gap_analysis_prompt': profile.gap_analysis_prompt,
-                'resource_binding_enabled': profile.resource_binding_enabled
+                'resource_binding_enabled': profile.resource_binding_enabled,
+                'collection_name': profile.collection_name,
+                'bundle_version': profile.bundle_version
             }
             api_profiles.append(CertificationProfileResponse(**response_data))
 
@@ -519,7 +566,9 @@ async def get_certification_profile(
             'assessment_prompt': profile.assessment_prompt,
             'presentation_prompt': profile.presentation_prompt,
             'gap_analysis_prompt': profile.gap_analysis_prompt,
-            'resource_binding_enabled': profile.resource_binding_enabled
+            'resource_binding_enabled': profile.resource_binding_enabled,
+            'collection_name': profile.collection_name,
+            'bundle_version': profile.bundle_version
         }
 
         # Log what prompts are being included in API response
@@ -664,7 +713,9 @@ async def update_certification_profile(
             'assessment_prompt': profile.assessment_prompt,
             'presentation_prompt': profile.presentation_prompt,
             'gap_analysis_prompt': profile.gap_analysis_prompt,
-            'resource_binding_enabled': profile.resource_binding_enabled
+            'resource_binding_enabled': profile.resource_binding_enabled,
+            'collection_name': profile.collection_name,
+            'bundle_version': profile.bundle_version
         }
 
         # Log prompt values being returned to UI
@@ -736,6 +787,15 @@ async def delete_certification_profile_post(
         # Store profile info for logging before deletion
         profile_name = profile.name
         profile_version = profile.version
+        collection_slug = profile.collection_name
+
+        if collection_slug:
+            await db.execute(
+                delete(KnowledgeBasePrompts).where(
+                    KnowledgeBasePrompts.collection_name == collection_slug
+                )
+            )
+            logger.info("🧹 Removed knowledge base prompts for slug=%s", collection_slug)
 
         # Delete profile
         log_database_operation("DELETE", "certification_profiles", profile_id=str(profile_id), data={"name": profile_name, "version": profile_version})
@@ -744,6 +804,9 @@ async def delete_certification_profile_post(
         await db.commit()
 
         logger.info(f"✅ Deleted certification profile: {profile_name} v{profile_version}")
+
+        if collection_slug:
+            _delete_chroma_collections_for_slug(collection_slug)
 
         # Log successful response
         log_response_details("POST /delete", profile_id=str(profile_id), status_code=204)
@@ -794,6 +857,15 @@ async def delete_certification_profile(
         # Store profile info for logging before deletion
         profile_name = profile.name
         profile_version = profile.version
+        collection_slug = profile.collection_name
+
+        if collection_slug:
+            await db.execute(
+                delete(KnowledgeBasePrompts).where(
+                    KnowledgeBasePrompts.collection_name == collection_slug
+                )
+            )
+            logger.info("🧹 Removed knowledge base prompts for slug=%s", collection_slug)
 
         # Delete profile
         log_database_operation("DELETE", "certification_profiles", profile_id=str(profile_id), data={"name": profile_name, "version": profile_version})
@@ -802,6 +874,9 @@ async def delete_certification_profile(
         await db.commit()
 
         logger.info(f"✅ Deleted certification profile: {profile_name} v{profile_version}")
+
+        if collection_slug:
+            _delete_chroma_collections_for_slug(collection_slug)
 
         # Log successful response
         log_response_details("DELETE /{profile_id}", profile_id=str(profile_id), status_code=204)
