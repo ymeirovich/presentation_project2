@@ -230,6 +230,10 @@ class PresGenAvatarClient:
             "use_cache": False,
         }
 
+        include_metadata = os.getenv("PRESGEN_AVATAR_INCLUDE_METADATA", "false").lower() == "true"
+        if include_metadata and request.metadata:
+            payload["metadata"] = request.metadata
+
         logger.info("=" * 80)
         logger.info("📤 PRESGEN-AVATAR REQUEST")
         logger.info("  • Endpoint: %s", endpoint)

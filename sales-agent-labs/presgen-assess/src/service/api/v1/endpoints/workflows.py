@@ -3529,6 +3529,13 @@ Narration should be conversational and ≤ 75 seconds per slide."""
 
     try:
         avatar_request_start = datetime.utcnow()
+        if not course.presgen_core_download_url:
+            raise HTTPException(status_code=500, detail="Missing PresGen-Core download URL for avatar generation")
+
+        avatar_metadata = {
+            "core_download_url": course.presgen_core_download_url,
+        }
+
         avatar_result = await avatar_client.generate_video(
             workflow_id=workflow_id_str,
             skill_id=skill_id,
@@ -3537,6 +3544,7 @@ Narration should be conversational and ≤ 75 seconds per slide."""
             quality="fast",
             voice_provider="openai",
             voice_id="alloy",
+            metadata=avatar_metadata,
         )
         avatar_request_duration_ms = int((datetime.utcnow() - avatar_request_start).total_seconds() * 1000)
 
@@ -4195,6 +4203,13 @@ async def poll_course_status(
 
         avatar_client = PresGenAvatarClient(base_url=os.getenv("PRESGEN_AVATAR_URL"))
 
+        if not course.presgen_core_download_url:
+            raise HTTPException(status_code=500, detail="Missing PresGen-Core download URL for avatar generation")
+
+        avatar_metadata = {
+            "core_download_url": course.presgen_core_download_url,
+        }
+
         try:
             avatar_result = await avatar_client.generate_video(
                 workflow_id=workflow_id_str,
@@ -4204,6 +4219,7 @@ async def poll_course_status(
                 quality="fast",
                 voice_provider="openai",
                 voice_id="alloy",
+                metadata=avatar_metadata,
             )
 
             course.presgen_avatar_job_id = avatar_result.job_id
