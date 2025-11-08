@@ -55,6 +55,7 @@ export function GapAnalysisDashboard({
   const [generatingCourseId, setGeneratingCourseId] = useState<string | null>(null)
   const [courseProgress, setCourseProgress] = useState<Record<string, number>>({})
   const [courseVideos, setCourseVideos] = useState<Record<string, string>>({})
+  const [courseDownloads, setCourseDownloads] = useState<Record<string, string>>({})
   const pollTimers = useRef<Record<string, number>>({})
 
   const fetchData = async () => {
@@ -108,12 +109,16 @@ export function GapAnalysisDashboard({
 
       const nextProgress: Record<string, number> = {}
       const nextVideos: Record<string, string> = {}
+      const nextDownloads: Record<string, string> = {}
 
       generated.forEach((course) => {
         const progressValue = course.status === 'completed' ? 100 : course.progress ?? 0
         nextProgress[course.skill_id] = progressValue
         if (course.video_url) {
           nextVideos[course.skill_id] = course.video_url
+        }
+        if (course.drive_download_url) {
+          nextDownloads[course.skill_id] = course.drive_download_url
         }
       })
 
@@ -122,6 +127,9 @@ export function GapAnalysisDashboard({
       }
       if (Object.keys(nextVideos).length) {
         setCourseVideos((prev) => ({ ...prev, ...nextVideos }))
+      }
+      if (Object.keys(nextDownloads).length) {
+        setCourseDownloads((prev) => ({ ...prev, ...nextDownloads }))
       }
 
       if (generated.length) {
@@ -184,6 +192,9 @@ export function GapAnalysisDashboard({
           setGeneratingCourseId(current => (current === skillId ? null : current))
           if (typeof status.video_url === 'string' && status.video_url.length > 0) {
             setCourseVideos(prev => ({ ...prev, [skillId]: status.video_url as string }))
+          }
+          if (typeof status.drive_download_url === 'string' && status.drive_download_url.length > 0) {
+            setCourseDownloads(prev => ({ ...prev, [skillId]: status.drive_download_url as string }))
           }
           console.info('[GapAnalysisDashboard] Course generation completed', {
             workflowId,
@@ -948,6 +959,11 @@ export function GapAnalysisDashboard({
               const isGenerating = generatingCourseId === course.skill_id
               const progressValue = courseProgress[course.skill_id] ?? (course.generation_status === 'completed' ? 100 : 0)
               const videoUrl = courseVideos[course.skill_id]
+              const driveUrl = courseDownloads[course.skill_id]
+              const resolvedVideoUrl =
+                videoUrl && videoUrl.startsWith('/api/v1')
+                  ? `/api/presgen-assess${videoUrl}`
+                  : videoUrl
 
               return (
                 <Card key={`${course.skill_id}-${course.exam_domain}`} className={isGenerating ? 'border-blue-500' : ''}>
@@ -1052,14 +1068,16 @@ export function GapAnalysisDashboard({
                         )}
                       </div>
 
-                      {videoUrl && (
+                      {(driveUrl || resolvedVideoUrl) && (
                         <div className="space-y-2">
-                          <Button asChild variant="ghost" size="sm">
-                            <a href={videoUrl} target="_blank" rel="noopener noreferrer">
-                              Download Video
-                            </a>
-                          </Button>
-                          <VideoPlayer url={videoUrl} />
+                          {driveUrl && (
+                            <Button asChild variant="ghost" size="sm">
+                              <a href={driveUrl} target="_blank" rel="noopener noreferrer">
+                                Download Video
+                              </a>
+                            </Button>
+                          )}
+                          {resolvedVideoUrl && <VideoPlayer url={resolvedVideoUrl} />}
                         </div>
                       )}
                     </div>

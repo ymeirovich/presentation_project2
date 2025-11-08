@@ -148,6 +148,7 @@ services:
       - PRESGEN_CORE_URL=http://presgen-core:8080
       - PRESGEN_ASSESS_URL=http://presgen-assess:8000
       - PRESGEN_AVATAR_URL=http://presgen-avatar:8002
+      - PRESGEN_AVATAR_INCLUDE_METADATA=${PRESGEN_AVATAR_INCLUDE_METADATA:-true}
 
       # Google Cloud (Service Account Only - OAuth disabled)
       - GOOGLE_CLOUD_PROJECT=${GOOGLE_CLOUD_PROJECT:-presgen}
