@@ -296,6 +296,10 @@ class CourseGenerationResponse(BaseModel):
     local_video_path: Optional[str] = None
     status: str
     progress: int = Field(..., ge=0, le=100)
+    error_message: Optional[str] = Field(
+        None,
+        description="User-friendly error message when course generation fails"
+    )
     created_at: datetime
     updated_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
@@ -312,6 +316,7 @@ class CourseGenerationResponse(BaseModel):
                 "video_url": "https://storage.googleapis.com/courses/c9f1e0bd0b0240b6.mp4",
                 "status": "completed",
                 "progress": 100,
+                "error_message": None,
                 "created_at": "2025-10-05T18:15:30Z",
                 "updated_at": "2025-10-05T18:20:10Z",
                 "completed_at": "2025-10-05T18:20:10Z"

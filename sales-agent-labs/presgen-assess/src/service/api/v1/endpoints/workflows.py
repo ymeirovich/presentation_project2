@@ -3991,7 +3991,12 @@ async def poll_course_status(
     5. When complete: Download video, upload to Drive
     """
     from src.integrations.presgen_avatar.client import PresGenAvatarClient, CircuitOpenError as AvatarCircuitOpenError
-    from src.integrations.presgen_core.client import PresGenCoreClient, CircuitOpenError as CoreCircuitOpenError
+    from src.integrations.presgen_core.client import (
+        PresGenCoreClient,
+        CircuitOpenError as CoreCircuitOpenError,
+        PresGenCoreTimeoutError,
+        PresGenCoreHTTPError,
+    )
     from src.integrations.presgen_core.schemas import PresGenPresentationRequest
     from src.services.google_forms_service import GoogleFormsService
     from pathlib import Path
@@ -4165,11 +4170,28 @@ async def poll_course_status(
 
         except Exception as e:
             await presgen_core.close()
+
+            # Determine error type for better messaging
+            is_timeout = isinstance(e, PresGenCoreTimeoutError)
+            is_circuit_open = isinstance(e, CoreCircuitOpenError)
+            is_http_error = isinstance(e, PresGenCoreHTTPError)
+
+            # Set appropriate error message
+            if is_timeout:
+                error_msg = "PresGen-Core request timed out. The presentation generation took longer than expected. Please try again or contact support if this persists."
+            elif is_circuit_open:
+                error_msg = "PresGen-Core service is temporarily unavailable. Please try again in a few minutes."
+            elif is_http_error:
+                error_msg = f"PresGen-Core service error: {str(e)}"
+            else:
+                error_msg = f"PresGen-Core generation failed: {str(e)}"
+
             logger.exception(
-                "❌ PresGen-Core failed | workflow_id=%s | course_id=%s | skill_id=%s",
+                "❌ PresGen-Core failed | workflow_id=%s | course_id=%s | skill_id=%s | error_type=%s",
                 workflow_id_str,
                 course.id,
                 skill_id,
+                type(e).__name__,
             )
             log_course_event(
                 "CORE_ASYNC_FAILED",
@@ -4177,12 +4199,37 @@ async def poll_course_status(
                 skill_id=skill_id,
                 course_id=course.id,
                 error=str(e),
+                error_type=type(e).__name__,
             )
+
+            # Update course status in database
             course.status = "failed"
-            course.error_message = f"PresGen-Core failed: {str(e)}"
+            course.error_message = error_msg
             await db.commit()
             await db.refresh(course)
-            raise HTTPException(status_code=502, detail="PresGen-Core generation failed")
+
+            # CRITICAL: Return proper response instead of raising HTTP exception
+            # This allows frontend to properly detect and display the failure
+            return CourseGenerationResponse(
+                course_id=course.id,
+                workflow_id=workflow_id_str,
+                skill_id=skill_id,
+                skill_name=skill_course.skill_name,
+                course_title=course.course_title,
+                presentation_url=course.presentation_url,
+                video_url=None,
+                drive_download_url=None,
+                presgen_core_job_id=course.presgen_core_job_id,
+                presgen_core_download_url=None,
+                presgen_avatar_job_id=None,
+                local_video_path=None,
+                status="failed",
+                progress=course.progress,
+                error_message=error_msg,
+                created_at=course.created_at,
+                updated_at=course.updated_at,
+                completed_at=None,
+            )
 
     # Step 2: If pending Avatar, call PresGen-Avatar
     if course.status == "pending_avatar":
@@ -4246,11 +4293,28 @@ async def poll_course_status(
 
         except Exception as e:
             await avatar_client.close()
+
+            # Determine error type for better messaging
+            is_timeout = isinstance(e, (httpx.TimeoutException, asyncio.TimeoutError))
+            is_circuit_open = isinstance(e, AvatarCircuitOpenError)
+            is_http_error = isinstance(e, httpx.HTTPError)
+
+            # Set appropriate error message
+            if is_timeout:
+                error_msg = "Video generation timed out. The video processing took longer than expected. Please try again or contact support."
+            elif is_circuit_open:
+                error_msg = "Video generation service is temporarily unavailable. Please try again in a few minutes."
+            elif is_http_error:
+                error_msg = f"Video generation service error: {str(e)}"
+            else:
+                error_msg = f"Video generation failed: {str(e)}"
+
             logger.exception(
-                "❌ PresGen-Avatar failed | workflow_id=%s | course_id=%s | skill_id=%s",
+                "❌ PresGen-Avatar submission failed | workflow_id=%s | course_id=%s | skill_id=%s | error_type=%s",
                 workflow_id_str,
                 course.id,
                 skill_id,
+                type(e).__name__,
             )
             log_course_event(
                 "AVATAR_SUBMISSION_FAILED",
@@ -4258,12 +4322,35 @@ async def poll_course_status(
                 skill_id=skill_id,
                 course_id=course.id,
                 error=str(e),
+                error_type=type(e).__name__,
             )
+
             course.status = "failed"
-            course.error_message = f"PresGen-Avatar failed: {str(e)}"
+            course.error_message = error_msg
             await db.commit()
             await db.refresh(course)
-            raise HTTPException(status_code=502, detail="PresGen-Avatar generation failed")
+
+            # Return proper response instead of raising
+            return CourseGenerationResponse(
+                course_id=course.id,
+                workflow_id=workflow_id_str,
+                skill_id=skill_id,
+                skill_name=course.skill_name,
+                course_title=course.course_title,
+                presentation_url=course.presentation_url,
+                video_url=None,
+                drive_download_url=None,
+                presgen_core_job_id=course.presgen_core_job_id,
+                presgen_core_download_url=course.presgen_core_download_url,
+                presgen_avatar_job_id=None,
+                local_video_path=None,
+                status="failed",
+                progress=course.progress,
+                error_message=error_msg,
+                created_at=course.created_at,
+                updated_at=course.updated_at,
+                completed_at=None,
+            )
 
     # If already completed, just return the current status
     if course.status == "completed" and course.drive_download_url:
@@ -4282,14 +4369,72 @@ async def poll_course_status(
             local_video_path=course.local_video_path,
             status=course.status,
             progress=course.progress,
+            error_message=course.error_message,
             created_at=course.created_at,
             updated_at=course.updated_at,
             completed_at=course.completed_at,
         )
 
-    # Check avatar job status
+    # If course already failed (e.g., Core timeout), return failed status
+    # without requiring avatar job ID
+    if course.status == "failed":
+        logger.info(
+            "Course already failed | workflow_id=%s | course_id=%s | error=%s",
+            workflow_id_str,
+            course.id,
+            course.error_message,
+        )
+        return CourseGenerationResponse(
+            course_id=course.id,
+            workflow_id=workflow_id_str,
+            skill_id=skill_id,
+            skill_name=course.skill_name,
+            course_title=course.course_title,
+            presentation_url=course.presentation_url,
+            video_url=course.video_url,
+            drive_download_url=None,
+            presgen_core_job_id=course.presgen_core_job_id,
+            presgen_core_download_url=course.presgen_core_download_url,
+            presgen_avatar_job_id=course.presgen_avatar_job_id,
+            local_video_path=None,
+            status="failed",
+            progress=course.progress,
+            error_message=course.error_message,
+            created_at=course.created_at,
+            updated_at=course.updated_at,
+            completed_at=None,
+        )
+
+    # Check avatar job ID for non-failed courses
     if not course.presgen_avatar_job_id:
-        raise HTTPException(status_code=400, detail="No avatar job ID found")
+        # This shouldn't happen in normal flow, but handle gracefully
+        logger.warning(
+            "Course in status '%s' but missing avatar job ID | workflow_id=%s | course_id=%s",
+            course.status,
+            workflow_id_str,
+            course.id,
+        )
+        # Return current status instead of raising error
+        return CourseGenerationResponse(
+            course_id=course.id,
+            workflow_id=workflow_id_str,
+            skill_id=skill_id,
+            skill_name=course.skill_name,
+            course_title=course.course_title,
+            presentation_url=course.presentation_url,
+            video_url=course.video_url,
+            drive_download_url=course.drive_download_url,
+            presgen_core_job_id=course.presgen_core_job_id,
+            presgen_core_download_url=course.presgen_core_download_url,
+            presgen_avatar_job_id=None,
+            local_video_path=None,
+            status=course.status,
+            progress=course.progress,
+            error_message=course.error_message,
+            created_at=course.created_at,
+            updated_at=course.updated_at,
+            completed_at=course.completed_at,
+        )
 
     avatar_client = PresGenAvatarClient(base_url=os.getenv("PRESGEN_AVATAR_URL"))
 
@@ -4354,6 +4499,7 @@ async def poll_course_status(
                 local_video_path=course.local_video_path,
                 status=course.status,
                 progress=course.progress,
+                error_message=course.error_message,
                 created_at=course.created_at,
                 updated_at=course.updated_at,
                 completed_at=course.completed_at,
@@ -4396,6 +4542,7 @@ async def poll_course_status(
                 local_video_path=course.local_video_path,
                 status=course.status,
                 progress=course.progress,
+                error_message=None,
                 created_at=course.created_at,
                 updated_at=course.updated_at,
                 completed_at=course.completed_at,
@@ -4566,10 +4713,9 @@ async def poll_course_status(
                 job_id=course.presgen_avatar_job_id,
             )
             course.status = "failed"
-            course.error_message = "Avatar job completed without providing video URL"
+            course.error_message = "Avatar job completed without providing video URL. Please try again or contact support."
             await db.commit()
             await db.refresh(course)
-            raise HTTPException(status_code=502, detail="Avatar job missing video URL")
 
     finally:
         await avatar_client.close()
@@ -4589,6 +4735,7 @@ async def poll_course_status(
         local_video_path=course.local_video_path,
         status=course.status,
         progress=course.progress,
+        error_message=course.error_message,
         created_at=course.created_at,
         updated_at=course.updated_at,
         completed_at=course.completed_at,
