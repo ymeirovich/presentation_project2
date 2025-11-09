@@ -81,6 +81,13 @@ class Settings:
     presgen_core_use_cache: bool = os.getenv("PRESGEN_CORE_USE_CACHE", "false").lower() == "true"
     presgen_core_timeout_seconds: float = float(os.getenv("PRESGEN_CORE_TIMEOUT_SECONDS", "600"))
     presgen_avatar_timeout_seconds: float = float(os.getenv("PRESGEN_AVATAR_TIMEOUT_SECONDS", "900"))
+
+    # PresGen-Core retry and circuit breaker configuration (Phase 2)
+    presgen_core_max_attempts: int = int(os.getenv("PRESGEN_CORE_MAX_ATTEMPTS", "2"))
+    presgen_core_backoff_seconds: float = float(os.getenv("PRESGEN_CORE_BACKOFF_SECONDS", "3.0"))
+    presgen_core_circuit_failure_threshold: int = int(os.getenv("PRESGEN_CORE_CIRCUIT_FAILURE_THRESHOLD", "5"))
+    presgen_core_circuit_recovery_seconds: int = int(os.getenv("PRESGEN_CORE_CIRCUIT_RECOVERY_SECONDS", "120"))
+
     presgen_regenerate_course_outline: bool = os.getenv("PRESGEN_REGENERATE_COURSE_OUTLINE", "false").lower() == "true"
     avatar_output_dir: Path = Path(
         os.getenv("AVATAR_OUTPUT_DIR", PROJECT_ROOT / "presgen-assess" / "avatar-output")
@@ -168,6 +175,12 @@ print(f"🔧 Port Configuration (Standardized 2025-10-04):", file=sys.stderr)
 print(f"  📡 PresGen-Core URL: {settings.presgen_core_url}", file=sys.stderr)
 print(f"  📡 PresGen-Avatar URL: {settings.presgen_avatar_url}", file=sys.stderr)
 print(f"  📡 PresGen-Core Max Slides: {settings.presgen_core_max_slides}", file=sys.stderr)
+print(f"⚙️  PresGen-Core Resilience Configuration (Phase 2):", file=sys.stderr)
+print(f"  🔄 Max Retry Attempts: {settings.presgen_core_max_attempts}", file=sys.stderr)
+print(f"  ⏱️  Backoff Between Retries: {settings.presgen_core_backoff_seconds}s", file=sys.stderr)
+print(f"  ⏰ Request Timeout: {settings.presgen_core_timeout_seconds}s", file=sys.stderr)
+print(f"  🔌 Circuit Breaker Threshold: {settings.presgen_core_circuit_failure_threshold} failures", file=sys.stderr)
+print(f"  🔄 Circuit Recovery Time: {settings.presgen_core_circuit_recovery_seconds}s", file=sys.stderr)
 logger.info(f"📁 ENV_FILE path: {ENV_FILE}")
 logger.info(f"🔍 ENV_FILE exists: {ENV_FILE.exists()}")
 logger.info(f"🗄️  Database URL loaded: {settings.database_url}")
@@ -175,6 +188,12 @@ logger.info(f"🔧 Port Configuration (Standardized 2025-10-04):")
 logger.info(f"  📡 PresGen-Core URL: {settings.presgen_core_url}")
 logger.info(f"  📡 PresGen-Avatar URL: {settings.presgen_avatar_url}")
 logger.info(f"  📡 PresGen-Core Max Slides: {settings.presgen_core_max_slides}")
+logger.info(f"⚙️  PresGen-Core Resilience Configuration (Phase 2):")
+logger.info(f"  🔄 Max Retry Attempts: {settings.presgen_core_max_attempts}")
+logger.info(f"  ⏱️  Backoff Between Retries: {settings.presgen_core_backoff_seconds}s")
+logger.info(f"  ⏰ Request Timeout: {settings.presgen_core_timeout_seconds}s")
+logger.info(f"  🔌 Circuit Breaker Threshold: {settings.presgen_core_circuit_failure_threshold} failures")
+logger.info(f"  🔄 Circuit Recovery Time: {settings.presgen_core_circuit_recovery_seconds}s")
 
 
 def get_database_url() -> str:

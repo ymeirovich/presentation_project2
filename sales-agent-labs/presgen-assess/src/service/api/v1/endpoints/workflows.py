@@ -3266,7 +3266,8 @@ Narration should be conversational and ≤ 75 seconds per slide."""
     if False:
         pass
     # 5. Call PresGen-Core for presentation
-    presgen_core = PresGenCoreClient(base_url=os.getenv("PRESGEN_CORE_URL"))
+    # Phase 2: Client now uses settings for retry/circuit breaker defaults
+    presgen_core = PresGenCoreClient(base_url=settings.presgen_core_url)
 
     course.status = "generating_presentation"
     course.progress = 25
@@ -4083,7 +4084,8 @@ async def poll_course_status(
             presentation_url=course.presentation_url,
         )
 
-        presgen_core = PresGenCoreClient(base_url=os.getenv("PRESGEN_CORE_URL"))
+        # Phase 2: Client now uses settings for retry/circuit breaker defaults
+        presgen_core = PresGenCoreClient(base_url=settings.presgen_core_url)
 
         try:
             core_response = await presgen_core.generate_presentation(

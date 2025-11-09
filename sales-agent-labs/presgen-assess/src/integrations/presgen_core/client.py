@@ -42,10 +42,10 @@ class PresGenCoreClient:
         voice_profile_name: Optional[str] = None,
         quality_level: Optional[str] = None,
         use_cache: Optional[bool] = None,
-        max_attempts: int = 3,
-        base_backoff_seconds: float = 1.0,
-        failure_threshold: int = 3,
-        recovery_seconds: int = 60,
+        max_attempts: Optional[int] = None,
+        base_backoff_seconds: Optional[float] = None,
+        failure_threshold: Optional[int] = None,
+        recovery_seconds: Optional[int] = None,
         timeout_seconds: Optional[float] = None,
     ) -> None:
         configured_base = base_url or getattr(settings, "presgen_core_url", "http://localhost:8080")
@@ -77,10 +77,16 @@ class PresGenCoreClient:
         self.use_cache = use_cache if use_cache is not None else default_cache
         self._client: Optional[httpx.AsyncClient] = None
 
-        self._max_attempts = max(1, max_attempts)
-        self._base_backoff = base_backoff_seconds
-        self._failure_threshold = max(1, failure_threshold)
-        self._recovery_delta = timedelta(seconds=max(1, recovery_seconds))
+        # Phase 2: Use settings for retry/circuit breaker defaults
+        configured_max_attempts = max_attempts if max_attempts is not None else getattr(settings, "presgen_core_max_attempts", 2)
+        configured_backoff = base_backoff_seconds if base_backoff_seconds is not None else getattr(settings, "presgen_core_backoff_seconds", 3.0)
+        configured_failure_threshold = failure_threshold if failure_threshold is not None else getattr(settings, "presgen_core_circuit_failure_threshold", 5)
+        configured_recovery_seconds = recovery_seconds if recovery_seconds is not None else getattr(settings, "presgen_core_circuit_recovery_seconds", 120)
+
+        self._max_attempts = max(1, configured_max_attempts)
+        self._base_backoff = configured_backoff
+        self._failure_threshold = max(1, configured_failure_threshold)
+        self._recovery_delta = timedelta(seconds=max(1, configured_recovery_seconds))
 
         self._failure_count = 0
         self._circuit_reset_at: Optional[datetime] = None
