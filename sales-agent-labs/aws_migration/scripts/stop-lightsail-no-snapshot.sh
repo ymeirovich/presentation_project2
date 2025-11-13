@@ -2,9 +2,8 @@
 set -e
 
 echo "🛑 Stopping Lightsail instance (NO SNAPSHOT)..."
-echo "ℹ️  Skipping snapshot creation to minimize costs"
+echo "⚠️  Skipping snapshot creation to minimize costs"
 echo "ℹ️  Data persists on instance disk even when stopped"
-echo ""
 
 INSTANCE_NAME="presgen-prod"
 
