@@ -259,13 +259,276 @@ aws logs put-retention-policy \
 
 **Deliverable:** CloudWatch log groups created
 
+#### 2.7 Cost Management - Stop/Start Commands (15 minutes)
+
+**What:** Learn how to stop and start services to minimize costs when idle
+
+**IMPORTANT:** Lightsail charges ~$0.67/day ($20/month) when running. When stopped, you only pay for snapshots and static IPs.
+
+**💰 Cost Savings:**
+- Running 24/7: $20/month
+- Running 10 hours/week: ~$3.60/month (save $16.40/month)
+- Stopped: $0/month for instance (still pay for snapshots/static IP if configured)
+
+---
+
+##### Commands to STOP Services (Save Money)
+
+```bash
+# ============================================================================
+# STOP LIGHTSAIL INSTANCE
+# ============================================================================
+# Stops the instance to prevent compute charges
+# ⚠️ Your application will be OFFLINE while stopped
+# ✅ Static IP remains attached (no additional charge)
+# ✅ All data on instance disk is preserved
+
+aws lightsail stop-instance --instance-name presgen-prod
+
+# Verify instance stopped
+aws lightsail get-instance --instance-name presgen-prod | grep state
+# Should show: "name": "stopped"
+
+# ============================================================================
+# OPTIONAL: Create snapshot before stopping (recommended)
+# ============================================================================
+# Creates a backup of your instance before stopping
+# Cost: ~$0.05/GB/month (for 60GB instance = ~$3/month)
+
+aws lightsail create-instance-snapshot \
+  --instance-name presgen-prod \
+  --instance-snapshot-name presgen-prod-snapshot-$(date +%Y%m%d-%H%M%S)
+
+# List snapshots
+aws lightsail get-instance-snapshots | grep name
+
+# ============================================================================
+# S3 DOES NOT NEED TO BE STOPPED
+# ============================================================================
+# S3 charges only for storage used (~$0.023/GB/month)
+# No charges for idle buckets
+# Keep S3 buckets running - they don't incur idle costs
+
+# ============================================================================
+# CLOUDWATCH LOGS - Optional cleanup to reduce costs
+# ============================================================================
+# Delete old logs if you want to reduce storage costs
+# This is optional - 7-day retention already limits costs
+
+# Check current log storage
+aws logs describe-log-groups --log-group-name-prefix /presgen
+
+# Optional: Delete all logs (if stopping for extended period)
+# ⚠️ Only do this if you don't need the logs
+for group in nginx core assess avatar ui; do
+  aws logs delete-log-group --log-group-name /presgen/$group
+done
+```
+
+**When to Stop:**
+- End of work day
+- Weekends/holidays
+- Between demo periods
+- During development pauses
+
+**What Stays Active (minimal cost):**
+- Static IP: $0 (free while attached to an instance, even if stopped)
+- S3 storage: ~$0.50-2/month (only for data stored)
+- Snapshots: ~$3/month per snapshot (if created)
+
+---
+
+##### Commands to START Services (Resume Work)
+
+```bash
+# ============================================================================
+# START LIGHTSAIL INSTANCE
+# ============================================================================
+# Starts the stopped instance
+# ⚠️ Takes ~2-3 minutes to fully boot
+
+aws lightsail start-instance --instance-name presgen-prod
+
+# Wait for instance to start (check status)
+aws lightsail get-instance --instance-name presgen-prod | grep state
+# Should show: "name": "running"
+
+# Get your static IP (same IP as before)
+aws lightsail get-static-ip --static-ip-name presgen-prod-ip | grep ipAddress
+
+# Test connectivity
+ping <STATIC_IP>
+
+# ============================================================================
+# VERIFY SERVICES AFTER START
+# ============================================================================
+# SSH into instance
+ssh -i lightsail-key.pem ubuntu@<STATIC_IP>
+
+# Check Docker containers are running
+docker ps
+
+# If containers are not running, restart them
+docker-compose up -d
+
+# Verify application is accessible
+curl http://<STATIC_IP>/health
+
+# ============================================================================
+# RECREATE CLOUDWATCH LOGS (if deleted)
+# ============================================================================
+# Only needed if you deleted log groups earlier
+
+for group in nginx core assess avatar ui; do
+  aws logs create-log-group --log-group-name /presgen/$group
+  aws logs put-retention-policy \
+    --log-group-name /presgen/$group \
+    --retention-in-days 7
+done
+```
+
+**Startup Checklist:**
+- [ ] Instance state is "running"
+- [ ] Can SSH into instance
+- [ ] Docker containers are up: `docker ps`
+- [ ] Application responds: `curl http://<STATIC_IP>/health`
+- [ ] CloudWatch logs receiving data
+
+---
+
+##### Cost Management Scripts
+
+**Create stop script:**
+```bash
+# File: aws_migration/scripts/stop-lightsail.sh
+#!/bin/bash
+set -e
+
+echo "🛑 Stopping Lightsail instance to save costs..."
+
+# Create snapshot before stopping (optional but recommended)
+SNAPSHOT_NAME="presgen-prod-snapshot-$(date +%Y%m%d-%H%M%S)"
+echo "📸 Creating snapshot: $SNAPSHOT_NAME"
+aws lightsail create-instance-snapshot \
+  --instance-name presgen-prod \
+  --instance-snapshot-name "$SNAPSHOT_NAME"
+
+echo "⏳ Waiting for snapshot to complete..."
+aws lightsail wait instance-snapshot-available \
+  --instance-snapshot-name "$SNAPSHOT_NAME"
+
+# Stop instance
+echo "🛑 Stopping instance..."
+aws lightsail stop-instance --instance-name presgen-prod
+
+echo "⏳ Waiting for instance to stop..."
+sleep 30
+
+# Verify stopped
+STATE=$(aws lightsail get-instance --instance-name presgen-prod | grep -o '"name": "stopped"' || echo "not stopped")
+if [[ $STATE == *"stopped"* ]]; then
+  echo "✅ Instance stopped successfully"
+  echo "💰 Now saving ~\$0.67/day"
+  echo "📸 Snapshot created: $SNAPSHOT_NAME"
+else
+  echo "⚠️  Instance may not be stopped yet, check status"
+fi
+```
+
+**Create start script:**
+```bash
+# File: aws_migration/scripts/start-lightsail.sh
+#!/bin/bash
+set -e
+
+echo "🚀 Starting Lightsail instance..."
+
+# Start instance
+aws lightsail start-instance --instance-name presgen-prod
+
+echo "⏳ Waiting for instance to start (this takes ~2-3 minutes)..."
+sleep 120
+
+# Get IP
+STATIC_IP=$(aws lightsail get-static-ip \
+  --static-ip-name presgen-prod-ip \
+  --query 'staticIp.ipAddress' \
+  --output text)
+
+echo "🌐 Instance IP: $STATIC_IP"
+
+# Verify state
+STATE=$(aws lightsail get-instance --instance-name presgen-prod | grep -o '"name": "running"' || echo "not running")
+if [[ $STATE == *"running"* ]]; then
+  echo "✅ Instance started successfully"
+  echo "🔗 Access at: http://$STATIC_IP"
+  echo "💰 Now incurring ~\$0.67/day"
+else
+  echo "⚠️  Instance may not be running yet, check status"
+  exit 1
+fi
+
+# Test SSH connectivity
+echo "🔐 Testing SSH connectivity..."
+ssh -i lightsail-key.pem -o ConnectTimeout=10 ubuntu@$STATIC_IP "echo '✅ SSH connection successful'"
+
+echo "✅ Instance is ready for use!"
+```
+
+**Make scripts executable:**
+```bash
+chmod +x aws_migration/scripts/stop-lightsail.sh
+chmod +x aws_migration/scripts/start-lightsail.sh
+```
+
+**Usage:**
+```bash
+# Stop instance when done working
+./aws_migration/scripts/stop-lightsail.sh
+
+# Start instance when resuming work
+./aws_migration/scripts/start-lightsail.sh
+```
+
+---
+
+##### Cost Monitoring Commands
+
+```bash
+# Check current month's Lightsail costs
+aws lightsail get-instance \
+  --instance-name presgen-prod \
+  --query 'instance.state.name' \
+  --output text
+
+# Calculate cost based on uptime
+# Running: ~$0.67/day
+# Stopped: $0/day (for instance)
+
+# List all snapshots (snapshots cost ~$0.05/GB/month)
+aws lightsail get-instance-snapshots \
+  --query 'instanceSnapshots[*].[name,sizeInGb,createdAt]' \
+  --output table
+
+# Delete old snapshots to reduce costs
+aws lightsail delete-instance-snapshot \
+  --instance-snapshot-name <snapshot-name>
+
+# Check S3 storage costs
+aws s3 ls --summarize --human-readable --recursive s3://presgen-prod-backups/
+```
+
+---
+
 ### Success Criteria
 - [ ] Lightsail instance running and accessible via SSH
 - [ ] Static IP attached
 - [ ] All ports open and verified
-- [ ] S3 buckets created with proper policies
+- [ ] S3 buckets created with proper policies (optional)
 - [ ] IAM roles configured
 - [ ] CloudWatch logs configured
+- [ ] **Stop/start scripts created and tested**
+- [ ] **Know how to stop instance to save costs**
 
 ---
 
