@@ -15,7 +15,7 @@ DEFAULT_TIMEOUT_SECS = 180
 METHOD_TIMEOUTS = {
     "llm.summarize": 120,
     "image.generate": 180,
-    "slides.create": 300,  # Reduced from 600s (10min) to 300s (5min)
+    "slides.create": 600,  # 10 minutes - Increased from 300s to handle complex presentations
     "data.query": 180,  # Reduced from 300s (5min) to 180s (3min)
 }
 

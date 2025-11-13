@@ -332,6 +332,7 @@ class CourseStatusResponse(BaseModel):
     progress: int = Field(..., ge=0, le=100, description="Progress percentage")
     presentation_url: Optional[str] = None
     video_url: Optional[str] = None
+    drive_download_url: Optional[str] = Field(None, description="Public Google Drive download link")
     presgen_core_job_id: Optional[str] = None
     presgen_avatar_job_id: Optional[str] = None
     error_message: Optional[str] = None
@@ -344,6 +345,7 @@ class CourseStatusResponse(BaseModel):
                 "progress": 65,
                 "presentation_url": "https://drive.google.com/presentation/d/...",
                 "video_url": None,
+                "drive_download_url": "https://drive.google.com/uc?export=download&id=...",
                 "error_message": None,
             }
         }

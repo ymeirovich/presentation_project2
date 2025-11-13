@@ -4722,6 +4722,18 @@ async def poll_course_status(
     finally:
         await avatar_client.close()
 
+    logger.info(
+        "📤 course_status_response | workflow_id=%s | skill_id=%s | course_id=%s | status=%s | progress=%s | video_url=%s | drive_url=%s | error=%s",
+        workflow_id_str,
+        skill_id,
+        course.id,
+        course.status,
+        course.progress,
+        course.video_url,
+        course.drive_download_url,
+        course.error_message,
+    )
+
     return CourseGenerationResponse(
         course_id=course.id,
         workflow_id=workflow_id_str,
@@ -4864,6 +4876,7 @@ async def get_course_status(
         progress=course.progress,
         presentation_url=course.presentation_url,
         video_url=course.video_url,
+        drive_download_url=course.drive_download_url,
         presgen_core_job_id=course.presgen_core_job_id,
         presgen_avatar_job_id=course.presgen_avatar_job_id,
         error_message=course.error_message
