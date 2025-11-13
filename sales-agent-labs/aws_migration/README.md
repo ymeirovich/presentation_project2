@@ -53,17 +53,13 @@ aws sts get-caller-identity
 # 2. Set AWS region
 aws configure set region us-east-1
 
-# 3. Refresh OAuth token (CRITICAL - do this first!)
-cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs
-rm token.json
-python3 -m src.cli.main generate --topic "Test" --slides 3
-# Browser will open - sign in with Google account
-
-# 4. Prepare secrets
+# 3. Prepare secrets (Service Account only - no OAuth needed for headless)
 mkdir -p secrets
 cp presgen-service-account.json secrets/google-creds.json
-cp token.json secrets/token.json
-cp config/google_slides_credentials.json secrets/oauth_slides_client.json
+
+# Note: OAuth is NOT required for headless deployment
+# Service Account works for all Google APIs including Slides
+# Set FORCE_SERVICE_ACCOUNT=true in environment
 ```
 
 ### Deploy
@@ -82,7 +78,7 @@ chmod +x scripts/*.sh
 ```
 
 **Deployment Time:** 30-45 minutes
-**Monthly Cost:** $10-15 (Lightsail + S3 + CloudWatch)
+**Monthly Cost:** $22-24 (Lightsail medium_2_0 + S3 + CloudWatch)
 
 ---
 
@@ -116,9 +112,9 @@ chmod +x scripts/*.sh
 ### Phase 2: Pre-Deployment Setup
 
 4. **[GOOGLE_AUTH_CONFIGURATION.md](GOOGLE_AUTH_CONFIGURATION.md)** - Set up Google Cloud
-   - Understand dual authentication (service account + OAuth)
+   - Service Account authentication (headless deployment)
    - Enable required APIs
-   - Configure environment variables
+   - Configure environment variables with FORCE_SERVICE_ACCOUNT=true
    - Test authentication locally
 
 5. **Fix Critical Issues:**
@@ -126,12 +122,10 @@ chmod +x scripts/*.sh
    # Issue 1: Set AWS region
    aws configure set region us-east-1
 
-   # Issue 2: Refresh OAuth token
-   rm token.json
-   python3 -m src.cli.main generate --topic "Test" --slides 3
-
-   # Issue 3: Request Google API quota increase (DO NOW - takes 2-5 days)
+   # Issue 2: Request Google API quota increase (DO NOW - takes 2-5 days)
    ./scripts/request-quota-increase.sh
+
+   # Note: OAuth token refresh no longer required - using Service Account only
    ```
 
 ### Phase 3: Deployment
@@ -185,24 +179,15 @@ These actions must be completed BEFORE deploying:
 aws configure set region us-east-1
 ```
 
-### 2. Refresh OAuth Token (10 minutes)
-
-```bash
-cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs
-rm token.json
-python3 -m src.cli.main generate --topic "Test" --slides 3
-# Browser opens → Sign in with Google → Authorize
-```
-
-**Why:** OAuth tokens expire after ~6 months. Headless AWS server cannot regenerate tokens (no browser).
-
-### 3. Request Google API Quota Increase (5 minutes, but takes 2-5 days to process)
+### 2. Request Google API Quota Increase (5 minutes, but takes 2-5 days to process)
 
 ```bash
 ./scripts/request-quota-increase.sh
 ```
 
 **Why:** Default quotas may be insufficient for demos with multiple users. Request increases NOW.
+
+**Note:** OAuth token refresh is no longer required. Service Account authentication works for all Google APIs including Slides in headless environments. Set `FORCE_SERVICE_ACCOUNT=true`.
 
 ---
 
@@ -251,16 +236,16 @@ For mission-critical production:
 
 ## 💰 Cost Breakdown
 
-### Base Deployment
+### Base Deployment (SQLite + Service Account)
 
 | Component | Monthly Cost | Notes |
 |-----------|--------------|-------|
-| Lightsail (small_2_0) | $10 | 1GB RAM, 2 vCPU, 40GB SSD |
-| S3 Storage | $0.50 | ~5GB for backups & files |
+| Lightsail (medium_2_0) | $20 | 2GB RAM, 2 vCPU, 60GB SSD |
+| S3 Storage (optional) | $0.50 | ~5GB for backups (optional) |
 | CloudWatch Logs | $1 | 5GB ingestion + retention |
 | SNS Notifications | $0.05 | ~10 alerts/month |
 | Data Transfer | $1 | First 1TB free, then $0.09/GB |
-| **Subtotal** | **$12.55/month** | |
+| **Subtotal** | **$22.55/month** | Local storage: $22/month |
 
 ### With Enhancements
 
@@ -268,18 +253,20 @@ For mission-critical production:
 |-------------|-----------------|-------|
 | SSL Certificate | $0 | Free (Let's Encrypt) |
 | Rate Limiting | $0 | Software only |
-| Backup Verification | $0 | Included in S3 cost |
+| Backup Verification | $0 | Included in base cost |
 | API Retry Logic | $0 | Software only |
-| **Total** | **$12.55/month** | No additional cost! |
+| Image Cleanup Script | $0 | Automated cleanup (7-day retention) |
+| **Total** | **$22.55/month** | No additional cost! |
 
 ### Optional Upgrades
 
 | Upgrade | Additional Cost | When Needed |
 |---------|-----------------|-------------|
-| Lightsail medium_2_0 | +$10/month | >10 concurrent users |
-| PostgreSQL (Lightsail DB) | +$15/month | >20 concurrent users |
+| PostgreSQL (NOT RECOMMENDED) | +$15/month | Only if SQLite insufficient (>20 concurrent users) |
 | Google Workspace | +$6-18/user/month | Service account for Workspace APIs |
 | Custom domain | +$12/year | Professional URL |
+
+**Note:** Staying on SQLite for simplicity. PostgreSQL migration path documented but not recommended unless necessary.
 
 ---
 
@@ -288,10 +275,8 @@ For mission-critical production:
 Before going live with demo:
 
 - [ ] AWS region configured: `us-east-1`
-- [ ] OAuth token refreshed (within last 7 days)
 - [ ] Service account JSON deployed to `/secrets/google-creds.json`
-- [ ] OAuth token deployed to `/secrets/token.json`
-- [ ] Environment variables configured (no `FORCE_SERVICE_ACCOUNT=true`)
+- [ ] Environment variables configured with `FORCE_SERVICE_ACCOUNT=true`
 - [ ] HTTP Basic Auth passwords set (htpasswd)
 - [ ] Rate limiting configured (nginx + application)
 - [ ] SSL certificate installed (if using custom domain)
@@ -303,6 +288,8 @@ Before going live with demo:
 - [ ] Restore procedure tested successfully
 - [ ] Google APIs enabled (Slides, Drive, Forms, Sheets, Vertex AI)
 - [ ] API quota increases requested (2-5 days before demo)
+- [ ] Image cleanup cron job configured (7-day retention)
+- [ ] SQLite backup script configured with optional S3 upload
 - [ ] Troubleshooting runbooks printed/accessible
 
 ---
@@ -329,9 +316,9 @@ Before going live with demo:
 - Auth Failures: Should be 0
 
 **Costs:**
-- Daily: <$0.50
-- Weekly: <$3.50
-- Monthly: <$15
+- Daily: <$0.75
+- Weekly: <$5.25
+- Monthly: <$24
 
 ### Alerts to Set Up
 
@@ -350,7 +337,8 @@ aws cloudwatch put-metric-alarm \
 # Database Locked Errors (>5 in 5 minutes)
 # API Rate Limit Errors (>10 in 1 minute)
 # Backup Failures
-# Cost Threshold ($20/month)
+# Image Storage >5GB (cleanup needed)
+# Cost Threshold ($30/month)
 ```
 
 ---
@@ -388,7 +376,11 @@ aws lightsail create-instance-from-snapshot \
 # Check auth
 docker logs presgen-core | grep -i "auth\|credential"
 
-# If OAuth expired, use local fallback
+# Verify Service Account authentication
+# Should see FORCE_SERVICE_ACCOUNT=true in environment
+docker exec presgen-core env | grep FORCE_SERVICE_ACCOUNT
+
+# If auth fails, use local fallback
 cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs
 docker-compose up -d
 ngrok http 3000  # Instant public URL
@@ -492,11 +484,11 @@ Before considering deployment complete:
 ### Pre-Deployment Phase
 
 - [ ] AWS CLI configured with region us-east-1
-- [ ] OAuth token refreshed (within last 7 days)
+- [ ] Service Account JSON file prepared locally
 - [ ] Google API quota increases requested (2-5 days ahead)
-- [ ] All secrets files prepared locally
 - [ ] Domain DNS configured (if using SSL)
 - [ ] Demo credentials documented
+- [ ] Image cleanup script tested locally
 
 ### Deployment Phase
 
@@ -504,8 +496,9 @@ Before considering deployment complete:
 - [ ] All services running (`docker-compose ps`)
 - [ ] Health checks passing
 - [ ] Basic Auth working
-- [ ] Google authentication tested (both methods)
+- [ ] Google Service Account authentication tested
 - [ ] Static IP allocated and documented
+- [ ] SQLite database initialized
 
 ### Production Hardening Phase
 

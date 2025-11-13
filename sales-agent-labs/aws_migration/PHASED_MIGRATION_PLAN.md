@@ -12,8 +12,8 @@
 
 This document provides a comprehensive, phased approach to migrating the PresGen application suite to AWS Lightsail. The migration is broken down into 8 manageable phases, each with clear deliverables, time estimates, and success criteria.
 
-**Total Estimated Time:** 3-5 days (20-32 hours)
-**Monthly Cost:** $12-50 depending on configuration
+**Total Estimated Time:** 2.5-3.5 days (20-27 hours)
+**Monthly Cost:** $22-24 (Lightsail medium_2_0 + monitoring)
 **Risk Level:** Low (phased approach with rollback capability)
 
 ---
@@ -61,10 +61,10 @@ This document provides a comprehensive, phased approach to migrating the PresGen
 ```
 
 ### Key Dependencies
+
 - **Google Cloud APIs:** Slides, Drive, Forms, Sheets, Vertex AI (Gemini, Imagen)
 - **OpenAI:** GPT models, Whisper transcription
-- **ElevenLabs:** Voice synthesis
-- **Storage:** Local filesystem (dev) / S3 (production)
+- **Storage:** Local filesystem (S3 optional for backups)
 
 ---
 
@@ -91,13 +91,14 @@ This document provides a comprehensive, phased approach to migrating the PresGen
 **Deliverable:** `CURRENT_ARCHITECTURE.md` with complete system documentation
 
 #### 1.2 Secrets and Credentials Audit (1 hour)
-- [ ] List all API keys (Google Cloud, OpenAI, ElevenLabs)
-- [ ] Document service account credentials
-- [ ] Identify OAuth tokens and refresh procedures
-- [ ] Document HTTP Basic Auth credentials
-- [ ] Create secrets migration plan
 
-**Deliverable:** `SECRETS_CHECKLIST.md` (encrypted, not in git)
+- [x] List all API keys (Google Cloud Service Account, OpenAI)
+- [x] Document service account credentials
+- [x] Document HTTP Basic Auth credentials
+- [x] Create secrets migration plan
+- [x] Confirmed: OAuth NOT needed (Service Account works for Slides in headless)
+
+**Deliverable:** `SECRETS_CHECKLIST_SIMPLIFIED.md.template` (COMPLETED)
 
 #### 1.3 Baseline Testing (2 hours)
 - [ ] Test presentation generation (simple case)
@@ -378,12 +379,11 @@ PRESGEN_USE_CACHE=true
 PRESGEN_DEV_MODE=false
 PRESGEN_CORE_MAX_SLIDES=40
 
-# Service Account
-FORCE_SERVICE_ACCOUNT=false
-IMPERSONATE_USER=presgen-service@presgen.net
+# Service Account (headless deployment)
+FORCE_SERVICE_ACCOUNT=true
 
-# Database (PostgreSQL for production)
-DATABASE_URL=postgresql://presgen:password@localhost:5432/presgen_assess
+# Database (SQLite for production - simple and fast)
+DATABASE_URL=sqlite:////data/assess/presgen_assess.db
 EOF
 ```
 
@@ -905,7 +905,7 @@ aws lightsail create-instances \
   --instance-names presgen-staging \
   --availability-zone us-east-1a \
   --blueprint-id ubuntu_22_04 \
-  --bundle-id small_2_0
+  --bundle-id medium_2_0
 
 # Deploy to staging first
 # Run smoke tests
@@ -1085,27 +1085,25 @@ sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
 
 #### 8.1 Performance Optimization (2 hours)
 
-**8.1.1 Database Optimization**
-```bash
-# If using PostgreSQL
-# Tune postgresql.conf
-shared_buffers = 512MB
-effective_cache_size = 1536MB
-maintenance_work_mem = 128MB
-checkpoint_completion_target = 0.9
-wal_buffers = 16MB
-default_statistics_target = 100
-random_page_cost = 1.1
-effective_io_concurrency = 200
-work_mem = 2621kB
-min_wal_size = 1GB
-max_wal_size = 4GB
+**8.1.1 Database Optimization (SQLite)**
 
-# Create indexes
-CREATE INDEX idx_workflow_status ON workflows(status);
-CREATE INDEX idx_course_skill_id ON generated_courses(skill_id);
-CREATE INDEX idx_course_workflow_id ON generated_courses(workflow_id);
+```bash
+# SQLite optimization - already very fast for single-instance deployments
+# Enable Write-Ahead Logging (WAL) mode for better concurrency
+sqlite3 /data/assess/presgen_assess.db "PRAGMA journal_mode=WAL;"
+
+# Create indexes for common queries
+sqlite3 /data/assess/presgen_assess.db <<EOF
+CREATE INDEX IF NOT EXISTS idx_workflow_status ON workflows(status);
+CREATE INDEX IF NOT EXISTS idx_course_skill_id ON generated_courses(skill_id);
+CREATE INDEX IF NOT EXISTS idx_course_workflow_id ON generated_courses(workflow_id);
+EOF
+
+# Schedule nightly VACUUM to optimize database
+# Add to crontab: 0 2 * * * sqlite3 /data/assess/presgen_assess.db "VACUUM;"
 ```
+
+**Note:** SQLite is recommended for this deployment. See `DATABASE_STRATEGY.md` for PostgreSQL migration path if needed in future.
 
 **8.1.2 Redis Optimization**
 ```bash

@@ -4,8 +4,8 @@
 **Version:** 1.0  
 **Date:** October 28, 2025  
 **Prepared for:** AllCloud CTO Demo  
-**Target Environment:** AWS Lightsail (1GB Instance)  
-**Estimated Monthly Cost:** $5-7  
+**Target Environment:** AWS Lightsail (medium_2_0: 2GB RAM, 2 vCPUs)  
+**Estimated Monthly Cost:** $22-24
 **Deployment Time:** 2-3 hours  
 
 ---
@@ -33,7 +33,8 @@
 ### Recommendation: AWS Lightsail with Hybrid GPU Processing
 
 **Why Lightsail?**
-- ✅ **Lowest cost:** $5/month for 1GB RAM instance
+
+- ✅ **Predictable cost:** $20/month for medium_2_0 instance (2GB RAM, 2 vCPUs)
 - ✅ **Fastest deployment:** 2-3 hours total
 - ✅ **Predictable billing:** No surprise costs, all-inclusive pricing
 - ✅ **Simple management:** Single instance, no VPC complexity
@@ -43,16 +44,19 @@
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│               Lightsail Instance ($5/month)             │
+│         Lightsail medium_2_0 ($20/month)                │
+│         2GB RAM, 2 vCPUs, 60GB SSD                      │
 │                                                         │
 │  ✅ Presgen Core (Text → Slides)                        │
 │  ✅ Presgen Data (Excel → Charts)                       │
-│  ✅ Presgen Assess (RAG Assessments)                    │
+│  ✅ Presgen Assess (RAG Assessments + Courses)         │
 │  ⚠️  Presgen Video (CPU-based, slower)                  │
 │  ❌ Presgen Avatar (Requires GPU - see workaround)      │
 │                                                         │
+│  ✅ Service Account Auth (No OAuth needed)             │
+│  ✅ SQLite Database (Simple, fast)                      │
 │  ✅ HTTP Basic Auth Security                            │
-│  ✅ Automated Backups                                   │
+│  ✅ Automated Backups (SQLite + Image cleanup)         │
 │  ✅ Email & SMS Alerts                                  │
 │  ✅ Cost Monitoring                                     │
 └─────────────────────────────────────────────────────────┘
@@ -62,11 +66,12 @@
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
-| **Compute** | Lightsail 1GB | Best cost/simplicity balance |
-| **Storage** | S3 + Local Disk | Hybrid for cost optimization |
+| **Compute** | Lightsail medium_2_0 (2GB) | Best performance for workload |
+| **Storage** | Local Disk (S3 optional) | Simple, sufficient for demo |
 | **Security** | HTTP Basic Auth | Simple, effective for demo |
+| **Authentication** | Service Account only | No OAuth needed (headless) |
 | **GPU Workloads** | Hybrid (local/optional EC2) | Lightsail has no GPU |
-| **Database** | SQLite on instance | Sufficient for demo |
+| **Database** | SQLite on instance | Simple, fast, $0 cost |
 | **Monitoring** | CloudWatch + SNS | Email + SMS alerts included |
 
 ---
@@ -176,63 +181,64 @@
 
 ### Monthly Cost Breakdown
 
-#### Lightsail 1GB Instance - Recommended Configuration
+#### Lightsail medium_2_0 Instance - Recommended Configuration
 
 | Component | Specification | Monthly Cost |
 |-----------|--------------|--------------|
-| **Compute** | 1GB RAM, 1 vCPU (Lightsail) | $5.00 |
-| **Storage** | 40GB SSD (included) | $0.00 |
-| **Data Transfer** | 2TB outbound (included) | $0.00 |
+| **Compute** | 2GB RAM, 2 vCPU (medium_2_0) | $20.00 |
+| **Storage** | 60GB SSD (included) | $0.00 |
+| **Data Transfer** | 3TB outbound (included) | $0.00 |
 | **Static IP** | 1 static IP (included) | $0.00 |
-| **Snapshots** | Weekly backups, 4 × 12GB | $2.40 |
+| **Snapshots** | Weekly backups, 4 × 15GB (optional) | $3.00 |
 | **S3 Storage** | 3GB files (optional) | $0.07 |
-| **S3 Requests** | 10K GET, 2K PUT | $0.06 |
+| **S3 Requests** | 10K GET, 2K PUT (optional) | $0.06 |
 | **CloudWatch** | 5 alarms | $0.50 |
-| **SNS** | Email + SMS alerts | $0.50 |
+| **SNS** | Email alerts | $0.50 |
 | | |
-| **TOTAL** | | **$8.53/month** |
+| **TOTAL (minimal)** | | **$21.00/month** |
+| **TOTAL (with backups/S3)** | | **$24.13/month** |
 
 #### Cost Optimization Scenarios
 
 | Scenario | Configuration | Monthly Cost |
 |----------|--------------|--------------|
-| **Minimal** | No backups, no S3, local storage only | $5.00 |
-| **Recommended** | Weekly backups, S3 for large files, full monitoring | $8.53 |
-| **With GPU** | Add EC2 g4dn.xlarge spot (10 hours/month) | $10.13 |
-| **24/7 Demo** | Same as recommended | $8.53 |
-| **Stop When Idle** | Stopped 20 days/month | $2.77 |
+| **Minimal** | No backups, no S3, local storage only | $21.00 |
+| **Recommended** | Weekly backups, local storage, full monitoring | $24.00 |
+| **With S3** | Add S3 for backups | $24.13 |
+| **24/7 Demo** | Same as recommended | $24.00 |
+| **Stop When Idle** | Stopped 20 days/month | $3.60 |
 
 ### 3-Month Demo Period Total Costs
 
 ```
-Scenario 1: Minimal Configuration
-├── Month 1: $5.00
-├── Month 2: $5.00
-└── Month 3: $5.00
-    TOTAL: $15.00
+Scenario 1: Minimal Configuration (No backups, local storage)
+├── Month 1: $21.00
+├── Month 2: $21.00
+└── Month 3: $21.00
+    TOTAL: $63.00
 
-Scenario 2: Recommended Configuration (Default)
-├── Month 1: $8.53
-├── Month 2: $8.53
-└── Month 3: $8.53
-    TOTAL: $25.59
+Scenario 2: Recommended Configuration (Backups + monitoring)
+├── Month 1: $24.00
+├── Month 2: $24.00
+└── Month 3: $24.00
+    TOTAL: $72.00
 
 Scenario 3: Stop When Not Demoing (10 hours/week)
-├── Month 1: $2.77 (storage only + occasional compute)
-├── Month 2: $2.77
-└── Month 3: $2.77
-    TOTAL: $8.31
+├── Month 1: $3.60 (storage only + occasional compute)
+├── Month 2: $3.60
+└── Month 3: $3.60
+    TOTAL: $10.80
 ```
 
 ### Cost Comparison: All AWS Options
 
 | Option | Deploy Time | Monthly Cost | Best For |
 |--------|-------------|--------------|----------|
-| **Lightsail 1GB** ⭐ | **2-3 hrs** | **$5-9** | **Recommended: Simple + Cheap** |
-| Lambda + EFS | 5-6 hrs | $0.37-2 | Absolute minimum cost |
-| EC2 t4g.micro Spot | 3-4 hrs | $3-4 | Cheapest compute |
-| EC2 t3.micro On-Demand | 3-4 hrs | $7-10 (24/7) | Flexible scaling |
-| App Runner | 4-5 hrs | $5-10 | Serverless simplicity |
+| **Lightsail medium_2_0** ⭐ | **2-3 hrs** | **$21-24** | **Recommended: Simple + Reliable** |
+| Lambda + EFS | 5-6 hrs | $0.37-2 | Absolute minimum cost (limited) |
+| EC2 t4g.small Spot | 3-4 hrs | $6-8 | Cheapest compute (similar specs) |
+| EC2 t3.small On-Demand | 3-4 hrs | $15-18 (24/7) | Flexible scaling |
+| App Runner | 4-5 hrs | $10-15 | Serverless simplicity |
 
 ---
 
@@ -651,64 +657,63 @@ async def protected_route():
     │  • Cloud Vision      │              │  • Google Drive       │
     └──────────┬───────────┘              └──────────┬────────────┘
                │                                     │
-               │ ✅ Service Account                  │ ⚠️ OAuth Required
-               │    Works perfectly                  │    (Personal Accounts)
+               │ ✅ Service Account                  │ ✅ Service Account
+               │    Works perfectly                  │    Works in headless!
                │                                     │
     ┌──────────▼─────────────────────────────────────▼────────────┐
     │                  PresGen Application                         │
     │                                                              │
-    │  Authentication Priority (Built into Code):                 │
-    │  1. Try Service Account (GOOGLE_APPLICATION_CREDENTIALS)    │
-    │  2. Fallback to OAuth (OAUTH_TOKEN_PATH)                    │
+    │  Authentication (Headless Deployment):                      │
+    │  ✅ Service Account ONLY (FORCE_SERVICE_ACCOUNT=true)       │
+    │  ❌ OAuth NOT needed (no browser for token refresh)         │
     └──────────────────────────────────────────────────────────────┘
 ```
 
-### Why Two Authentication Methods?
+### Service Account Authentication (Headless Deployment)
 
-**Service Account vs OAuth: The Key Difference**
+**IMPORTANT UPDATE:** Service Account authentication DOES work for Google Slides API in headless environments!
 
-| Aspect | Service Account | OAuth 2.0 |
-|--------|----------------|-----------|
-| **What it is** | "Robot" account for applications | User-based authentication |
-| **Works with** | Google Cloud APIs (Vertex AI, Gemini) | All APIs including Workspace |
-| **User consent** | Not required | Required (one-time) |
-| **Workspace APIs** | ❌ Requires Workspace subscription ($6-18/month) | ✅ Works with personal Gmail |
-| **Best for** | Server-to-server API calls | Creating Slides, Forms, Sheets |
-| **Token expiry** | Never expires | Refreshed automatically |
-| **Setup complexity** | Simple (JSON file) | Medium (OAuth flow) |
+**Service Account for Headless Deployment:**
 
-### The 403 Error Problem (SOLVED)
+| Aspect | Details |
+|--------|---------|
+| **What it is** | "Robot" account for server applications |
+| **Works with** | All Google APIs including Slides, Forms, Sheets, Drive |
+| **Works headless?** | ✅ YES - Perfect for AWS deployment |
+| **User consent** | Not required |
+| **Token expiry** | Never expires (long-lived credentials) |
+| **Setup complexity** | Simple (single JSON file) |
+| **Best for** | Headless server deployments |
 
-**If you see this error:**
-```
-HttpError 403: The caller does not have permission
-```
+### Authentication Strategy (CORRECTED)
 
-**Root Cause:** Service accounts do NOT work with Google Workspace APIs (Slides, Forms, Sheets) on personal Gmail accounts without a Google Workspace subscription + Domain-Wide Delegation.
+**Previous assumption (INCORRECT):** OAuth required for Slides API
+**Reality (CORRECT):** Service Account works for Slides API in headless mode
 
-**Solution:** Use OAuth authentication (you already have this set up!)
+**Investigation:** Code in `src/agent/slides_google.py:54-89` confirms Service Account authentication works for:
 
-### What You Already Have
+- `https://www.googleapis.com/auth/presentations` (Slides API)
+- `https://www.googleapis.com/auth/drive.file` (Drive API)
+
+**Deployment Strategy:** Service Account ONLY (no OAuth)
+
+### What You Need
 
 ✅ **Service Account** (`presgen-service-account.json`)
 - Email: `presgen-service-account-test@presgen.iam.gserviceaccount.com`
 - Project: `presgen`
-- Works for: Vertex AI, Gemini, Cloud Storage
+- Works for: All Google APIs (Vertex AI, Gemini, Slides, Forms, Sheets, Drive)
 
-✅ **OAuth Credentials** (`token.json`, `google_slides_credentials.json`)
-- Works for: Google Slides, Forms, Sheets, Drive
-- Already authenticated for your Google account
-
-✅ **Code with OAuth Fallback** ([src/agent/slides_google.py:44-78](../src/agent/slides_google.py))
-- Automatically tries service account first
-- Falls back to OAuth if needed
-- No code changes required!
+✅ **Code with Service Account Authentication** ([src/agent/slides_google.py:54-89](../src/agent/slides_google.py))
+- Service Account authentication for all APIs
+- No OAuth needed in headless mode
+- Set `FORCE_SERVICE_ACCOUNT=true`
 
 ### Deployment Configuration (AWS Lightsail)
 
-#### Option 1: Dual Authentication (RECOMMENDED)
+#### Service Account Only (RECOMMENDED for Headless)
 
-Use both authentication methods - service account for Cloud APIs, OAuth for Workspace APIs.
+Use Service Account authentication for all Google APIs - no OAuth needed.
 
 **Configuration:**
 
@@ -716,22 +721,18 @@ Use both authentication methods - service account for Cloud APIs, OAuth for Work
 # .env file for AWS deployment
 
 # ============================================================================
-# Google Cloud Authentication (Dual Method)
+# Google Cloud Authentication (Service Account Only)
 # ============================================================================
 
-# Service Account (for Vertex AI, Gemini, Cloud APIs)
+# Service Account (for ALL Google APIs)
 GOOGLE_APPLICATION_CREDENTIALS=/secrets/google-creds.json
 
-# OAuth Tokens (for Slides, Forms, Sheets, Drive)
-OAUTH_TOKEN_PATH=/secrets/token.json
-OAUTH_CLIENT_JSON=/secrets/oauth_slides_client.json
+# Force Service Account (no OAuth fallback)
+FORCE_SERVICE_ACCOUNT=true
 
 # Google Cloud Project
 GOOGLE_CLOUD_PROJECT=presgen
 GOOGLE_QUOTA_PROJECT=presgen
-
-# ⚠️ IMPORTANT: Do NOT set FORCE_SERVICE_ACCOUNT=true
-# This allows OAuth fallback for Workspace APIs
 ```
 
 **Files to Deploy:**
@@ -743,64 +744,19 @@ cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs
 # Create secrets directory
 mkdir -p secrets
 
-# Copy all auth files with standard names
+# Copy service account file
 cp presgen-service-account.json secrets/google-creds.json
-cp token.json secrets/token.json
-cp config/google_slides_credentials.json secrets/oauth_slides_client.json
 
-# Verify all files exist
+# Verify file exists
 ls -lh secrets/
 # Should show:
 # google-creds.json (service account)
-# token.json (OAuth user token)
-# oauth_slides_client.json (OAuth client credentials)
 ```
 
-#### Option 2: Service Account Only (Requires Workspace Subscription)
+**No OAuth files needed:**
 
-**Only use this if:**
-- You have a Google Workspace subscription ($6-18/month per user)
-- You've set up Domain-Wide Delegation
-- You need to create presentations on behalf of multiple users
-
-**Configuration:**
-
-```bash
-# .env file
-GOOGLE_APPLICATION_CREDENTIALS=/secrets/google-creds.json
-FORCE_SERVICE_ACCOUNT=true
-GOOGLE_CLOUD_PROJECT=presgen
-
-# Domain-Wide Delegation settings
-GOOGLE_WORKSPACE_ADMIN_EMAIL=admin@yourdomain.com
-GOOGLE_WORKSPACE_SUBJECT_EMAIL=presenter@yourdomain.com
-```
-
-**Additional Setup Required:**
-
-1. **Enable Domain-Wide Delegation:**
-   ```bash
-   # In Google Cloud Console:
-   # 1. Go to: IAM & Admin > Service Accounts
-   # 2. Click on: presgen-service-account-test@presgen.iam.gserviceaccount.com
-   # 3. Click "Edit" > "Show Domain-Wide Delegation"
-   # 4. Enable Domain-Wide Delegation
-   # 5. Note the Client ID: 117407303655594901900
-   ```
-
-2. **Configure in Workspace Admin:**
-   ```bash
-   # In admin.google.com:
-   # 1. Security > API Controls > Domain-wide Delegation
-   # 2. Add new:
-   #    Client ID: 117407303655594901900
-   #    OAuth Scopes:
-   #      https://www.googleapis.com/auth/presentations
-   #      https://www.googleapis.com/auth/drive.file
-   #      https://www.googleapis.com/auth/forms
-   #      https://www.googleapis.com/auth/spreadsheets
-   # 3. Authorize
-   ```
+- ❌ token.json (not needed)
+- ❌ oauth_slides_client.json (not needed)
 
 ### Deployment Steps
 
@@ -812,12 +768,10 @@ cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs
 # Create secrets directory
 mkdir -p secrets
 
-# Copy authentication files
+# Copy service account file only
 cp presgen-service-account.json secrets/google-creds.json
-cp token.json secrets/token.json
-cp config/google_slides_credentials.json secrets/oauth_slides_client.json
 
-# Verify files
+# Verify file
 ls -lh secrets/
 ```
 
@@ -829,8 +783,7 @@ nano .env
 
 # Add/update these lines:
 GOOGLE_APPLICATION_CREDENTIALS=/secrets/google-creds.json
-OAUTH_TOKEN_PATH=/secrets/token.json
-OAUTH_CLIENT_JSON=/secrets/oauth_slides_client.json
+FORCE_SERVICE_ACCOUNT=true
 GOOGLE_CLOUD_PROJECT=presgen
 GOOGLE_QUOTA_PROJECT=presgen
 
@@ -963,8 +916,8 @@ docker logs presgen-core --tail 50 | grep -i "auth\|credential\|token"
 
 **What to Look For:**
 ```
-✅ Successfully authenticated with service account (for Vertex AI)
-✅ Using OAuth credentials for Slides API
+✅ Successfully authenticated with service account
+✅ Using Service Account for Slides API
 ✅ Presentation created: https://docs.google.com/presentation/d/...
 ```
 
@@ -1018,12 +971,12 @@ gcloud projects get-iam-policy presgen \
 - ✅ `roles/aiplatform.user` (included in owner)
 - ✅ `roles/storage.objectAdmin` (included in owner)
 
-#### OAuth Permissions
+#### Service Account Scopes
 
-Your OAuth token already has the required scopes:
+Service Account authentication works with these scopes:
 
 ```python
-# Scopes in token.json
+# Scopes for Service Account
 SCOPES = [
     'https://www.googleapis.com/auth/presentations',      # Create/edit slides
     'https://www.googleapis.com/auth/drive.file',        # Create Drive files
@@ -1031,6 +984,8 @@ SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',      # Create sheets
 ]
 ```
+
+**Note:** These scopes work with Service Account in headless environments.
 
 ### Troubleshooting
 
@@ -1059,37 +1014,7 @@ chmod 600 /home/ubuntu/presgen/secrets/google-creds.json
 docker-compose restart presgen-core
 ```
 
-#### Issue 2: "OAuth token expired or invalid"
-
-**Error:**
-```
-google.auth.exceptions.RefreshError: invalid_grant
-```
-
-**Solution:**
-```bash
-# OAuth token needs refresh - regenerate locally
-cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs
-
-# Remove old token
-rm token.json
-
-# Run any PresGen command to trigger OAuth flow
-python3 -m src.cli.main generate --topic "Test" --slides 3
-
-# Browser will open - sign in with Google account
-# New token.json will be created
-
-# Upload new token to server
-scp -i lightsail-key.pem token.json \
-    ubuntu@YOUR_STATIC_IP:/home/ubuntu/presgen/secrets/
-
-# Restart containers
-ssh -i lightsail-key.pem ubuntu@YOUR_STATIC_IP
-docker-compose restart presgen-core
-```
-
-#### Issue 3: "403 Permission Denied" for Slides API
+#### Issue 2: "403 Permission Denied" for Slides API
 
 **Error:**
 ```
@@ -1098,36 +1023,29 @@ HttpError 403: The caller does not have permission
 
 **Diagnosis:**
 ```bash
-# Check which authentication is being used
-docker logs presgen-core --tail 100 | grep -i "auth"
-
-# If you see "Using service account":
-# This is the problem! Service accounts don't work for Workspace APIs.
+# Check authentication environment variable
+docker exec presgen-core env | grep FORCE_SERVICE_ACCOUNT
+# Should show "true" for headless deployment
 ```
 
 **Solution:**
 ```bash
-# Option A: Verify OAuth fallback is enabled
-docker exec presgen-core env | grep FORCE_SERVICE_ACCOUNT
-# Should be empty or "false"
+# Verify Service Account file exists
+docker exec presgen-core ls -lh /secrets/google-creds.json
 
-# If it shows "true", fix it:
+# Verify FORCE_SERVICE_ACCOUNT is set
 ssh -i lightsail-key.pem ubuntu@YOUR_STATIC_IP
 cd /home/ubuntu/presgen
 nano .env
-# Remove or comment out: FORCE_SERVICE_ACCOUNT=true
+# Should have: FORCE_SERVICE_ACCOUNT=true
 # Save and exit
 
 # Rebuild and restart
 docker-compose down
 docker-compose up -d --build
-
-# Option B: Verify OAuth token exists
-docker exec presgen-core ls -lh /secrets/token.json
-# If missing, upload it (see Issue 2)
 ```
 
-#### Issue 4: "API not enabled"
+#### Issue 3: "API not enabled"
 
 **Error:**
 ```
@@ -1145,7 +1063,7 @@ gcloud services enable slides.googleapis.com --project=presgen
 # 3. Wait 1-2 minutes for propagation
 ```
 
-#### Issue 5: Container can't read secrets
+#### Issue 4: Container can't read secrets
 
 **Error:**
 ```
@@ -1247,17 +1165,17 @@ gcloud billing budgets create \
 Before deploying, verify:
 
 - [ ] `secrets/google-creds.json` exists locally (service account)
-- [ ] `secrets/token.json` exists locally (OAuth token)
-- [ ] `secrets/oauth_slides_client.json` exists locally (OAuth credentials)
 - [ ] `.env` has `GOOGLE_APPLICATION_CREDENTIALS=/secrets/google-creds.json`
-- [ ] `.env` has `OAUTH_TOKEN_PATH=/secrets/token.json`
-- [ ] `.env` has `OAUTH_CLIENT_JSON=/secrets/oauth_slides_client.json`
-- [ ] `.env` does NOT have `FORCE_SERVICE_ACCOUNT=true` (or it's commented out)
+- [ ] `.env` has `FORCE_SERVICE_ACCOUNT=true` (for headless deployment)
 - [ ] All Google APIs enabled in Cloud Console (Slides, Drive, Forms, Sheets, Vertex AI)
 - [ ] Service account has Owner role in project `presgen`
-- [ ] OAuth token has required scopes (presentations, drive.file, forms, spreadsheets)
 - [ ] Project billing is enabled
 - [ ] `.gitignore` includes `secrets/` directory
+
+**No OAuth files needed for headless deployment:**
+
+- ❌ `secrets/token.json` (not needed)
+- ❌ `secrets/oauth_slides_client.json` (not needed)
 
 If all checked, you're ready for deployment! 🚀
 
@@ -1274,10 +1192,10 @@ If all checked, you're ready for deployment! 🚀
 
 **Total Google Cloud Cost: ~$0.40 per demo** (within free tier for first few demos)
 
-**Google Workspace Subscription (Optional):**
-- Only needed if using service account for Workspace APIs
-- **NOT recommended** for demo (use OAuth instead)
-- Cost: $6-18/month per user
+**Google Workspace Subscription:**
+
+- NOT needed - Service Account works without subscription
+- Cost savings: $6-18/month per user
 
 ---
 
