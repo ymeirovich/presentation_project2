@@ -8,13 +8,15 @@
 
 ## TL;DR - What You Need to Know
 
-### The Problem We Solved
+### Authentication Strategy (CORRECTED)
 
-**Initial Error:** `HttpError 403: The caller does not have permission` when creating Google Slides
+**IMPORTANT UPDATE:** Service Account authentication DOES work for Google Slides API in headless environments!
 
-**Root Cause:** Service accounts do NOT work with Google Workspace APIs (Slides, Forms, Sheets) on personal Gmail accounts without a Google Workspace subscription.
+**Previous Assumption (INCORRECT):** OAuth required for Google Workspace APIs
 
-**Solution:** Use dual authentication - service account for Cloud APIs, OAuth for Workspace APIs.
+**Reality (CORRECT):** Service Account works for ALL Google APIs including Slides, Forms, Sheets, Drive
+
+**Solution:** Service Account ONLY - no OAuth needed for headless deployment
 
 ---
 
@@ -27,32 +29,28 @@ Before deploying to AWS, ensure you have:
 cd /Users/yitzchak/Documents/learn/presentation_project/sales-agent-labs
 mkdir -p secrets
 
-# 2. Copy authentication files
+# 2. Copy Service Account file ONLY
 cp presgen-service-account.json secrets/google-creds.json
-cp token.json secrets/token.json
-cp config/google_slides_credentials.json secrets/oauth_slides_client.json
 
-# 3. Verify all files exist
+# 3. Verify file exists
 ls -lh secrets/
 # Should show:
 # google-creds.json (2.3K) - Service account
-# token.json (315 bytes) - OAuth user token
-# oauth_slides_client.json (532 bytes) - OAuth client credentials
 
 # 4. Verify .env configuration
 cat .env | grep GOOGLE
 # Should show:
 # GOOGLE_APPLICATION_CREDENTIALS=/secrets/google-creds.json
-# OAUTH_TOKEN_PATH=/secrets/token.json
-# OAUTH_CLIENT_JSON=/secrets/oauth_slides_client.json
+# FORCE_SERVICE_ACCOUNT=true
 # GOOGLE_CLOUD_PROJECT=presgen
-#
-# Should NOT show:
-# FORCE_SERVICE_ACCOUNT=true  (this must be absent or false)
 
 # 5. Deploy
-./deployment/deploy-to-lightsail.sh presgen-demo small_2_0
+./deployment/deploy-to-lightsail.sh presgen-demo medium_2_0
 ```
+
+**No OAuth files needed:**
+- ❌ token.json (not needed)
+- ❌ oauth_slides_client.json (not needed)
 
 ---
 
@@ -62,25 +60,27 @@ cat .env | grep GOOGLE
 ┌─────────────────────────────────────────────────────────────┐
 │                  PresGen on AWS Lightsail                    │
 │                                                               │
-│  ┌──────────────────┐              ┌──────────────────┐     │
-│  │  Service Account │              │  OAuth Token     │     │
-│  │  (google-creds)  │              │  (token.json)    │     │
-│  └────────┬─────────┘              └────────┬─────────┘     │
-│           │                                  │               │
-│           │ For Cloud APIs                   │ For Workspace │
-│           │                                  │ APIs          │
-│           ▼                                  ▼               │
-│  ┌──────────────────┐              ┌──────────────────┐     │
-│  │ • Vertex AI      │              │ • Google Slides  │     │
-│  │ • Gemini API     │              │ • Google Forms   │     │
-│  │ • Cloud Storage  │              │ • Google Sheets  │     │
-│  │ • Cloud Vision   │              │ • Google Drive   │     │
-│  └──────────────────┘              └──────────────────┘     │
+│           ┌──────────────────────────────┐                   │
+│           │     Service Account ONLY     │                   │
+│           │     (google-creds.json)      │                   │
+│           └──────────────┬───────────────┘                   │
+│                          │                                   │
+│                          │ Works for ALL Google APIs         │
+│                          │                                   │
+│                          ▼                                   │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │ • Vertex AI (Gemini, Imagen)                         │   │
+│  │ • Google Cloud Storage                               │   │
+│  │ • Google Slides ✅ (headless deployment)             │   │
+│  │ • Google Forms ✅                                     │   │
+│  │ • Google Sheets ✅                                    │   │
+│  │ • Google Drive ✅                                     │   │
+│  └──────────────────────────────────────────────────────┘   │
 │                                                               │
-│  Authentication Priority (Built into Code):                  │
-│  1. Try service account first                                │
-│  2. Fall back to OAuth if needed                             │
-│  → Both methods work together seamlessly                     │
+│  Authentication (Headless):                                  │
+│  ✅ Service Account ONLY (FORCE_SERVICE_ACCOUNT=true)       │
+│  ❌ No OAuth needed (no browser for token refresh)          │
+│  → Simple, reliable, works for all APIs                     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
