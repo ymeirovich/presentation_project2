@@ -193,7 +193,7 @@ export function VideoWorkflow({ className }: VideoWorkflowProps) {
     
     try {
       // Create download link
-      const downloadUrl = `${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080'}/video/download/${jobId}`
+      const downloadUrl = `${process.env.NEXT_PUBLIC_API_BASE_URL || '""'}/video/download/${jobId}`
       
       // Create temporary anchor element for download
       const link = document.createElement('a')
@@ -305,7 +305,7 @@ export function VideoWorkflow({ className }: VideoWorkflowProps) {
           <VideoPreview
             jobId={jobId}
             summary={previewData.summary}
-            videoUrl={`${process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080'}/video/raw/${jobId}`}
+            videoUrl={`${process.env.NEXT_PUBLIC_API_BASE_URL || '""'}/video/raw/${jobId}`}
             initialCropRegion={previewData.crop_region}
             faceDetectionConfidence={0.82}
             onBulletPointsChange={handleBulletPointsChange}

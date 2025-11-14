@@ -1,7 +1,7 @@
 import { VideoFormData, VideoSummary, VideoJobStatus, VideoPreviewResponse, CropRegion } from "./video-schemas"
 
-// API base URL - defaults to localhost for development
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080'
+// API base URL - empty string for production (uses relative URLs through nginx)
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? ''
 
 export class VideoApiError extends Error {
   constructor(

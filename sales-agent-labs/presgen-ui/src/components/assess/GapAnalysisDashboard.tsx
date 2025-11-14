@@ -236,7 +236,12 @@ export function GapAnalysisDashboard({
 
         pollCourseStatus(skillId, courseId, attempt + 1)
       } catch (error) {
-        console.error('Failed to poll course status:', error)
+        console.error('Failed to poll course status:', {
+          workflowId,
+          skillId,
+          attempt,
+          error,
+        })
         if (attempt + 1 >= MAX_ATTEMPTS) {
           clearPollTimer(skillId)
           setGeneratingCourseId(current => (current === skillId ? null : current))

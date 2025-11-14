@@ -10,13 +10,13 @@
  * - NEXT_PUBLIC_PRESGEN_CORE_URL: URL for PresGen-Core service (default: http://localhost:8080)
  */
 
-// PresGen-Assess Service URL (port 8000)
+// PresGen-Assess Service URL - empty string for production (uses relative URLs through nginx)
 export const PRESGEN_ASSESS_URL =
-  process.env.NEXT_PUBLIC_PRESGEN_ASSESS_URL || 'http://localhost:8000';
+  process.env.NEXT_PUBLIC_PRESGEN_ASSESS_URL ?? '';
 
-// PresGen-Core Service URL (port 8080)
+// PresGen-Core Service URL - empty string for production (uses relative URLs through nginx)
 export const PRESGEN_CORE_URL =
-  process.env.NEXT_PUBLIC_PRESGEN_CORE_URL || 'http://localhost:8080';
+  process.env.NEXT_PUBLIC_PRESGEN_CORE_URL ?? '';
 
 // Derived API endpoints
 export const PRESGEN_ASSESS_API_URL = `${PRESGEN_ASSESS_URL}/api/v1`;

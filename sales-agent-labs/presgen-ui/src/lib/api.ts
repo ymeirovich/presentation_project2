@@ -13,8 +13,9 @@ import {
   GenerateDataRespOkSchema,
 } from "./schemas"
 
-// API base URL - defaults to localhost for development
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080'
+// API base URL - empty string for production (uses relative URLs through nginx)
+// In development with .env.local, this will be set to http://localhost
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? ''
 
 // Common headers for all requests (no special headers needed with Next.js proxy)
 function getCommonHeaders(contentType?: string): Record<string, string> {

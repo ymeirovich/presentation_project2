@@ -68,7 +68,7 @@ export function VideoPreview({
   const [videoDiagnostics, setVideoDiagnostics] = useState<Record<string, unknown> | null>(null)
   const [videoAlerts, setVideoAlerts] = useState<string[]>([])
   const isDevEnv = process.env.NODE_ENV !== 'production'
-  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8080'
+  const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || '""'
 
   const addVideoAlert = useCallback((message: string) => {
     setVideoAlerts(prev => (prev.includes(message) ? prev : [...prev, message]))

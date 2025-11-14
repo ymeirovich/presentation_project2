@@ -7,8 +7,8 @@ import {
   TrainingStatusResponse,
 } from "./training-schemas"
 
-// API configuration
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080"
+// API configuration - empty string for production (uses relative URLs through nginx)
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? ""
 
 class TrainingApiError extends Error {
   constructor(message: string, public status?: number) {

@@ -95,8 +95,8 @@ export function SlidePreview({
     if (slideUrls[index]) {
       return slideUrls[index]
     }
-    // Fallback construction for demo
-    return `http://localhost:8080/tmp/jobs/${jobId}/slides/slide_${(index + 1).toString().padStart(2, '0')}.png`
+    // Fallback construction for demo - uses relative URL
+    return `/tmp/jobs/${jobId}/slides/slide_${(index + 1).toString().padStart(2, '0')}.png`
   }
 
   if (slideUrls.length === 0 || !summary.bullet_points.length) {
