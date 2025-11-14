@@ -92,8 +92,8 @@ services:
       - ./secrets/google-creds.json:/app/secrets/google-creds.json:ro
       - ./config:/app/config:ro
       - ./models:/app/models
-    mem_limit: 500m
-    mem_reservation: 300m
+    mem_limit: 800m
+    mem_reservation: 400m
     cpus: '1.0'
     networks:
       - presgen-network
@@ -189,8 +189,8 @@ services:
         condition: service_started
       redis:
         condition: service_healthy
-    mem_limit: 500m
-    mem_reservation: 300m
+    mem_limit: 1200m
+    mem_reservation: 600m
     cpus: '1.0'
     networks:
       - presgen-network
@@ -223,8 +223,8 @@ services:
     depends_on:
       presgen-assess:
         condition: service_healthy
-    mem_limit: 400m
-    mem_reservation: 250m
+    mem_limit: 600m
+    mem_reservation: 300m
     cpus: '0.5'
     networks:
       - presgen-network
