@@ -80,7 +80,6 @@ services:
       - PRESGEN_LOG_DIR=/app/logs
       # Override with container paths (do not use .env value for Docker)
       - GOOGLE_SERVICE_ACCOUNT_JSON=/app/secrets/google-creds.json
-      - GOOGLE_APPLICATION_CREDENTIALS=/secrets/google-creds.json
 
       # Performance
       - WORKERS=1

@@ -59,6 +59,13 @@ sudo chmod +x /usr/local/bin/docker-compose
 docker --version
 docker-compose --version
 
+# Fix Docker Compose permissions
+sudo chmod +x /usr/local/bin/docker-compose
+
+# Verify it works now
+docker-compose --version
+
+
 # Enable Docker to start on boot
 sudo systemctl enable docker
 sudo systemctl start docker
@@ -141,6 +148,8 @@ On your **local machine:**
 # Upload service account to S3
 aws s3 cp presgen-service-account.json s3://temp-presgen-files/google-creds.json
 ```
+
+aws s3 cp presgen-service-account.json s3://presgen-temp-transfer-1763108487/google-creds.json
 
 On the **Lightsail instance:**
 ```bash
