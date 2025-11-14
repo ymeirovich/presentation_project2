@@ -131,7 +131,7 @@ export function TrainingWorkflow({ className }: TrainingWorkflowProps) {
                         variant="default"
                         className="flex-1"
                         onClick={() => {
-                          const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || """"
+                          const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? ""
                           const downloadUrl = `${API_BASE_URL}${processingResult.download_url}`
 
                           // Create a temporary anchor element to trigger download
