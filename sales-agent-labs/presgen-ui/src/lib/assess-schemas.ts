@@ -334,6 +334,8 @@ export const CourseStatusResponseSchema = z.object({
   presentation_url: z.string().url().nullable().optional(),
   video_url: z.string().url().nullable().optional(),
   drive_download_url: z.string().url().nullable().optional(),
+  presgen_core_job_id: z.string().nullable().optional(),
+  presgen_avatar_job_id: z.string().nullable().optional(),
   error_message: z.string().nullable().optional(),
 })
 
