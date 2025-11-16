@@ -333,6 +333,7 @@ export const CourseStatusResponseSchema = z.object({
   progress: z.number().int().min(0).max(100),
   presentation_url: z.string().url().nullable().optional(),
   video_url: z.string().url().nullable().optional(),
+  drive_download_url: z.string().url().nullable().optional(),
   error_message: z.string().nullable().optional(),
 })
 
