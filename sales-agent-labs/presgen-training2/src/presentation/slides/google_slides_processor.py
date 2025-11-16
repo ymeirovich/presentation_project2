@@ -226,7 +226,7 @@ class GoogleSlidesProcessor:
                     total_duration += slide_data.estimated_duration
 
             log_slides = os.getenv("PRESGEN_LOG_SLIDE_OUTLINE", "false").lower() == "true"
-            self.logger.info("log_slides: ", log_slides)
+            self.logger.info(f"log_slides: {log_slides}")
             if log_slides:
                 self.logger.info(
                     "📝 Slide outline logging enabled | presentation_id=%s | title=%s | slide_count=%s",

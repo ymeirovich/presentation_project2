@@ -68,7 +68,12 @@ class ModeOrchestrator:
 
         # Initialize all components
         self.avatar_engine = LivePortraitEngine(logger)
-        self.voice_manager = VoiceProfileManager(logger=logger)
+        # Use absolute paths pointing to volume mount
+        self.voice_manager = VoiceProfileManager(
+            profiles_db_path="models/voice-profiles/profiles.json",
+            models_dir="models/voice-profiles",
+            logger=logger
+        )
         self.content_processor = ContentProcessor(logger=logger)
         self.slides_processor = GoogleSlidesProcessor(logger, skip_auth=testing_mode)
         self.slides_renderer = SlidesToVideoRenderer(logger)

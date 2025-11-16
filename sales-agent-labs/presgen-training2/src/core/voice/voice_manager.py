@@ -83,7 +83,11 @@ class VoiceProfileManager:
     def _load_profiles(self) -> Dict[str, VoiceProfile]:
         """Load voice profiles from disk"""
 
+        self.logger.info(f"🔍 Attempting to load profiles from: {self.profiles_db_path.absolute()}")
+        self.logger.info(f"🔍 Profiles path exists: {self.profiles_db_path.exists()}")
+
         if not self.profiles_db_path.exists():
+            self.logger.warning(f"⚠️ Profiles file not found at: {self.profiles_db_path.absolute()}")
             return {}
 
         try:
@@ -92,6 +96,15 @@ class VoiceProfileManager:
 
             profiles = {}
             for name, data in profiles_data.items():
+                # Fix model_path if it uses old path format
+                if 'model_path' in data:
+                    old_path = data['model_path']
+                    # Replace old path prefix with new models_dir
+                    if old_path.startswith('presgen-training2/models/voice-profiles/'):
+                        filename = old_path.split('/')[-1]  # Get just the filename
+                        data['model_path'] = str(self.models_dir / filename)
+                        self.logger.debug(f"🔧 Fixed model_path for '{name}': {old_path} → {data['model_path']}")
+
                 profiles[name] = VoiceProfile(**data)
 
             self.logger.info(f"Loaded {len(profiles)} voice profiles")
