@@ -68,11 +68,15 @@ async function parseResponse<T>(response: Response, schema: z.ZodTypeAny): Promi
 
   const validation = schema.safeParse(parsed)
   if (!validation.success) {
-    console.warn('Assess API response validation failed', validation.error)
+    console.error('Assess API response validation failed', {
+      validationError: validation.error,
+      rawResponse: parsed,
+      issues: validation.error.issues,
+    })
     throw new ApiError(response.status, 'Unexpected server response shape', parsed)
   }
 
-  return validation.data
+  return validation.data as T
 }
 
 export async function fetchCertificationProfiles(): Promise<CertificationProfile[]> {
