@@ -165,7 +165,7 @@ export function GapAnalysisDashboard({
     const timerId = window.setTimeout(async () => {
       try {
         console.info('[GapAnalysisDashboard] Polling course status', { workflowId, skillId, courseId, attempt })
-        const status = await fetchCourseStatus(workflowId, skillId)
+        const status = await fetchCourseStatus(workflowId, courseId)
         console.info('[GapAnalysisDashboard] Course status response', {
           workflowId,
           skillId,

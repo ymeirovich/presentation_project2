@@ -385,11 +385,11 @@ export async function fetchGeneratedCourses(workflowId: string): Promise<CourseG
 
 export async function fetchCourseStatus(
   workflowId: string,
-  skillId: string
+  courseId: string
 ): Promise<CourseGenerationResponse> {
   const startedAt = Date.now()
   const response = await fetch(
-    buildUrl(`/workflows/${workflowId}/skills/${skillId}/course-status`),
+    buildUrl(`/workflows/${workflowId}/courses/${courseId}/status`),
     {
       headers: getHeaders(),
       cache: 'no-store',
@@ -401,7 +401,7 @@ export async function fetchCourseStatus(
     JSON.stringify({
       scope: 'ui.courseStatus',
       workflowId,
-      skillId,
+      skillId: result.skill_id,
       courseId: result.course_id,
       status: result.status,
       progress: result.progress,
