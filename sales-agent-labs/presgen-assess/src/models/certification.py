@@ -59,7 +59,8 @@ class KnowledgeBaseDocument(Base):
     file_size_bytes = Column(Integer, nullable=False)
     processing_status = Column(String(50), default='pending')
     chunk_count = Column(Integer)
-    embedding_model = Column(String(100))
+    embedding_model = Column(String(100))  # e.g., "text-embedding-3-small"
+    embedding_dimension = Column(Integer)  # e.g., 1536 for OpenAI, 128 for fallback
     processed_at = Column(DateTime(timezone=True))
     checksum = Column(String(64))  # For duplicate detection
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -342,12 +342,51 @@ class ChromaDBCollectionManager:
 
             print(f"📦 Adding batch {batch_num}/{total_batches}: {len(batch_docs)} documents")
 
-            # Add batch to collection
-            collection.add(
-                documents=batch_docs,
-                metadatas=batch_metas,
-                ids=batch_ids
-            )
+            try:
+                # Add batch to collection with error handling
+                collection.add(
+                    documents=batch_docs,
+                    metadatas=batch_metas,
+                    ids=batch_ids
+                )
+            except Exception as e:
+                error_msg = str(e)
+                print(f"❌ Failed to add batch {batch_num}/{total_batches}")
+                print(f"❌ Error: {error_msg}")
+
+                # Provide actionable error messages
+                if "Cannot open header file" in error_msg or "dimension" in error_msg.lower():
+                    print()
+                    print("🔍 DIAGNOSIS: Embedding Dimension Mismatch")
+                    print("   - ChromaDB collection expects different embedding dimensions")
+                    print("   - Common causes:")
+                    print("     1. OpenAI API key missing → fallback to 128-dim embeddings")
+                    print("     2. Collection created with 1536-dim, now using 128-dim")
+                    print("     3. Database migrated without ChromaDB vector data")
+                    print()
+                    print("🔧 FIX:")
+                    print("   1. Validate OPENAI_API_KEY is set in presgen-assess/.env")
+                    print("   2. Run: python3 fix_chromadb_dimensions.py --auto-fix")
+                    print("   3. Re-upload files after fix completes")
+                    print()
+                elif "Pulsar" in error_msg or "queue" in error_msg.lower():
+                    print()
+                    print("🔍 DIAGNOSIS: ChromaDB Queue Overflow")
+                    print("   - Internal Pulsar queue is full")
+                    print("   - Batch size may be too large")
+                    print()
+                    print("🔧 FIX:")
+                    print("   - Reduce batch_size parameter")
+                    print("   - Add longer delays between batches")
+                    print()
+                else:
+                    print()
+                    print("🔍 DIAGNOSIS: Unknown ChromaDB Error")
+                    print(f"   Error details: {error_msg[:200]}")
+                    print()
+
+                # Re-raise the exception to propagate to caller
+                raise RuntimeError(f"ChromaDB batch {batch_num} failed: {error_msg}") from e
 
             # ✅ Add delay between batches to prevent Pulsar queue overflow
             # This gives ChromaDB's internal Pulsar consumer time to process messages

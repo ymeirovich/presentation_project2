@@ -151,7 +151,7 @@ Rate limit headers are included in responses.
     if not settings.debug:
         app.add_middleware(
             TrustedHostMiddleware,
-            allowed_hosts=["localhost", "127.0.0.1", "*.presgen-assess.com"]
+            allowed_hosts=["localhost", "127.0.0.1", "*.presgen-assess.com", "35.175.156.231", "dev.presgen.net"]
         )
 
     # CORS middleware

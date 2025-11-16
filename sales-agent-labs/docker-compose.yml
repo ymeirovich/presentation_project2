@@ -91,7 +91,7 @@ services:
       - ./secrets:/secrets:ro
       - ./secrets/google-creds.json:/app/secrets/google-creds.json:ro
       - ./config:/app/config:ro
-      - ./models:/app/models
+      - ./models:/app/models  # Voice profiles stored in models/voice-profiles/
     mem_limit: 800m
     mem_reservation: 400m
     cpus: '1.0'
