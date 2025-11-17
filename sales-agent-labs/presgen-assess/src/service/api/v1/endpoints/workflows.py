@@ -14,7 +14,7 @@ import sys
 from uuid import UUID
 
 import httpx
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, status
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
@@ -2622,6 +2622,7 @@ async def auto_progress_workflow(
 async def generate_skill_course(
     workflow_id: UUID,
     skill_id: str,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -3240,6 +3241,15 @@ Narration should be conversational and ≤ 75 seconds per slide."""
     logger.info("  • Presentation URL: %s", course.presentation_url)
     logger.info("⏳ Frontend should poll /course-status endpoint for progress")
     logger.info("=" * 80)
+
+    # Schedule background task to process video generation
+    logger.info("🚀 Scheduling background task for video processing")
+    background_tasks.add_task(
+        process_video_generation_background,
+        workflow_id,
+        course_id
+    )
+    logger.info("✅ Background task scheduled successfully")
 
     return CourseGenerationResponse(
         course_id=course.id,
@@ -3968,6 +3978,77 @@ Narration should be conversational and ≤ 75 seconds per slide."""
         updated_at=course.updated_at,
         completed_at=course.completed_at,
     )
+
+
+# Background task function for video processing
+async def process_video_generation_background(
+    workflow_id: UUID,
+    course_id: str
+):
+    """
+    Background task to handle video generation workflow.
+    This runs after presentation creation and processes:
+    1. Call PresGen-Core (if needed)
+    2. Call PresGen-Avatar for video
+    3. Download video and upload to Google Drive
+    """
+    from src.integrations.presgen_avatar.client import PresGenAvatarClient
+    from src.integrations.presgen_core.client import PresGenCoreClient
+    from src.services.google_forms_service import GoogleFormsService
+    from src.service.database import AsyncSessionLocal
+    from pathlib import Path
+    import httpx
+
+    logger.info("=" * 80)
+    logger.info("🔄 BACKGROUND VIDEO PROCESSING STARTED")
+    logger.info(f"   Workflow ID: {workflow_id}")
+    logger.info(f"   Course ID: {course_id}")
+    logger.info("=" * 80)
+
+    workflow_id_normalized = workflow_id.hex
+
+    # Create a new database session for this background task
+    async with AsyncSessionLocal() as db:
+        try:
+            # Fetch the course record
+            result = await db.execute(
+                select(GeneratedCourse).where(
+                    and_(
+                        GeneratedCourse.workflow_id == workflow_id_normalized,
+                        GeneratedCourse.id == course_id
+                    )
+                )
+            )
+            course = result.scalar_one_or_none()
+            if not course:
+                logger.error(f"❌ Course not found: {course_id}")
+                return
+
+            logger.info(f"📊 Current course status: {course.status} ({course.progress}%)")
+
+            # If already completed or failed, don't process
+            if course.status in ["completed", "failed"]:
+                logger.info(f"⏭️  Course already {course.status}, skipping processing")
+                return
+
+            # TODO: Add the actual video processing logic here
+            # For now, just log that we got here
+            logger.info("✅ Background task is running successfully!")
+            logger.info("🚧 Video processing logic to be implemented")
+
+        except Exception as e:
+            logger.error(f"❌ Background task error: {e}", exc_info=True)
+            # Update course status to failed
+            try:
+                course.status = "failed"
+                course.error_message = f"Background processing failed: {str(e)}"
+                await db.commit()
+            except:
+                pass
+        finally:
+            logger.info("=" * 80)
+            logger.info("🏁 BACKGROUND VIDEO PROCESSING COMPLETED")
+            logger.info("=" * 80)
 
 
 @router.get(
