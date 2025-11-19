@@ -1,5 +1,6 @@
 """FastAPI application factory and configuration for PresGen-Assess."""
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -37,13 +38,17 @@ async def lifespan(app: FastAPI):
             "Set PRESGEN_USE_MOCK=true to use mock mode."
         )
 
-    # Initialize database
+    # Initialize database with timeout to prevent hanging
     try:
-        await init_db()
+        logger.info("🔄 Initializing database...")
+        await asyncio.wait_for(init_db(), timeout=30.0)
         logger.info("✅ Database initialized successfully")
+    except asyncio.TimeoutError:
+        logger.error("❌ Database initialization timed out after 30 seconds")
+        logger.warning("⚠️  Continuing startup - database may not be fully initialized")
     except Exception as e:
         logger.error(f"❌ Database initialization failed: {e}")
-        raise
+        logger.warning("⚠️  Continuing startup - database may not be functional")
 
     yield
 
