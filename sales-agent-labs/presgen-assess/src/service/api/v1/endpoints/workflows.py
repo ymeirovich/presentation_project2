@@ -3997,10 +3997,17 @@ async def process_video_generation_background(
     from src.integrations.presgen_core.schemas import PresGenPresentationRequest
     from src.services.google_forms_service import GoogleFormsService
     from src.service.database import AsyncSessionLocal
+    from src.models.workflow import WorkflowExecution
+    from src.models.gap_analysis import RecommendedCourse
+    from src.models.certification import CertificationProfile
+    from src.models.generated_course import GeneratedCourse
+    from sqlalchemy import select, and_
+    from datetime import datetime
     from pathlib import Path
     import httpx
     import shutil
     import asyncio
+    import os
 
     logger.info("=" * 80)
     logger.info("🔄 BACKGROUND VIDEO PROCESSING STARTED")
