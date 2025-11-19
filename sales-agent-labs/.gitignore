@@ -114,3 +114,26 @@ google-creds.json
 # Uploaded user files (transcripts, exam guides, etc.)
 uploads/
 presgen-assess/uploads/
+
+# Database files - NEVER commit these!
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+data/assess/*.db
+data/assess/*.db-*
+data/assess/chroma/
+data/assess/chroma.backup*/
+data/core/*.db
+data/core/*.db-*
+data/avatar/*.db
+data/avatar/*.db-*
+
+# Video output files
+data/assess/outputs/
+data/core/outputs/
+data/avatar/outputs/
+*.mp4
+*.webm
+*.avi
