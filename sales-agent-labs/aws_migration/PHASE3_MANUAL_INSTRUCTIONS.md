@@ -151,6 +151,17 @@ aws s3 cp presgen-service-account.json s3://temp-presgen-files/google-creds.json
 
 aws s3 cp presgen-service-account.json s3://presgen-temp-transfer-1763108487/google-creds.json
 
+aws s3 cp s3://presgen-temp-transfer-1763108487/google-creds.json /home/ubuntu/presgen/secrets/google-creds.json
+
+chmod 600 /home/ubuntu/presgen/secrets/google-creds.json
+
+# Verify the file
+ls -la /home/ubuntu/presgen/secrets/google-creds.json
+cat /home/ubuntu/presgen/secrets/google-creds.json | head -5
+
+# Verify it's valid JSON
+cat /home/ubuntu/presgen/secrets/google-creds.json | jq . | head -10
+
 On the **Lightsail instance:**
 ```bash
 # Download from S3
@@ -169,7 +180,7 @@ On your **local machine:**
 aws s3 mb s3://presgen-temp-$(date +%s)
 
 # Upload service account
-aws s3 cp presgen-service-account.json s3://presgen-temp-XXXXX/google-creds.json
+aws s3 cp presgen-service-account.json s3://presgen-temp-1763110232/google-creds.json
 
 # Note the bucket name for use on instance
 ```
@@ -177,7 +188,7 @@ aws s3 cp presgen-service-account.json s3://presgen-temp-XXXXX/google-creds.json
 On the **Lightsail instance:**
 ```bash
 # Download from temp bucket
-aws s3 cp s3://presgen-temp-XXXXX/google-creds.json /home/ubuntu/presgen/secrets/google-creds.json
+aws s3 cp s3://presgen-temp-1763110232/google-creds.json /home/ubuntu/presgen/secrets/google-creds.json
 chmod 600 /home/ubuntu/presgen/secrets/google-creds.json
 ```
 

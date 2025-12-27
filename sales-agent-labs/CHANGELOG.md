@@ -6,6 +6,62 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added - 2025-12-27
+
+#### AWS Lightsail Infrastructure & Deployment
+
+- **New deployment scripts** for AWS Lightsail management:
+  - `aws_migration/scripts/restart-services.sh` - Docker service restart automation
+  - `aws_migration/scripts/restore-from-snapshot.sh` - Database snapshot restoration
+  - `aws_migration/scripts/setup-auto-restart.sh` - Automated service recovery
+  - `aws_migration/scripts/fix-deployment.sh` - Deployment troubleshooting utilities
+- **Restart instructions** (`aws_migration/RESTART_INSTRUCTIONS.md`) for production instance recovery
+- **Database management utilities**:
+  - `fix_chromadb_dimensions.py` - ChromaDB vector dimension correction script
+  - `run_chromadb_fix.sh` - Automated ChromaDB fix execution
+  - `backup_20251109_162032.sql` - Database backup for disaster recovery
+- **Voice profile testing** (`test_voice_profile.py`) for voice generation validation
+- **Voice manager logging patch** (`voice_manager_logging_patch.py`) for enhanced debugging
+- **Configuration backups**:
+  - `nginx.conf.backup` - Nginx configuration backup
+  - `nginx/nginx.conf.bak` - Alternative nginx configuration backup
+- **SSH key management** (`presgen-prod-key.pub`) for secure instance access
+- **Data directory** for application data storage
+
+### Changed - 2025-12-27
+
+#### AWS Migration & Infrastructure Updates
+
+- **Enhanced `start-lightsail.sh`** with comprehensive SSH connectivity testing and automated Docker service restart
+  - Added fresh SSH key download from AWS Lightsail
+  - Implemented base64 key decoding with padding issue handling
+  - Added automatic Docker container restart on instance start
+  - Added web service health check verification
+  - Improved error handling with manual restart fallback instructions
+- **Updated `PHASE3_MANUAL_INSTRUCTIONS.md`** with production deployment details:
+  - Added Google Cloud service account JSON credentials transfer steps
+  - Added S3 bucket cleanup commands
+  - Updated temporary S3 bucket names to actual values (`presgen-temp-1763110232`)
+  - Added credential file verification commands with `jq` validation
+  - Documented OpenAI API key configuration
+  - Added complete service account setup with heredoc examples
+
+#### Configuration & Documentation
+
+- **Updated `scratch.txt`** with production access information:
+  - Added SSH connection commands and methods
+  - Documented Lightsail instance details (IP: 35.175.156.231)
+  - Added useful Docker commands for service management
+  - Documented project location on server
+  - Added workflow submission response examples
+
+### Fixed - 2025-12-27
+
+- **SSH connectivity issues** in Lightsail startup script with automatic key management
+- **Service restart automation** to ensure containers start properly after instance start
+- **Google Cloud credentials** transfer process with validation steps
+- **Production environment configuration** with proper API keys and service accounts
+
 ### Added - 2025-10-04
 
 #### Port Configuration Standardization

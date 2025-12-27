@@ -11,7 +11,37 @@ docker-compose up presgen-assess
 
 docker compose logs presgen-assess -f
 
+The CLI command to connect to your Lightsail instance is:
+ssh ubuntu@35.175.156.231
+This works because we added your local SSH public key (~/.ssh/id_ed25519.pub) to the server's ~/.ssh/authorized_keys file earlier in the session when we were setting up the database migration. Alternative connection methods: If you want to use the original Lightsail key (though we discovered it had format issues):
 
+ssh -i ~/.ssh/id_ed25519 ubuntu@35.175.156.231
+
+Useful commands once connected:
+# Navigate to the project directory
+cd /home/ubuntu/presgen/sales-agent-labs
+
+# View running containers
+docker-compose ps
+
+# View logs for a specific service
+docker-compose logs -fdocker-compose logs -f nginx
+docker-compose logs -f presgen-core
+
+# Restart a service
+docker-compose restart presgen-assess
+
+# Rebuild and restart
+docker-compose build presgen-assess && docker-compose up -d presgen-assess
+Your Lightsail instance details:
+IP: 35.175.156.231
+Domain: dev.presgen.net (if DNS is configured)
+User: ubuntu
+Project location: /home/ubuntu/presgen/sales-agent-labs
+
+# Stop instance to save costs
+# (Use from your local machine)
+./aws_migration/scripts/stop-lightsail.sh
 
 {
   "ok": true,
@@ -48,7 +78,8 @@ Oct 4th
   "ok": true,
   "message": "Assessment workflow submitted successfully",
   "workflow_id": "b2c1328e-94d0-4b6c-ad78-1d40e08eb771",
-  "status": "pending",
+  "st presgen-assess
+atus": "pending",
   "resume_token": "56f66b7e-c005-4cef-9e54-3d40a5b6dec2",
   "progress": 0,
   "parameters": {
